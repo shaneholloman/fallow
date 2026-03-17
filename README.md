@@ -56,7 +56,7 @@ knip calls `ts.createProgram()` on every run — it loads the full TypeScript co
 fallow takes a different approach:
 
 - **Oxc parser** — syntactic analysis only, no type-checking overhead
-- **Parallel parsing** — every file parsed on its own rayon thread with a thread-local allocator, zero contention
+- **Parallel parsing** — every file parsed on its own rayon thread with a per-task allocator, zero contention
 - **Incremental cache** — xxh3 content hashing + bincode serialization, only changed files are reparsed
 - **Flat graph storage** — contiguous `Vec<Edge>` with range indices for cache-friendly traversal
 
@@ -117,8 +117,8 @@ cargo install fallow-cli     # cargo
 | **Unused types** | Type aliases and interfaces never referenced |
 | **Unused dependencies** | Packages in `dependencies` never imported |
 | **Unused devDependencies** | Packages in `devDependencies` never imported |
-| **Unused enum members** | Individual enum values never accessed |
-| **Unused class members** | Methods and properties never referenced externally |
+| **Unused enum members** | Individual enum values never accessed via static member expressions (e.g. `Status.Active`) |
+| **Unused class members** | Methods and properties never referenced via static member expressions (e.g. `MyClass.method`) |
 | **Unresolved imports** | Import specifiers that cannot be resolved |
 | **Unlisted dependencies** | Imported packages missing from `package.json` |
 | **Duplicate exports** | Same symbol exported from multiple modules |
@@ -127,10 +127,10 @@ cargo install fallow-cli     # cargo
 
 - **Watch mode** — file watcher with 500ms debounce, re-analyzes on save
 - **Auto-fix** — remove unused exports, clean dependencies from `package.json`
-- **LSP server** — real-time diagnostics and quick-fix code actions in your editor
+- **LSP server** — real-time diagnostics for unused exports/types/files and unresolved imports, with quick-fix code actions
 - **Incremental cache** — only reparse changed files across runs
-- **Git-aware** — only report issues in files changed since a branch (`--changed-since main`)
-- **Baseline comparison** — save a snapshot, only fail CI on *new* issues
+- **Git-aware** — only report file-scoped issues in files changed since a branch (`--changed-since main`); dependency-level issues are always reported
+- **Baseline comparison** — save a snapshot, only fail CI on *new* issues (tracks unused files, exports, types, and dependencies)
 - **SARIF output** — native GitHub Code Scanning integration
 - **GitHub Action** — drop-in CI with one line of YAML
 
@@ -208,6 +208,7 @@ exports = ["InternalType"]
 ```toml
 [[framework]]
 name = "my-framework"
+always_used = ["my-framework.config.ts"]
 
 [framework.detection]
 type = "dependency"
@@ -215,9 +216,6 @@ package = "my-framework"
 
 [[framework.entry_points]]
 pattern = "src/routes/**/*.ts"
-
-[framework.always_used]
-patterns = ["my-framework.config.ts"]
 
 [[framework.used_exports]]
 file_pattern = "src/routes/**/*.ts"
@@ -246,9 +244,9 @@ Fallow auto-detects 17 frameworks and adjusts entry points and used exports acco
 | ESLint | `eslint` in dependencies |
 | TypeScript | `typescript` in dependencies |
 | Webpack | `webpack` in dependencies |
-| Tailwind CSS | `tailwindcss` in dependencies |
+| Tailwind CSS | `tailwindcss` or `@tailwindcss/postcss` in dependencies |
 | GraphQL Codegen | `@graphql-codegen/cli` in dependencies |
-| React Router | `react-router` in dependencies |
+| React Router | `react-router`, `react-router-dom`, or `@react-router/dev` in dependencies |
 
 ## CI integration
 
@@ -308,7 +306,7 @@ Prevent dead code from growing without blocking PRs on existing debt:
                 │               │               │
          ┌──────▼──────┐ ┌─────▼──────┐ ┌──────▼──────┐
          │  Parse (oxc) │ │ Parse (oxc) │ │ Parse (oxc) │  ← rayon threads
-         │  thread-local│ │ thread-local│ │ thread-local│    with own allocators
+         │  per-task    │ │ per-task    │ │ per-task    │    with own allocators
          │  allocator   │ │ allocator   │ │ allocator   │
          └──────┬──────┘ └─────┬──────┘ └──────┬──────┘
                 │               │               │
@@ -352,7 +350,7 @@ Prevent dead code from growing without blocking PRs on existing debt:
 
 3. **Flat edge storage.** Module graph edges live in a single contiguous `Vec<Edge>`. Each node stores a `Range<usize>` into this vec. This is dramatically more cache-friendly than `HashMap<NodeId, Vec<Edge>>` and matters when traversing graphs with tens of thousands of edges.
 
-4. **Thread-local Oxc allocators.** Each rayon thread owns its own `oxc_allocator::Allocator`. No Arc, no Mutex, no contention during the parsing phase.
+4. **Per-task Oxc allocators.** Each rayon task creates its own `oxc_allocator::Allocator`. No Arc, no Mutex, no contention during the parsing phase.
 
 5. **Iterative re-export resolution.** Barrel files (`index.ts` re-exporting from submodules) create chains that need to be resolved transitively. Fallow propagates usage through these chains iteratively with cycle detection, up to 20 rounds.
 
@@ -366,7 +364,7 @@ Prevent dead code from growing without blocking PRs on existing debt:
 | Speed | **25–50x faster** (real-world) | Baseline |
 | Watch mode | Yes | No |
 | Auto-fix | Yes | No |
-| LSP server | Yes | No |
+| LSP server | Yes (4 issue types) | No |
 | Incremental cache | Yes | No |
 | Git-aware analysis | Yes | No |
 | Baseline comparison | Yes | No |
