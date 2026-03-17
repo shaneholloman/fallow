@@ -8,7 +8,7 @@ use oxc_span::Span;
 use crate::extract::{ExportName, MemberAccess, MemberKind};
 
 /// Cache version — bump when the cache format changes.
-const CACHE_VERSION: u32 = 3;
+const CACHE_VERSION: u32 = 4;
 
 /// Maximum cache file size to deserialize (256 MB).
 const MAX_CACHE_SIZE: usize = 256 * 1024 * 1024;
@@ -53,15 +53,22 @@ pub struct CachedExport {
     pub members: Vec<CachedMember>,
 }
 
+/// Import kind discriminant for `CachedImport`.
+/// 0 = Named, 1 = Default, 2 = Namespace, 3 = SideEffect.
+const IMPORT_KIND_NAMED: u8 = 0;
+const IMPORT_KIND_DEFAULT: u8 = 1;
+const IMPORT_KIND_NAMESPACE: u8 = 2;
+const IMPORT_KIND_SIDE_EFFECT: u8 = 3;
+
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct CachedImport {
     pub source: String,
+    /// For Named imports, the imported symbol name. Empty for other kinds.
     pub imported_name: String,
     pub local_name: String,
     pub is_type_only: bool,
-    pub is_namespace: bool,
-    pub is_default: bool,
-    pub is_side_effect: bool,
+    /// Import kind: 0=Named, 1=Default, 2=Namespace, 3=SideEffect.
+    pub kind: u8,
     pub span_start: u32,
     pub span_end: u32,
 }
@@ -197,7 +204,14 @@ pub fn cached_to_module(
                     kind: match m.kind.as_str() {
                         "enum" => MemberKind::EnumMember,
                         "method" => MemberKind::ClassMethod,
-                        _ => MemberKind::ClassProperty,
+                        "property" => MemberKind::ClassProperty,
+                        other => {
+                            tracing::warn!(
+                                kind = other,
+                                "Unknown cached member kind, defaulting to ClassProperty"
+                            );
+                            MemberKind::ClassProperty
+                        }
                     },
                     span: Span::new(m.span_start, m.span_end),
                 })
@@ -210,14 +224,12 @@ pub fn cached_to_module(
         .iter()
         .map(|i| ImportInfo {
             source: i.source.clone(),
-            imported_name: if i.is_side_effect {
-                ImportedName::SideEffect
-            } else if i.is_namespace {
-                ImportedName::Namespace
-            } else if i.is_default {
-                ImportedName::Default
-            } else {
-                ImportedName::Named(i.imported_name.clone())
+            imported_name: match i.kind {
+                IMPORT_KIND_DEFAULT => ImportedName::Default,
+                IMPORT_KIND_NAMESPACE => ImportedName::Namespace,
+                IMPORT_KIND_SIDE_EFFECT => ImportedName::SideEffect,
+                // IMPORT_KIND_NAMED (0) and any unknown value default to Named
+                _ => ImportedName::Named(i.imported_name.clone()),
             },
             local_name: i.local_name.clone(),
             is_type_only: i.is_type_only,
@@ -303,21 +315,26 @@ pub fn module_to_cached(module: &crate::extract::ModuleInfo) -> CachedModule {
         imports: module
             .imports
             .iter()
-            .map(|i| CachedImport {
-                source: i.source.clone(),
-                imported_name: match &i.imported_name {
-                    crate::extract::ImportedName::Named(n) => n.clone(),
-                    crate::extract::ImportedName::Default => "default".to_string(),
-                    crate::extract::ImportedName::Namespace => "*".to_string(),
-                    crate::extract::ImportedName::SideEffect => "".to_string(),
-                },
-                local_name: i.local_name.clone(),
-                is_type_only: i.is_type_only,
-                is_namespace: matches!(i.imported_name, crate::extract::ImportedName::Namespace),
-                is_default: matches!(i.imported_name, crate::extract::ImportedName::Default),
-                is_side_effect: matches!(i.imported_name, crate::extract::ImportedName::SideEffect),
-                span_start: i.span.start,
-                span_end: i.span.end,
+            .map(|i| {
+                let (kind, imported_name) = match &i.imported_name {
+                    crate::extract::ImportedName::Named(n) => (IMPORT_KIND_NAMED, n.clone()),
+                    crate::extract::ImportedName::Default => (IMPORT_KIND_DEFAULT, String::new()),
+                    crate::extract::ImportedName::Namespace => {
+                        (IMPORT_KIND_NAMESPACE, String::new())
+                    }
+                    crate::extract::ImportedName::SideEffect => {
+                        (IMPORT_KIND_SIDE_EFFECT, String::new())
+                    }
+                };
+                CachedImport {
+                    source: i.source.clone(),
+                    imported_name,
+                    local_name: i.local_name.clone(),
+                    is_type_only: i.is_type_only,
+                    kind,
+                    span_start: i.span.start,
+                    span_end: i.span.end,
+                }
             })
             .collect(),
         re_exports: module

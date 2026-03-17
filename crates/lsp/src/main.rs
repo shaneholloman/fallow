@@ -10,6 +10,18 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 
 use fallow_core::results::AnalysisResults;
 
+/// LSP range at position (0,0) used for file-level and package.json diagnostics.
+const ZERO_RANGE: Range = Range {
+    start: Position {
+        line: 0,
+        character: 0,
+    },
+    end: Position {
+        line: 0,
+        character: 0,
+    },
+};
+
 struct FallowLspServer {
     client: Client,
     root: Arc<RwLock<Option<PathBuf>>>,
@@ -218,16 +230,7 @@ impl LanguageServer for FallowLspServer {
                     ..Default::default()
                 }),
                 diagnostics: Some(vec![Diagnostic {
-                    range: Range {
-                        start: Position {
-                            line: 0,
-                            character: 0,
-                        },
-                        end: Position {
-                            line: 0,
-                            character: 0,
-                        },
-                    },
+                    range: ZERO_RANGE,
                     severity: Some(DiagnosticSeverity::WARNING),
                     source: Some("fallow".to_string()),
                     code: Some(NumberOrString::String("unused-file".to_string())),
@@ -290,250 +293,170 @@ impl FallowLspServer {
         let package_json_path = root.join("package.json");
         let package_json_uri = Url::from_file_path(&package_json_path).ok();
 
-        for export in &results.unused_exports {
-            if let Ok(uri) = Url::from_file_path(&export.path) {
-                // export.line is 1-based; LSP uses 0-based
-                let line = export.line.saturating_sub(1);
-                let diag = Diagnostic {
-                    range: Range {
-                        start: Position {
-                            line,
-                            character: export.col,
-                        },
-                        end: Position {
-                            line,
-                            character: export.col + export.export_name.len() as u32,
-                        },
-                    },
-                    severity: Some(DiagnosticSeverity::HINT),
-                    source: Some("fallow".to_string()),
-                    code: Some(NumberOrString::String("unused-export".to_string())),
-                    message: format!("Export '{}' is unused", export.export_name),
-                    tags: Some(vec![DiagnosticTag::UNNECESSARY]),
-                    ..Default::default()
-                };
-                diagnostics_by_file.entry(uri).or_default().push(diag);
+        // Export-like issues: unused exports and unused types
+        for (exports, code, msg_prefix) in [
+            (&results.unused_exports, "unused-export", "Export" as &str),
+            (&results.unused_types, "unused-type", "Type export"),
+        ] {
+            for export in exports {
+                if let Ok(uri) = Url::from_file_path(&export.path) {
+                    let line = export.line.saturating_sub(1);
+                    diagnostics_by_file
+                        .entry(uri)
+                        .or_default()
+                        .push(Diagnostic {
+                            range: Range {
+                                start: Position {
+                                    line,
+                                    character: export.col,
+                                },
+                                end: Position {
+                                    line,
+                                    character: export.col + export.export_name.len() as u32,
+                                },
+                            },
+                            severity: Some(DiagnosticSeverity::HINT),
+                            source: Some("fallow".to_string()),
+                            code: Some(NumberOrString::String(code.to_string())),
+                            message: format!("{msg_prefix} '{}' is unused", export.export_name),
+                            tags: Some(vec![DiagnosticTag::UNNECESSARY]),
+                            ..Default::default()
+                        });
+                }
             }
         }
 
-        for export in &results.unused_types {
-            if let Ok(uri) = Url::from_file_path(&export.path) {
-                // export.line is 1-based; LSP uses 0-based
-                let line = export.line.saturating_sub(1);
-                let diag = Diagnostic {
-                    range: Range {
-                        start: Position {
-                            line,
-                            character: export.col,
-                        },
-                        end: Position {
-                            line,
-                            character: export.col + export.export_name.len() as u32,
-                        },
-                    },
-                    severity: Some(DiagnosticSeverity::HINT),
-                    source: Some("fallow".to_string()),
-                    code: Some(NumberOrString::String("unused-type".to_string())),
-                    message: format!("Type export '{}' is unused", export.export_name),
-                    tags: Some(vec![DiagnosticTag::UNNECESSARY]),
-                    ..Default::default()
-                };
-                diagnostics_by_file.entry(uri).or_default().push(diag);
-            }
-        }
-
+        // Unused files: path-only diagnostic at (0,0)
         for file in &results.unused_files {
             if let Ok(uri) = Url::from_file_path(&file.path) {
-                let diag = Diagnostic {
-                    range: Range {
-                        start: Position {
-                            line: 0,
-                            character: 0,
-                        },
-                        end: Position {
-                            line: 0,
-                            character: 0,
-                        },
-                    },
-                    severity: Some(DiagnosticSeverity::WARNING),
-                    source: Some("fallow".to_string()),
-                    code: Some(NumberOrString::String("unused-file".to_string())),
-                    message: "File is not reachable from any entry point".to_string(),
-                    tags: Some(vec![DiagnosticTag::UNNECESSARY]),
-                    ..Default::default()
-                };
-                diagnostics_by_file.entry(uri).or_default().push(diag);
+                diagnostics_by_file
+                    .entry(uri)
+                    .or_default()
+                    .push(Diagnostic {
+                        range: ZERO_RANGE,
+                        severity: Some(DiagnosticSeverity::WARNING),
+                        source: Some("fallow".to_string()),
+                        code: Some(NumberOrString::String("unused-file".to_string())),
+                        message: "File is not reachable from any entry point".to_string(),
+                        tags: Some(vec![DiagnosticTag::UNNECESSARY]),
+                        ..Default::default()
+                    });
             }
         }
 
+        // Unresolved imports
         for import in &results.unresolved_imports {
             if let Ok(uri) = Url::from_file_path(&import.path) {
-                // import.line is 1-based; LSP uses 0-based
                 let line = import.line.saturating_sub(1);
-                let diag = Diagnostic {
-                    range: Range {
-                        start: Position {
-                            line,
-                            character: import.col,
+                diagnostics_by_file
+                    .entry(uri)
+                    .or_default()
+                    .push(Diagnostic {
+                        range: Range {
+                            start: Position {
+                                line,
+                                character: import.col,
+                            },
+                            end: Position {
+                                line,
+                                character: import.col,
+                            },
                         },
-                        end: Position {
-                            line,
-                            character: import.col,
-                        },
-                    },
-                    severity: Some(DiagnosticSeverity::ERROR),
-                    source: Some("fallow".to_string()),
-                    code: Some(NumberOrString::String("unresolved-import".to_string())),
-                    message: format!("Cannot resolve import '{}'", import.specifier),
-                    ..Default::default()
-                };
-                diagnostics_by_file.entry(uri).or_default().push(diag);
+                        severity: Some(DiagnosticSeverity::ERROR),
+                        source: Some("fallow".to_string()),
+                        code: Some(NumberOrString::String("unresolved-import".to_string())),
+                        message: format!("Cannot resolve import '{}'", import.specifier),
+                        ..Default::default()
+                    });
             }
         }
 
-        // Unused dependencies → WARNING on package.json
-        for dep in &results.unused_dependencies {
-            if let Some(ref uri) = package_json_uri {
-                let diag = Diagnostic {
-                    range: Range {
-                        start: Position {
-                            line: 0,
-                            character: 0,
-                        },
-                        end: Position {
-                            line: 0,
-                            character: 0,
-                        },
-                    },
+        // Dependency issues on package.json: unused deps, unused dev deps, unlisted deps
+        if let Some(ref uri) = package_json_uri {
+            let dep_diagnostics: Vec<(&str, String)> = results
+                .unused_dependencies
+                .iter()
+                .map(|d| {
+                    (
+                        "unused-dependency" as &str,
+                        format!("Unused dependency: {}", d.package_name),
+                    )
+                })
+                .chain(results.unused_dev_dependencies.iter().map(|d| {
+                    (
+                        "unused-dev-dependency",
+                        format!("Unused devDependency: {}", d.package_name),
+                    )
+                }))
+                .chain(results.unlisted_dependencies.iter().map(|d| {
+                    (
+                        "unlisted-dependency",
+                        format!(
+                            "Unlisted dependency: {} (used but not in package.json)",
+                            d.package_name
+                        ),
+                    )
+                }))
+                .collect();
+
+            let entry = diagnostics_by_file.entry(uri.clone()).or_default();
+            for (code, message) in dep_diagnostics {
+                entry.push(Diagnostic {
+                    range: ZERO_RANGE,
                     severity: Some(DiagnosticSeverity::WARNING),
                     source: Some("fallow".to_string()),
-                    code: Some(NumberOrString::String("unused-dependency".to_string())),
-                    message: format!("Unused dependency: {}", dep.package_name),
+                    code: Some(NumberOrString::String(code.to_string())),
+                    message,
                     ..Default::default()
-                };
-                diagnostics_by_file
-                    .entry(uri.clone())
-                    .or_default()
-                    .push(diag);
+                });
             }
         }
 
-        // Unused dev dependencies → WARNING on package.json
-        for dep in &results.unused_dev_dependencies {
-            if let Some(ref uri) = package_json_uri {
-                let diag = Diagnostic {
-                    range: Range {
-                        start: Position {
-                            line: 0,
-                            character: 0,
-                        },
-                        end: Position {
-                            line: 0,
-                            character: 0,
-                        },
-                    },
-                    severity: Some(DiagnosticSeverity::WARNING),
-                    source: Some("fallow".to_string()),
-                    code: Some(NumberOrString::String("unused-dev-dependency".to_string())),
-                    message: format!("Unused devDependency: {}", dep.package_name),
-                    ..Default::default()
-                };
-                diagnostics_by_file
-                    .entry(uri.clone())
-                    .or_default()
-                    .push(diag);
+        // Member issues: unused enum members and unused class members
+        for (members, code, kind_label) in [
+            (
+                &results.unused_enum_members,
+                "unused-enum-member",
+                "Enum member" as &str,
+            ),
+            (
+                &results.unused_class_members,
+                "unused-class-member",
+                "Class member",
+            ),
+        ] {
+            for member in members {
+                if let Ok(uri) = Url::from_file_path(&member.path) {
+                    let line = member.line.saturating_sub(1);
+                    diagnostics_by_file
+                        .entry(uri)
+                        .or_default()
+                        .push(Diagnostic {
+                            range: Range {
+                                start: Position {
+                                    line,
+                                    character: member.col,
+                                },
+                                end: Position {
+                                    line,
+                                    character: member.col + member.member_name.len() as u32,
+                                },
+                            },
+                            severity: Some(DiagnosticSeverity::HINT),
+                            source: Some("fallow".to_string()),
+                            code: Some(NumberOrString::String(code.to_string())),
+                            message: format!(
+                                "{kind_label} '{}.{}' is unused",
+                                member.parent_name, member.member_name
+                            ),
+                            tags: Some(vec![DiagnosticTag::UNNECESSARY]),
+                            ..Default::default()
+                        });
+                }
             }
         }
 
-        // Unused enum members → HINT with UNNECESSARY tag
-        for member in &results.unused_enum_members {
-            if let Ok(uri) = Url::from_file_path(&member.path) {
-                let line = member.line.saturating_sub(1);
-                let diag = Diagnostic {
-                    range: Range {
-                        start: Position {
-                            line,
-                            character: member.col,
-                        },
-                        end: Position {
-                            line,
-                            character: member.col + member.member_name.len() as u32,
-                        },
-                    },
-                    severity: Some(DiagnosticSeverity::HINT),
-                    source: Some("fallow".to_string()),
-                    code: Some(NumberOrString::String("unused-enum-member".to_string())),
-                    message: format!(
-                        "Enum member '{}.{}' is unused",
-                        member.parent_name, member.member_name
-                    ),
-                    tags: Some(vec![DiagnosticTag::UNNECESSARY]),
-                    ..Default::default()
-                };
-                diagnostics_by_file.entry(uri).or_default().push(diag);
-            }
-        }
-
-        // Unused class members → HINT with UNNECESSARY tag
-        for member in &results.unused_class_members {
-            if let Ok(uri) = Url::from_file_path(&member.path) {
-                let line = member.line.saturating_sub(1);
-                let diag = Diagnostic {
-                    range: Range {
-                        start: Position {
-                            line,
-                            character: member.col,
-                        },
-                        end: Position {
-                            line,
-                            character: member.col + member.member_name.len() as u32,
-                        },
-                    },
-                    severity: Some(DiagnosticSeverity::HINT),
-                    source: Some("fallow".to_string()),
-                    code: Some(NumberOrString::String("unused-class-member".to_string())),
-                    message: format!(
-                        "Class member '{}.{}' is unused",
-                        member.parent_name, member.member_name
-                    ),
-                    tags: Some(vec![DiagnosticTag::UNNECESSARY]),
-                    ..Default::default()
-                };
-                diagnostics_by_file.entry(uri).or_default().push(diag);
-            }
-        }
-
-        // Unlisted dependencies → WARNING on package.json
-        for dep in &results.unlisted_dependencies {
-            if let Some(ref uri) = package_json_uri {
-                let diag = Diagnostic {
-                    range: Range {
-                        start: Position {
-                            line: 0,
-                            character: 0,
-                        },
-                        end: Position {
-                            line: 0,
-                            character: 0,
-                        },
-                    },
-                    severity: Some(DiagnosticSeverity::WARNING),
-                    source: Some("fallow".to_string()),
-                    code: Some(NumberOrString::String("unlisted-dependency".to_string())),
-                    message: format!(
-                        "Unlisted dependency: {} (used but not in package.json)",
-                        dep.package_name
-                    ),
-                    ..Default::default()
-                };
-                diagnostics_by_file
-                    .entry(uri.clone())
-                    .or_default()
-                    .push(diag);
-            }
-        }
-
-        // Duplicate exports → WARNING on each file that has the duplicate
+        // Duplicate exports: WARNING on each file that has the duplicate
         for dup in &results.duplicate_exports {
             for location in &dup.locations {
                 if let Ok(uri) = Url::from_file_path(location) {
@@ -543,28 +466,21 @@ impl FallowLspServer {
                         .filter(|l| *l != location)
                         .map(|l| l.display().to_string())
                         .collect();
-                    let diag = Diagnostic {
-                        range: Range {
-                            start: Position {
-                                line: 0,
-                                character: 0,
-                            },
-                            end: Position {
-                                line: 0,
-                                character: 0,
-                            },
-                        },
-                        severity: Some(DiagnosticSeverity::WARNING),
-                        source: Some("fallow".to_string()),
-                        code: Some(NumberOrString::String("duplicate-export".to_string())),
-                        message: format!(
-                            "Duplicate export '{}' (also in: {})",
-                            dup.export_name,
-                            other_files.join(", ")
-                        ),
-                        ..Default::default()
-                    };
-                    diagnostics_by_file.entry(uri).or_default().push(diag);
+                    diagnostics_by_file
+                        .entry(uri)
+                        .or_default()
+                        .push(Diagnostic {
+                            range: ZERO_RANGE,
+                            severity: Some(DiagnosticSeverity::WARNING),
+                            source: Some("fallow".to_string()),
+                            code: Some(NumberOrString::String("duplicate-export".to_string())),
+                            message: format!(
+                                "Duplicate export '{}' (also in: {})",
+                                dup.export_name,
+                                other_files.join(", ")
+                            ),
+                            ..Default::default()
+                        });
                 }
             }
         }

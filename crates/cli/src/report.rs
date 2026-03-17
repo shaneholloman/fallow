@@ -360,7 +360,10 @@ fn build_compact_lines(results: &AnalysisResults, root: &std::path::Path) -> Vec
 }
 
 /// Build the JSON output value for analysis results.
-fn build_json(results: &AnalysisResults, elapsed: Duration) -> Result<serde_json::Value, serde_json::Error> {
+fn build_json(
+    results: &AnalysisResults,
+    elapsed: Duration,
+) -> Result<serde_json::Value, serde_json::Error> {
     let mut output = serde_json::to_value(results)?;
     if let serde_json::Value::Object(ref mut map) = output {
         map.insert(
@@ -379,169 +382,204 @@ fn build_json(results: &AnalysisResults, elapsed: Duration) -> Result<serde_json
     Ok(output)
 }
 
+/// Build a single SARIF result object.
+///
+/// When `region` is `Some((line, col))`, a `region` block with 1-based
+/// `startLine` and `startColumn` is included in the physical location.
+fn sarif_result(
+    rule_id: &str,
+    level: &str,
+    message: &str,
+    uri: &str,
+    region: Option<(u32, u32)>,
+) -> serde_json::Value {
+    let mut physical_location = serde_json::json!({
+        "artifactLocation": { "uri": uri }
+    });
+    if let Some((line, col)) = region {
+        physical_location["region"] = serde_json::json!({
+            "startLine": line,
+            "startColumn": col
+        });
+    }
+    serde_json::json!({
+        "ruleId": rule_id,
+        "level": level,
+        "message": { "text": message },
+        "locations": [{ "physicalLocation": physical_location }]
+    })
+}
+
 fn build_sarif(results: &AnalysisResults, root: &std::path::Path) -> serde_json::Value {
     let mut sarif_results = Vec::new();
 
     for file in &results.unused_files {
-        let relative = file.path.strip_prefix(root).unwrap_or(&file.path);
-        sarif_results.push(serde_json::json!({
-            "ruleId": "fallow/unused-file",
-            "level": "warning",
-            "message": { "text": "File is not reachable from any entry point" },
-            "locations": [{
-                "physicalLocation": {
-                    "artifactLocation": { "uri": normalize_uri(&relative.display().to_string()) }
-                }
-            }]
-        }));
+        let uri = normalize_uri(
+            &file
+                .path
+                .strip_prefix(root)
+                .unwrap_or(&file.path)
+                .display()
+                .to_string(),
+        );
+        sarif_results.push(sarif_result(
+            "fallow/unused-file",
+            "warning",
+            "File is not reachable from any entry point",
+            &uri,
+            None,
+        ));
     }
-
     for export in &results.unused_exports {
-        let relative = export.path.strip_prefix(root).unwrap_or(&export.path);
-        sarif_results.push(serde_json::json!({
-            "ruleId": "fallow/unused-export",
-            "level": "warning",
-            "message": {
-                "text": format!("Export '{}' is never imported by other modules", export.export_name)
-            },
-            "locations": [{
-                "physicalLocation": {
-                    "artifactLocation": { "uri": normalize_uri(&relative.display().to_string()) },
-                    "region": { "startLine": export.line, "startColumn": export.col + 1 }
-                }
-            }]
-        }));
+        let uri = normalize_uri(
+            &export
+                .path
+                .strip_prefix(root)
+                .unwrap_or(&export.path)
+                .display()
+                .to_string(),
+        );
+        sarif_results.push(sarif_result(
+            "fallow/unused-export",
+            "warning",
+            &format!(
+                "Export '{}' is never imported by other modules",
+                export.export_name
+            ),
+            &uri,
+            Some((export.line, export.col + 1)),
+        ));
     }
-
     for export in &results.unused_types {
-        let relative = export.path.strip_prefix(root).unwrap_or(&export.path);
-        sarif_results.push(serde_json::json!({
-            "ruleId": "fallow/unused-type",
-            "level": "warning",
-            "message": {
-                "text": format!("Type export '{}' is never imported by other modules", export.export_name)
-            },
-            "locations": [{
-                "physicalLocation": {
-                    "artifactLocation": { "uri": normalize_uri(&relative.display().to_string()) },
-                    "region": { "startLine": export.line, "startColumn": export.col + 1 }
-                }
-            }]
-        }));
+        let uri = normalize_uri(
+            &export
+                .path
+                .strip_prefix(root)
+                .unwrap_or(&export.path)
+                .display()
+                .to_string(),
+        );
+        sarif_results.push(sarif_result(
+            "fallow/unused-type",
+            "warning",
+            &format!(
+                "Type export '{}' is never imported by other modules",
+                export.export_name
+            ),
+            &uri,
+            Some((export.line, export.col + 1)),
+        ));
     }
-
     for dep in &results.unused_dependencies {
-        sarif_results.push(serde_json::json!({
-            "ruleId": "fallow/unused-dependency",
-            "level": "warning",
-            "message": {
-                "text": format!("Package '{}' is in dependencies but never imported", dep.package_name)
-            },
-            "locations": [{
-                "physicalLocation": {
-                    "artifactLocation": { "uri": "package.json" }
-                }
-            }]
-        }));
+        sarif_results.push(sarif_result(
+            "fallow/unused-dependency",
+            "warning",
+            &format!(
+                "Package '{}' is in dependencies but never imported",
+                dep.package_name
+            ),
+            "package.json",
+            None,
+        ));
     }
-
     for dep in &results.unused_dev_dependencies {
-        sarif_results.push(serde_json::json!({
-            "ruleId": "fallow/unused-dev-dependency",
-            "level": "warning",
-            "message": {
-                "text": format!("Package '{}' is in devDependencies but never imported", dep.package_name)
-            },
-            "locations": [{
-                "physicalLocation": {
-                    "artifactLocation": { "uri": "package.json" }
-                }
-            }]
-        }));
+        sarif_results.push(sarif_result(
+            "fallow/unused-dev-dependency",
+            "warning",
+            &format!(
+                "Package '{}' is in devDependencies but never imported",
+                dep.package_name
+            ),
+            "package.json",
+            None,
+        ));
     }
-
     for member in &results.unused_enum_members {
-        let relative = member.path.strip_prefix(root).unwrap_or(&member.path);
-        sarif_results.push(serde_json::json!({
-            "ruleId": "fallow/unused-enum-member",
-            "level": "warning",
-            "message": {
-                "text": format!("Enum member '{}.{}' is never referenced", member.parent_name, member.member_name)
-            },
-            "locations": [{
-                "physicalLocation": {
-                    "artifactLocation": { "uri": normalize_uri(&relative.display().to_string()) },
-                    "region": { "startLine": member.line, "startColumn": member.col + 1 }
-                }
-            }]
-        }));
+        let uri = normalize_uri(
+            &member
+                .path
+                .strip_prefix(root)
+                .unwrap_or(&member.path)
+                .display()
+                .to_string(),
+        );
+        sarif_results.push(sarif_result(
+            "fallow/unused-enum-member",
+            "warning",
+            &format!(
+                "Enum member '{}.{}' is never referenced",
+                member.parent_name, member.member_name
+            ),
+            &uri,
+            Some((member.line, member.col + 1)),
+        ));
     }
-
     for member in &results.unused_class_members {
-        let relative = member.path.strip_prefix(root).unwrap_or(&member.path);
-        sarif_results.push(serde_json::json!({
-            "ruleId": "fallow/unused-class-member",
-            "level": "warning",
-            "message": {
-                "text": format!("Class member '{}.{}' is never referenced", member.parent_name, member.member_name)
-            },
-            "locations": [{
-                "physicalLocation": {
-                    "artifactLocation": { "uri": normalize_uri(&relative.display().to_string()) },
-                    "region": { "startLine": member.line, "startColumn": member.col + 1 }
-                }
-            }]
-        }));
+        let uri = normalize_uri(
+            &member
+                .path
+                .strip_prefix(root)
+                .unwrap_or(&member.path)
+                .display()
+                .to_string(),
+        );
+        sarif_results.push(sarif_result(
+            "fallow/unused-class-member",
+            "warning",
+            &format!(
+                "Class member '{}.{}' is never referenced",
+                member.parent_name, member.member_name
+            ),
+            &uri,
+            Some((member.line, member.col + 1)),
+        ));
     }
-
     for import in &results.unresolved_imports {
-        let relative = import.path.strip_prefix(root).unwrap_or(&import.path);
-        sarif_results.push(serde_json::json!({
-            "ruleId": "fallow/unresolved-import",
-            "level": "error",
-            "message": {
-                "text": format!("Import '{}' could not be resolved", import.specifier)
-            },
-            "locations": [{
-                "physicalLocation": {
-                    "artifactLocation": { "uri": normalize_uri(&relative.display().to_string()) },
-                    "region": { "startLine": import.line, "startColumn": import.col + 1 }
-                }
-            }]
-        }));
+        let uri = normalize_uri(
+            &import
+                .path
+                .strip_prefix(root)
+                .unwrap_or(&import.path)
+                .display()
+                .to_string(),
+        );
+        sarif_results.push(sarif_result(
+            "fallow/unresolved-import",
+            "error",
+            &format!("Import '{}' could not be resolved", import.specifier),
+            &uri,
+            Some((import.line, import.col + 1)),
+        ));
     }
-
     for dep in &results.unlisted_dependencies {
-        sarif_results.push(serde_json::json!({
-            "ruleId": "fallow/unlisted-dependency",
-            "level": "error",
-            "message": {
-                "text": format!("Package '{}' is imported but not listed in package.json", dep.package_name)
-            },
-            "locations": [{
-                "physicalLocation": {
-                    "artifactLocation": { "uri": "package.json" }
-                }
-            }]
-        }));
+        sarif_results.push(sarif_result(
+            "fallow/unlisted-dependency",
+            "error",
+            &format!(
+                "Package '{}' is imported but not listed in package.json",
+                dep.package_name
+            ),
+            "package.json",
+            None,
+        ));
     }
-
     for dup in &results.duplicate_exports {
         // Emit one result per location (SARIF 2.1.0 section 3.27.12)
         for loc_path in &dup.locations {
-            let relative = loc_path.strip_prefix(root).unwrap_or(loc_path);
-            sarif_results.push(serde_json::json!({
-                "ruleId": "fallow/duplicate-export",
-                "level": "warning",
-                "message": {
-                    "text": format!("Export '{}' appears in multiple modules", dup.export_name)
-                },
-                "locations": [{
-                    "physicalLocation": {
-                        "artifactLocation": { "uri": normalize_uri(&relative.display().to_string()) }
-                    }
-                }]
-            }));
+            let uri = normalize_uri(
+                &loc_path
+                    .strip_prefix(root)
+                    .unwrap_or(loc_path)
+                    .display()
+                    .to_string(),
+            );
+            sarif_results.push(sarif_result(
+                "fallow/duplicate-export",
+                "warning",
+                &format!("Export '{}' appears in multiple modules", dup.export_name),
+                &uri,
+                None,
+            ));
         }
     }
 
@@ -616,6 +654,7 @@ fn build_sarif(results: &AnalysisResults, root: &std::path::Path) -> serde_json:
 #[cfg(test)]
 mod tests {
     use super::*;
+    use fallow_core::extract::MemberKind;
     use fallow_core::results::*;
     use std::path::PathBuf;
     use std::time::Duration;
@@ -655,7 +694,7 @@ mod tests {
             path: root.join("src/enums.ts"),
             parent_name: "Status".to_string(),
             member_name: "Deprecated".to_string(),
-            kind: "enum_member".to_string(),
+            kind: MemberKind::EnumMember,
             line: 8,
             col: 2,
         });
@@ -663,7 +702,7 @@ mod tests {
             path: root.join("src/service.ts"),
             parent_name: "UserService".to_string(),
             member_name: "legacyMethod".to_string(),
-            kind: "class_method".to_string(),
+            kind: MemberKind::ClassMethod,
             line: 42,
             col: 4,
         });
@@ -920,7 +959,10 @@ mod tests {
         // 10 issues but duplicate_exports has 2 locations => 11 SARIF results
         assert_eq!(entries.len(), 11);
 
-        let rule_ids: Vec<&str> = entries.iter().map(|e| e["ruleId"].as_str().unwrap()).collect();
+        let rule_ids: Vec<&str> = entries
+            .iter()
+            .map(|e| e["ruleId"].as_str().unwrap())
+            .collect();
         assert!(rule_ids.contains(&"fallow/unused-file"));
         assert!(rule_ids.contains(&"fallow/unused-export"));
         assert!(rule_ids.contains(&"fallow/unused-type"));
@@ -1114,7 +1156,7 @@ mod tests {
             path: root.join("src/enums.ts"),
             parent_name: "Status".to_string(),
             member_name: "Deprecated".to_string(),
-            kind: "enum_member".to_string(),
+            kind: MemberKind::EnumMember,
             line: 8,
             col: 2,
         });
@@ -1134,7 +1176,7 @@ mod tests {
             path: root.join("src/service.ts"),
             parent_name: "UserService".to_string(),
             member_name: "legacyMethod".to_string(),
-            kind: "class_method".to_string(),
+            kind: MemberKind::ClassMethod,
             line: 42,
             col: 4,
         });
@@ -1158,10 +1200,7 @@ mod tests {
         });
 
         let lines = build_compact_lines(&results, &root);
-        assert_eq!(
-            lines[0],
-            "unresolved-import:src/app.ts:3:./missing-module"
-        );
+        assert_eq!(lines[0], "unresolved-import:src/app.ts:3:./missing-module");
     }
 
     #[test]

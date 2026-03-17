@@ -50,6 +50,7 @@ pub struct MemberInfo {
 
 /// The kind of member.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum MemberKind {
     EnumMember,
     ClassMethod,
@@ -182,14 +183,24 @@ fn parse_single_file_cached(
     cache_misses.fetch_add(1, Ordering::Relaxed);
 
     // Cache miss — do a full parse
-    parse_source_to_module(file.id, &file.path, &source, content_hash)
+    Some(parse_source_to_module(
+        file.id,
+        &file.path,
+        &source,
+        content_hash,
+    ))
 }
 
 /// Parse a single file and extract module information.
 pub fn parse_single_file(file: &DiscoveredFile) -> Option<ModuleInfo> {
     let source = std::fs::read_to_string(&file.path).ok()?;
     let content_hash = xxhash_rust::xxh3::xxh3_64(source.as_bytes());
-    parse_source_to_module(file.id, &file.path, &source, content_hash)
+    Some(parse_source_to_module(
+        file.id,
+        &file.path,
+        &source,
+        content_hash,
+    ))
 }
 
 /// Parse source text into a ModuleInfo.
@@ -198,35 +209,12 @@ fn parse_source_to_module(
     path: &Path,
     source: &str,
     content_hash: u64,
-) -> Option<ModuleInfo> {
+) -> ModuleInfo {
     let source_type = SourceType::from_path(path).unwrap_or_default();
     let allocator = Allocator::default();
     let parser_return = Parser::new(&allocator, source, source_type).parse();
 
     // Extract imports/exports even if there are parse errors
-    let mut extractor = ModuleInfoExtractor::new();
-    extractor.visit_program(&parser_return.program);
-
-    Some(ModuleInfo {
-        file_id,
-        exports: extractor.exports,
-        imports: extractor.imports,
-        re_exports: extractor.re_exports,
-        dynamic_imports: extractor.dynamic_imports,
-        require_calls: extractor.require_calls,
-        member_accesses: extractor.member_accesses,
-        has_cjs_exports: extractor.has_cjs_exports,
-        content_hash,
-    })
-}
-
-/// Parse from in-memory content (for LSP).
-pub fn parse_from_content(file_id: FileId, path: &Path, content: &str) -> ModuleInfo {
-    let content_hash = xxhash_rust::xxh3::xxh3_64(content.as_bytes());
-    let source_type = SourceType::from_path(path).unwrap_or_default();
-    let allocator = Allocator::default();
-    let parser_return = Parser::new(&allocator, content, source_type).parse();
-
     let mut extractor = ModuleInfoExtractor::new();
     extractor.visit_program(&parser_return.program);
 
@@ -241,6 +229,12 @@ pub fn parse_from_content(file_id: FileId, path: &Path, content: &str) -> Module
         has_cjs_exports: extractor.has_cjs_exports,
         content_hash,
     }
+}
+
+/// Parse from in-memory content (for LSP).
+pub fn parse_from_content(file_id: FileId, path: &Path, content: &str) -> ModuleInfo {
+    let content_hash = xxhash_rust::xxh3::xxh3_64(content.as_bytes());
+    parse_source_to_module(file_id, path, content, content_hash)
 }
 
 /// Extract class members (methods and properties) from a class declaration.
@@ -616,24 +610,7 @@ mod tests {
     use super::*;
 
     fn parse_source(source: &str) -> ModuleInfo {
-        let allocator = Allocator::default();
-        let source_type = SourceType::from_path("test.ts").unwrap();
-        let parser_return = Parser::new(&allocator, source, source_type).parse();
-
-        let mut extractor = ModuleInfoExtractor::new();
-        extractor.visit_program(&parser_return.program);
-
-        ModuleInfo {
-            file_id: FileId(0),
-            exports: extractor.exports,
-            imports: extractor.imports,
-            re_exports: extractor.re_exports,
-            dynamic_imports: extractor.dynamic_imports,
-            require_calls: extractor.require_calls,
-            member_accesses: extractor.member_accesses,
-            has_cjs_exports: extractor.has_cjs_exports,
-            content_hash: 0,
-        }
+        parse_source_to_module(FileId(0), Path::new("test.ts"), source, 0)
     }
 
     #[test]

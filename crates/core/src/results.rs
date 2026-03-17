@@ -2,6 +2,8 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 
+use crate::extract::MemberKind;
+
 /// Complete analysis results.
 #[derive(Debug, Default, Serialize)]
 pub struct AnalysisResults {
@@ -77,7 +79,7 @@ pub struct UnusedMember {
     pub path: PathBuf,
     pub parent_name: String,
     pub member_name: String,
-    pub kind: String,
+    pub kind: MemberKind,
     pub line: u32,
     pub col: u32,
 }
@@ -175,7 +177,7 @@ mod tests {
             path: PathBuf::from("d.ts"),
             parent_name: "E".to_string(),
             member_name: "A".to_string(),
-            kind: "enum_member".to_string(),
+            kind: MemberKind::EnumMember,
             line: 1,
             col: 0,
         });
@@ -183,7 +185,7 @@ mod tests {
             path: PathBuf::from("e.ts"),
             parent_name: "C".to_string(),
             member_name: "m".to_string(),
-            kind: "class_method".to_string(),
+            kind: MemberKind::ClassMethod,
             line: 1,
             col: 0,
         });
