@@ -28,21 +28,13 @@ pub fn print_results(
 }
 
 fn print_human(results: &AnalysisResults, root: &std::path::Path, elapsed: Duration, quiet: bool) {
-    let separator = "-".repeat(60);
-
     if !quiet {
         eprintln!();
     }
 
     // Warning-level: unused files
     if !results.unused_files.is_empty() {
-        println!(
-            "{}",
-            format!("Unused files ({})", results.unused_files.len())
-                .yellow()
-                .bold()
-        );
-        println!("{}", separator.dimmed());
+        print_section_header("Unused files", results.unused_files.len(), Level::Warn);
         for file in &results.unused_files {
             let relative = file.path.strip_prefix(root).unwrap_or(&file.path);
             println!("  {}", relative.display());
@@ -50,50 +42,49 @@ fn print_human(results: &AnalysisResults, root: &std::path::Path, elapsed: Durat
         println!();
     }
 
-    // Info-level: unused exports
+    // Info-level: unused exports (grouped by file)
     if !results.unused_exports.is_empty() {
-        println!(
-            "{}",
-            format!("Unused exports ({})", results.unused_exports.len())
-                .cyan()
-                .bold()
+        print_section_header("Unused exports", results.unused_exports.len(), Level::Info);
+        print_grouped_by_file(
+            &results.unused_exports,
+            root,
+            |e| e.path.as_path(),
+            |e| {
+                format!(
+                    "{} {}",
+                    format!(":{}", e.line).dimmed(),
+                    e.export_name.bold()
+                )
+            },
         );
-        println!("{}", separator.dimmed());
-        for export in &results.unused_exports {
-            let relative = export.path.strip_prefix(root).unwrap_or(&export.path);
-            println!("  {}  {}", relative.display(), export.export_name.bold());
-        }
         println!();
     }
 
-    // Info-level: unused types
+    // Info-level: unused types (grouped by file)
     if !results.unused_types.is_empty() {
-        println!(
-            "{}",
-            format!("Unused type exports ({})", results.unused_types.len())
-                .cyan()
-                .bold()
+        print_section_header("Unused type exports", results.unused_types.len(), Level::Info);
+        print_grouped_by_file(
+            &results.unused_types,
+            root,
+            |e| e.path.as_path(),
+            |e| {
+                format!(
+                    "{} {}",
+                    format!(":{}", e.line).dimmed(),
+                    e.export_name.bold()
+                )
+            },
         );
-        println!("{}", separator.dimmed());
-        for export in &results.unused_types {
-            let relative = export.path.strip_prefix(root).unwrap_or(&export.path);
-            println!("  {}  {}", relative.display(), export.export_name.bold());
-        }
         println!();
     }
 
     // Warning-level: unused dependencies
     if !results.unused_dependencies.is_empty() {
-        println!(
-            "{}",
-            format!(
-                "Unused dependencies ({})",
-                results.unused_dependencies.len()
-            )
-            .yellow()
-            .bold()
+        print_section_header(
+            "Unused dependencies",
+            results.unused_dependencies.len(),
+            Level::Warn,
         );
-        println!("{}", separator.dimmed());
         for dep in &results.unused_dependencies {
             println!("  {}", dep.package_name.bold());
         }
@@ -102,96 +93,90 @@ fn print_human(results: &AnalysisResults, root: &std::path::Path, elapsed: Durat
 
     // Warning-level: unused devDependencies
     if !results.unused_dev_dependencies.is_empty() {
-        println!(
-            "{}",
-            format!(
-                "Unused devDependencies ({})",
-                results.unused_dev_dependencies.len()
-            )
-            .yellow()
-            .bold()
+        print_section_header(
+            "Unused devDependencies",
+            results.unused_dev_dependencies.len(),
+            Level::Warn,
         );
-        println!("{}", separator.dimmed());
         for dep in &results.unused_dev_dependencies {
             println!("  {}", dep.package_name.bold());
         }
         println!();
     }
 
-    // Info-level: unused enum members
+    // Info-level: unused enum members (grouped by file)
     if !results.unused_enum_members.is_empty() {
-        println!(
-            "{}",
-            format!(
-                "Unused enum members ({})",
-                results.unused_enum_members.len()
-            )
-            .cyan()
-            .bold()
+        print_section_header(
+            "Unused enum members",
+            results.unused_enum_members.len(),
+            Level::Info,
         );
-        println!("{}", separator.dimmed());
-        for member in &results.unused_enum_members {
-            let relative = member.path.strip_prefix(root).unwrap_or(&member.path);
-            println!(
-                "  {}  {}",
-                relative.display(),
-                format!("{}.{}", member.parent_name, member.member_name).bold()
-            );
-        }
+        print_grouped_by_file(
+            &results.unused_enum_members,
+            root,
+            |m| m.path.as_path(),
+            |m| {
+                format!(
+                    "{} {}",
+                    format!(":{}", m.line).dimmed(),
+                    format!("{}.{}", m.parent_name, m.member_name).bold()
+                )
+            },
+        );
         println!();
     }
 
-    // Info-level: unused class members
+    // Info-level: unused class members (grouped by file)
     if !results.unused_class_members.is_empty() {
-        println!(
-            "{}",
-            format!(
-                "Unused class members ({})",
-                results.unused_class_members.len()
-            )
-            .cyan()
-            .bold()
+        print_section_header(
+            "Unused class members",
+            results.unused_class_members.len(),
+            Level::Info,
         );
-        println!("{}", separator.dimmed());
-        for member in &results.unused_class_members {
-            let relative = member.path.strip_prefix(root).unwrap_or(&member.path);
-            println!(
-                "  {}  {}",
-                relative.display(),
-                format!("{}.{}", member.parent_name, member.member_name).bold()
-            );
-        }
+        print_grouped_by_file(
+            &results.unused_class_members,
+            root,
+            |m| m.path.as_path(),
+            |m| {
+                format!(
+                    "{} {}",
+                    format!(":{}", m.line).dimmed(),
+                    format!("{}.{}", m.parent_name, m.member_name).bold()
+                )
+            },
+        );
         println!();
     }
 
-    // Error-level: unresolved imports
+    // Error-level: unresolved imports (grouped by file)
     if !results.unresolved_imports.is_empty() {
-        println!(
-            "{}",
-            format!("Unresolved imports ({})", results.unresolved_imports.len())
-                .red()
-                .bold()
+        print_section_header(
+            "Unresolved imports",
+            results.unresolved_imports.len(),
+            Level::Error,
         );
-        println!("{}", separator.dimmed());
-        for import in &results.unresolved_imports {
-            let relative = import.path.strip_prefix(root).unwrap_or(&import.path);
-            println!("  {}  {}", relative.display(), import.specifier.bold());
-        }
+        print_grouped_by_file(
+            &results.unresolved_imports,
+            root,
+            |i| i.path.as_path(),
+            |i| {
+                format!(
+                    "{} {}",
+                    format!(":{}", i.line).dimmed(),
+                    i.specifier.bold()
+                )
+            },
+        );
         println!();
     }
 
     // Warning-level: unlisted dependencies
     if !results.unlisted_dependencies.is_empty() {
-        println!(
-            "{}",
-            format!(
-                "Unlisted dependencies ({})",
-                results.unlisted_dependencies.len()
-            )
-            .yellow()
-            .bold()
+        print_section_header(
+            "Unlisted dependencies",
+            results.unlisted_dependencies.len(),
+            Level::Warn,
         );
-        println!("{}", separator.dimmed());
         for dep in &results.unlisted_dependencies {
             println!("  {}", dep.package_name.bold());
         }
@@ -200,20 +185,18 @@ fn print_human(results: &AnalysisResults, root: &std::path::Path, elapsed: Durat
 
     // Info-level: duplicate exports
     if !results.duplicate_exports.is_empty() {
-        println!(
-            "{}",
-            format!("Duplicate exports ({})", results.duplicate_exports.len())
-                .cyan()
-                .bold()
+        print_section_header(
+            "Duplicate exports",
+            results.duplicate_exports.len(),
+            Level::Info,
         );
-        println!("{}", separator.dimmed());
         for dup in &results.duplicate_exports {
             let locations: Vec<String> = dup
                 .locations
                 .iter()
                 .map(|p| p.strip_prefix(root).unwrap_or(p).display().to_string())
                 .collect();
-            println!("  {} in {}", dup.export_name.bold(), locations.join(", "));
+            println!("  {}  {}", dup.export_name.bold(), locations.join(", ").dimmed());
         }
         println!();
     }
@@ -223,7 +206,7 @@ fn print_human(results: &AnalysisResults, root: &std::path::Path, elapsed: Durat
         if total == 0 {
             eprintln!(
                 "{}",
-                format!("No issues found. ({:.2}s)", elapsed.as_secs_f64())
+                format!("\u{2713} No issues found ({:.2}s)", elapsed.as_secs_f64())
                     .green()
                     .bold()
             );
@@ -231,7 +214,7 @@ fn print_human(results: &AnalysisResults, root: &std::path::Path, elapsed: Durat
             eprintln!(
                 "{}",
                 format!(
-                    "Found {} issue{} ({:.2}s)",
+                    "\u{2717} Found {} issue{} ({:.2}s)",
                     total,
                     if total == 1 { "" } else { "s" },
                     elapsed.as_secs_f64()
@@ -240,6 +223,48 @@ fn print_human(results: &AnalysisResults, root: &std::path::Path, elapsed: Durat
                 .bold()
             );
         }
+    }
+}
+
+enum Level {
+    Warn,
+    Info,
+    Error,
+}
+
+fn print_section_header(title: &str, count: usize, level: Level) {
+    let label = format!("{title} ({count})");
+    match level {
+        Level::Warn => println!("{} {}", "\u{25cf}".yellow(), label.yellow().bold()),
+        Level::Info => println!("{} {}", "\u{25cf}".cyan(), label.cyan().bold()),
+        Level::Error => println!("{} {}", "\u{25cf}".red(), label.red().bold()),
+    }
+}
+
+/// Print items grouped by file path. Items are sorted by path so that
+/// entries from the same file appear together, with the file path printed
+/// once as a dimmed header and each item indented beneath it.
+fn print_grouped_by_file<'a, T>(
+    items: &'a [T],
+    root: &std::path::Path,
+    get_path: impl Fn(&'a T) -> &'a std::path::Path,
+    format_detail: impl Fn(&T) -> String,
+) {
+    let mut indices: Vec<usize> = (0..items.len()).collect();
+    indices.sort_by(|&a, &b| get_path(&items[a]).cmp(get_path(&items[b])));
+
+    let mut last_file = String::new();
+    for &i in &indices {
+        let item = &items[i];
+        let relative = get_path(item)
+            .strip_prefix(root)
+            .unwrap_or(get_path(item));
+        let file_str = relative.display().to_string();
+        if file_str != last_file {
+            println!("  {}", file_str.dimmed());
+            last_file = file_str;
+        }
+        println!("    {}", format_detail(item));
     }
 }
 
