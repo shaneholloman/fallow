@@ -620,11 +620,12 @@ impl ModuleGraph {
                         } else {
                             ExportName::Named(name.clone())
                         };
-                        if let Some(export) = source
-                            .exports
-                            .iter_mut()
-                            .find(|e| e.name == export_name)
-                        && export.references.iter().all(|r| r.from_file != ref_item.from_file)
+                        if let Some(export) =
+                            source.exports.iter_mut().find(|e| e.name == export_name)
+                            && export
+                                .references
+                                .iter()
+                                .all(|r| r.from_file != ref_item.from_file)
                         {
                             export.references.push(ref_item.clone());
                             changed = true;

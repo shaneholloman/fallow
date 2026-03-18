@@ -36,6 +36,7 @@ Key modules in fallow-core:
 ## Building & Testing
 
 ```bash
+git config core.hooksPath .githooks  # Enable pre-commit hooks (fmt + clippy)
 cargo build --workspace
 cargo test --workspace
 cargo clippy --workspace -- -D warnings

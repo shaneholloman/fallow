@@ -350,8 +350,9 @@ fn parse_source_to_module(
         let retry_return = Parser::new(&allocator2, source, jsx_type).parse();
         let mut retry_extractor = ModuleInfoExtractor::new();
         retry_extractor.visit_program(&retry_return.program);
-        let retry_total =
-            retry_extractor.exports.len() + retry_extractor.imports.len() + retry_extractor.re_exports.len();
+        let retry_total = retry_extractor.exports.len()
+            + retry_extractor.imports.len()
+            + retry_extractor.re_exports.len();
         if retry_total > total_extracted {
             extractor = retry_extractor;
         }
