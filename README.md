@@ -116,6 +116,19 @@ node bench-dupes.mjs          # Run duplication benchmarks
 
 knip is a good tool with broader framework coverage. fallow covers the most popular frameworks and adds speed, duplication detection, git-aware analysis (`--changed-since`), baseline comparison (`--baseline`), and SARIF output for GitHub Code Scanning.
 
+## Comparison with jscpd
+
+| | fallow | jscpd |
+|:--|:-------|:------|
+| Speed (real-world) | **4-70x faster** | Baseline |
+| Detection modes | 4 (strict, mild, weak, semantic) | 1 (token-based) |
+| Algorithm | Suffix array with LCP | Rabin-Karp rolling hash |
+| Dead code integration | Built-in (`fallow check`) | Not included |
+| Runtime dependency | None (standalone binary) | Node.js |
+| Config format | TOML | JSON |
+
+jscpd is a mature, well-established duplication detector. fallow dupes offers significantly faster performance via suffix arrays instead of pairwise comparison, semantic-aware detection modes (renamed variables, different literals), and the convenience of a single tool for both dead code and duplication analysis.
+
 ## Configuration
 
 Create `fallow.toml` in your project root, or run `fallow init`:
