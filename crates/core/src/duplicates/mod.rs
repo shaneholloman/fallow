@@ -1,6 +1,6 @@
 //! Code duplication / clone detection module.
 //!
-//! This module implements sliding-window hash-based clone detection
+//! This module implements suffix array + LCP based clone detection
 //! for JavaScript/TypeScript source files. It supports multiple detection
 //! modes from strict (exact matches only) to semantic (structure-aware
 //! matching that ignores identifier names and literal values).
@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use rayon::prelude::*;
 
-use detect::RabinKarpDetector;
+use detect::CloneDetector;
 use normalize::normalize_and_hash;
 use tokenize::tokenize_file;
 pub use types::{
@@ -29,7 +29,7 @@ use crate::discover::{self, DiscoveredFile};
 /// This is the main entry point for the duplication analysis. It:
 /// 1. Reads and tokenizes all source files in parallel
 /// 2. Normalizes tokens according to the detection mode
-/// 3. Runs Rabin-Karp clone detection
+/// 3. Runs suffix array + LCP clone detection
 /// 4. Groups and reports clone instances
 pub fn find_duplicates(
     root: &Path,
@@ -78,7 +78,7 @@ pub fn find_duplicates(
     );
 
     // Step 3 & 4: Detect clones
-    let detector = RabinKarpDetector::new(config.min_tokens, config.min_lines, config.skip_local);
+    let detector = CloneDetector::new(config.min_tokens, config.min_lines, config.skip_local);
     detector.detect(file_data)
 }
 

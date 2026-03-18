@@ -1,20 +1,16 @@
+//! Suffix Array + LCP based clone detection engine.
+//!
+//! Replaces the previous sliding-window hash approach with an O(N log^2 N)
+//! suffix array construction followed by an O(N) LCP scan. This avoids
+//! quadratic pairwise comparisons and naturally finds all maximal clones in
+//! a single linear pass.
+
 use std::collections::HashMap;
 use std::path::PathBuf;
-
-use xxhash_rust::xxh3::xxh3_64;
 
 use super::normalize::HashedToken;
 use super::tokenize::FileTokens;
 use super::types::{CloneGroup, CloneInstance, DuplicationReport, DuplicationStats};
-
-/// Location of a frame (sliding window position) within a file.
-#[derive(Debug, Clone)]
-struct FrameLocation {
-    /// Index into the `file_data` vector.
-    file_id: usize,
-    /// Offset into the file's hashed token sequence.
-    token_offset: usize,
-}
 
 /// Data for a single file being analyzed.
 struct FileData {
@@ -23,12 +19,12 @@ struct FileData {
     file_tokens: FileTokens,
 }
 
-/// Sliding-window hash-based clone detection engine.
+/// Suffix Array + LCP based clone detection engine.
 ///
-/// Uses a sliding window of `min_tokens` size, hashing each window with xxh3.
-/// Matching windows across files indicate duplicate code blocks, which are then
-/// extended to their maximal length and grouped via union-find.
-pub struct RabinKarpDetector {
+/// Concatenates all files' token sequences (separated by unique sentinels),
+/// builds a suffix array and LCP array, then extracts maximal clone groups
+/// from contiguous LCP intervals.
+pub struct CloneDetector {
     /// Minimum clone size in tokens.
     min_tokens: usize,
     /// Minimum clone size in lines.
@@ -37,7 +33,7 @@ pub struct RabinKarpDetector {
     skip_local: bool,
 }
 
-impl RabinKarpDetector {
+impl CloneDetector {
     /// Create a new detector with the given thresholds.
     pub fn new(min_tokens: usize, min_lines: usize, skip_local: bool) -> Self {
         Self {
@@ -49,7 +45,7 @@ impl RabinKarpDetector {
 
     /// Run clone detection across all files.
     ///
-    /// `file_tokens` is a list of (path, hashed_tokens, file_tokens) tuples,
+    /// `file_data` is a list of `(path, hashed_tokens, file_tokens)` tuples,
     /// one per analyzed file.
     pub fn detect(
         &self,
@@ -68,21 +64,35 @@ impl RabinKarpDetector {
             })
             .collect();
 
-        // Compute total stats
+        // Compute total stats.
         let total_files = files.len();
         let total_lines: usize = files.iter().map(|f| f.file_tokens.line_count).sum();
         let total_tokens: usize = files.iter().map(|f| f.hashed_tokens.len()).sum();
 
-        // Step 1: Build frame hash index using sliding window
-        let frame_index = self.build_frame_index(&files);
+        // Step 1: Rank reduction — map u64 hashes to consecutive u32 ranks.
+        let ranked_files = rank_reduce(&files);
 
-        // Step 2: Find matching frame pairs and extend into maximal clones
-        let raw_clones = self.find_clones(&frame_index, &files);
+        // Step 2: Concatenate with sentinels.
+        let (text, file_of, file_offsets) = concatenate_with_sentinels(&ranked_files);
 
-        // Step 3: Group clones and deduplicate
-        let clone_groups = self.group_clones(raw_clones, &files);
+        if text.is_empty() {
+            return empty_report(total_files);
+        }
 
-        // Step 4: Compute stats
+        // Step 3: Build suffix array.
+        let sa = build_suffix_array(&text);
+
+        // Step 4: Build LCP array (Kasai's algorithm, sentinel-aware).
+        let lcp = build_lcp(&text, &sa);
+
+        // Step 5: Extract clone groups from LCP intervals.
+        let raw_groups =
+            extract_clone_groups(&sa, &lcp, &file_of, &file_offsets, self.min_tokens, &files);
+
+        // Step 6: Build CloneGroup structs with line info, apply filters.
+        let clone_groups = self.build_groups(raw_groups, &files);
+
+        // Step 7: Compute stats.
         let stats = compute_stats(&clone_groups, total_files, total_lines, total_tokens);
 
         DuplicationReport {
@@ -91,191 +101,29 @@ impl RabinKarpDetector {
         }
     }
 
-    /// Build the frame hash index: for each sliding window position, store its hash
-    /// and location.
-    fn build_frame_index(&self, files: &[FileData]) -> HashMap<u64, Vec<FrameLocation>> {
-        let mut index: HashMap<u64, Vec<FrameLocation>> = HashMap::new();
-
-        for (file_id, file) in files.iter().enumerate() {
-            let tokens = &file.hashed_tokens;
-            if tokens.len() < self.min_tokens {
-                continue;
-            }
-
-            for offset in 0..=(tokens.len() - self.min_tokens) {
-                let frame_hash = compute_frame_hash(tokens, offset, self.min_tokens);
-                index.entry(frame_hash).or_default().push(FrameLocation {
-                    file_id,
-                    token_offset: offset,
-                });
-            }
-        }
-
-        index
-    }
-
-    /// Find clone pairs from matching frames and extend them into maximal clones.
-    fn find_clones(
-        &self,
-        frame_index: &HashMap<u64, Vec<FrameLocation>>,
-        files: &[FileData],
-    ) -> Vec<RawClone> {
-        let mut clones: Vec<RawClone> = Vec::new();
-        let mut visited: HashMap<(usize, usize, usize, usize), bool> = HashMap::new();
-
-        // Iterate over all frame hash buckets with multiple entries
-        for locations in frame_index.values() {
-            if locations.len() < 2 {
-                continue;
-            }
-
-            // Compare all pairs within this bucket
-            for i in 0..locations.len() {
-                for j in (i + 1)..locations.len() {
-                    let loc_a = &locations[i];
-                    let loc_b = &locations[j];
-
-                    // Skip self-overlapping matches within the same file
-                    if loc_a.file_id == loc_b.file_id {
-                        let (lo, hi) = if loc_a.token_offset <= loc_b.token_offset {
-                            (loc_a.token_offset, loc_b.token_offset)
-                        } else {
-                            (loc_b.token_offset, loc_a.token_offset)
-                        };
-                        if hi < lo + self.min_tokens {
-                            continue;
-                        }
-                    }
-
-                    // Skip if we already processed this pair's starting position
-                    let pair_key = (
-                        loc_a.file_id,
-                        loc_a.token_offset,
-                        loc_b.file_id,
-                        loc_b.token_offset,
-                    );
-                    if visited.contains_key(&pair_key) {
-                        continue;
-                    }
-
-                    // Extend the match to find the maximal clone length
-                    let tokens_a = &files[loc_a.file_id].hashed_tokens;
-                    let tokens_b = &files[loc_b.file_id].hashed_tokens;
-                    let max_extend = (tokens_a.len() - loc_a.token_offset)
-                        .min(tokens_b.len() - loc_b.token_offset);
-
-                    let mut match_len = self.min_tokens;
-                    while match_len < max_extend
-                        && tokens_a[loc_a.token_offset + match_len].hash
-                            == tokens_b[loc_b.token_offset + match_len].hash
-                    {
-                        match_len += 1;
-                    }
-
-                    // Mark all sub-positions as visited to avoid reporting smaller subsets
-                    for offset in 0..match_len.saturating_sub(self.min_tokens - 1) {
-                        visited.insert(
-                            (
-                                loc_a.file_id,
-                                loc_a.token_offset + offset,
-                                loc_b.file_id,
-                                loc_b.token_offset + offset,
-                            ),
-                            true,
-                        );
-                    }
-
-                    clones.push(RawClone {
-                        file_a: loc_a.file_id,
-                        offset_a: loc_a.token_offset,
-                        file_b: loc_b.file_id,
-                        offset_b: loc_b.token_offset,
-                        length: match_len,
-                    });
-                }
-            }
-        }
-
-        clones
-    }
-
-    /// Group raw clone pairs into clone groups using union-find.
-    fn group_clones(&self, raw_clones: Vec<RawClone>, files: &[FileData]) -> Vec<CloneGroup> {
-        if raw_clones.is_empty() {
-            return vec![];
-        }
-
-        // Build a map from (file_id, offset, length) -> group_id using union-find
-        let mut parent: Vec<usize> = (0..raw_clones.len() * 2).collect();
-
-        // Each raw clone produces two "instance" indices
-        // Instance 2*i -> (file_a, offset_a, length)
-        // Instance 2*i+1 -> (file_b, offset_b, length)
-        // We group instances that share the same content hash and length
-
-        // Content hash for each clone's instance to merge identical blocks
-        let mut content_keys: HashMap<(u64, usize), Vec<usize>> = HashMap::new();
-
-        for (i, clone) in raw_clones.iter().enumerate() {
-            let hash_a = compute_frame_hash(
-                &files[clone.file_a].hashed_tokens,
-                clone.offset_a,
-                clone.length,
-            );
-            content_keys
-                .entry((hash_a, clone.length))
-                .or_default()
-                .push(i);
-        }
-
-        // Union all clones with the same content hash
-        for instances in content_keys.values() {
-            if instances.len() > 1 {
-                let first = instances[0];
-                for &other in &instances[1..] {
-                    union(&mut parent, first, other);
-                }
-            }
-        }
-
-        // Build groups: group_root -> Vec<(file_id, offset, length)>
-        let mut groups: HashMap<usize, Vec<(usize, usize, usize)>> = HashMap::new();
-
-        for (i, clone) in raw_clones.iter().enumerate() {
-            let root = find(&mut parent, i);
-            let entry = groups.entry(root).or_default();
-
-            // Add both instances, dedup later
-            entry.push((clone.file_a, clone.offset_a, clone.length));
-            entry.push((clone.file_b, clone.offset_b, clone.length));
-        }
-
-        // Convert to CloneGroups
+    /// Convert raw groups into `CloneGroup` structs, applying min_lines and
+    /// skip_local filters, deduplication, and subset removal.
+    fn build_groups(&self, raw_groups: Vec<RawGroup>, files: &[FileData]) -> Vec<CloneGroup> {
         let mut clone_groups: Vec<CloneGroup> = Vec::new();
 
-        for instances in groups.values() {
-            // Use the maximum length in the group
-            let max_len = instances.iter().map(|&(_, _, l)| l).max().unwrap_or(0);
-
-            // Deduplicate instances (same file + same offset)
+        for rg in raw_groups {
+            // Build instances, deduplicating by (file_id, offset).
             let mut seen: HashMap<(usize, usize), bool> = HashMap::new();
             let mut group_instances: Vec<CloneInstance> = Vec::new();
 
-            for &(file_id, offset, _) in instances {
+            for &(file_id, offset) in &rg.instances {
                 if seen.contains_key(&(file_id, offset)) {
                     continue;
                 }
                 seen.insert((file_id, offset), true);
 
                 let file = &files[file_id];
-                let instance = build_clone_instance(file, offset, max_len);
-
-                if let Some(inst) = instance {
+                if let Some(inst) = build_clone_instance(file, offset, rg.length) {
                     group_instances.push(inst);
                 }
             }
 
-            // Apply skip_local: only keep cross-directory clones
+            // Apply skip_local: only keep cross-directory clones.
             if self.skip_local && group_instances.len() >= 2 {
                 let dirs: std::collections::HashSet<_> = group_instances
                     .iter()
@@ -290,34 +138,33 @@ impl RabinKarpDetector {
                 continue;
             }
 
-            // Calculate line count from the instances
+            // Calculate line count from the instances.
             let line_count = group_instances
                 .iter()
                 .map(|inst| inst.end_line.saturating_sub(inst.start_line) + 1)
                 .max()
                 .unwrap_or(0);
 
-            // Apply minimum line filter
+            // Apply minimum line filter.
             if line_count < self.min_lines {
                 continue;
             }
 
-            // Sort instances by file path then start line for stable output
+            // Sort instances by file path then start line for stable output.
             group_instances
                 .sort_by(|a, b| a.file.cmp(&b.file).then(a.start_line.cmp(&b.start_line)));
 
             clone_groups.push(CloneGroup {
                 instances: group_instances,
-                token_count: max_len,
+                token_count: rg.length,
                 line_count,
             });
         }
 
-        // Sort groups by token count (largest first) for better display
+        // Sort groups by token count (largest first) for better display.
         clone_groups.sort_by(|a, b| b.token_count.cmp(&a.token_count));
 
         // Remove groups that are subsets of larger groups.
-        // A group is a subset if ALL of its instances overlap with instances in a larger group.
         let mut keep = vec![true; clone_groups.len()];
         for i in 0..clone_groups.len() {
             if !keep[i] {
@@ -327,7 +174,6 @@ impl RabinKarpDetector {
                 if !keep[j] {
                     continue;
                 }
-                // Check if group j is a subset of group i (group i is larger or equal in tokens)
                 if is_subset_group(&clone_groups[j], &clone_groups[i]) {
                     keep[j] = false;
                 }
@@ -343,6 +189,322 @@ impl RabinKarpDetector {
     }
 }
 
+// ── Raw group from LCP extraction ──────────────────────────
+
+/// A raw clone group before conversion to `CloneGroup`.
+struct RawGroup {
+    /// List of (file_id, token_offset) instances.
+    instances: Vec<(usize, usize)>,
+    /// Clone length in tokens.
+    length: usize,
+}
+
+// ── Step 1: Rank reduction ─────────────────────────────────
+
+/// Map all unique token hashes (u64) to consecutive integer ranks (u32).
+///
+/// Returns `ranked_files` where `ranked_files[i]` contains the rank
+/// sequence for `files[i]`.
+fn rank_reduce(files: &[FileData]) -> Vec<Vec<u32>> {
+    // Collect all unique hashes.
+    let mut all_hashes: Vec<u64> = Vec::new();
+    for file in files {
+        for ht in &file.hashed_tokens {
+            all_hashes.push(ht.hash);
+        }
+    }
+    all_hashes.sort_unstable();
+    all_hashes.dedup();
+
+    // Build hash -> rank map.
+    let hash_to_rank: HashMap<u64, u32> = all_hashes
+        .iter()
+        .enumerate()
+        .map(|(i, &h)| (h, i as u32))
+        .collect();
+
+    files
+        .iter()
+        .map(|file| {
+            file.hashed_tokens
+                .iter()
+                .map(|ht| hash_to_rank[&ht.hash])
+                .collect()
+        })
+        .collect()
+}
+
+// ── Step 2: Concatenation with sentinels ───────────────────
+
+/// Concatenate all ranked token sequences into a single `Vec<i64>`,
+/// inserting unique negative sentinel values between files.
+///
+/// Returns `(text, file_of, file_offsets)` where:
+/// - `text` is the concatenated sequence
+/// - `file_of[pos]` maps a position in `text` to a file index
+///   (`usize::MAX` for sentinel positions)
+/// - `file_offsets[file_id]` is the starting position of file `file_id`
+///   in `text`
+fn concatenate_with_sentinels(ranked_files: &[Vec<u32>]) -> (Vec<i64>, Vec<usize>, Vec<usize>) {
+    let sentinel_count = ranked_files.len().saturating_sub(1);
+    let total_len: usize = ranked_files.iter().map(|f| f.len()).sum::<usize>() + sentinel_count;
+
+    let mut text = Vec::with_capacity(total_len);
+    let mut file_of = Vec::with_capacity(total_len);
+    let mut file_offsets = Vec::with_capacity(ranked_files.len());
+
+    let mut sentinel: i64 = -1;
+
+    for (file_id, ranks) in ranked_files.iter().enumerate() {
+        file_offsets.push(text.len());
+
+        for &r in ranks {
+            text.push(r as i64);
+            file_of.push(file_id);
+        }
+
+        // Insert sentinel between files (not after the last one).
+        if file_id + 1 < ranked_files.len() {
+            text.push(sentinel);
+            file_of.push(usize::MAX);
+            sentinel -= 1;
+        }
+    }
+
+    (text, file_of, file_offsets)
+}
+
+// ── Step 3: Suffix array construction (prefix doubling) ────
+
+/// Build a suffix array using the O(N log^2 N) prefix-doubling algorithm.
+///
+/// Returns `sa` where `sa[i]` is the starting position of the i-th
+/// lexicographically smallest suffix in `text`.
+fn build_suffix_array(text: &[i64]) -> Vec<usize> {
+    let n = text.len();
+    if n == 0 {
+        return vec![];
+    }
+
+    // Initial ranks based on raw values. Shift so sentinels (negative) sort
+    // before all real tokens.
+    let min_val = text.iter().copied().min().unwrap_or(0);
+    let mut rank: Vec<i64> = text.iter().map(|&v| v - min_val).collect();
+    let mut sa: Vec<usize> = (0..n).collect();
+    let mut tmp: Vec<i64> = vec![0; n];
+    let mut k: usize = 1;
+
+    while k < n {
+        let rank_ref = &rank;
+        let kk = k;
+        sa.sort_by(|&a, &b| {
+            let ra = rank_ref[a];
+            let rb = rank_ref[b];
+            if ra != rb {
+                return ra.cmp(&rb);
+            }
+            let ra2 = if a + kk < n { rank_ref[a + kk] } else { -1 };
+            let rb2 = if b + kk < n { rank_ref[b + kk] } else { -1 };
+            ra2.cmp(&rb2)
+        });
+
+        // Compute new ranks.
+        tmp[sa[0]] = 0;
+        for i in 1..n {
+            let prev = sa[i - 1];
+            let curr = sa[i];
+            let same = rank[prev] == rank[curr] && {
+                let rp2 = if prev + kk < n { rank[prev + kk] } else { -1 };
+                let rc2 = if curr + kk < n { rank[curr + kk] } else { -1 };
+                rp2 == rc2
+            };
+            tmp[curr] = tmp[prev] + if same { 0 } else { 1 };
+        }
+
+        // Early exit when all ranks are unique.
+        let max_rank = tmp[sa[n - 1]];
+        std::mem::swap(&mut rank, &mut tmp);
+
+        if max_rank as usize == n - 1 {
+            break;
+        }
+
+        k *= 2;
+    }
+
+    sa
+}
+
+// ── Step 4: LCP array (Kasai's algorithm) ──────────────────
+
+/// Build the LCP (Longest Common Prefix) array using Kasai's algorithm.
+///
+/// `lcp[i]` is the length of the longest common prefix between suffixes
+/// `sa[i]` and `sa[i-1]`. `lcp[0]` is always 0.
+///
+/// The LCP computation stops at sentinel boundaries (negative values in
+/// `text`) to prevent matches from crossing file boundaries.
+fn build_lcp(text: &[i64], sa: &[usize]) -> Vec<usize> {
+    let n = sa.len();
+    if n == 0 {
+        return vec![];
+    }
+
+    let mut rank = vec![0usize; n];
+    for i in 0..n {
+        rank[sa[i]] = i;
+    }
+
+    let mut lcp = vec![0usize; n];
+    let mut k: usize = 0;
+
+    for i in 0..n {
+        if rank[i] == 0 {
+            k = 0;
+            continue;
+        }
+        let j = sa[rank[i] - 1];
+        while i + k < n && j + k < n {
+            // Stop at sentinels (negative values).
+            if text[i + k] < 0 || text[j + k] < 0 {
+                break;
+            }
+            if text[i + k] != text[j + k] {
+                break;
+            }
+            k += 1;
+        }
+        lcp[rank[i]] = k;
+        k = k.saturating_sub(1);
+    }
+
+    lcp
+}
+
+// ── Step 5: Clone group extraction ─────────────────────────
+
+/// Extract clone groups from the suffix array and LCP array.
+///
+/// Uses a stack-based approach to find all maximal LCP intervals where the
+/// minimum LCP value is >= `min_tokens`, and the interval contains suffixes
+/// from at least two different positions (cross-file or non-overlapping
+/// same-file).
+fn extract_clone_groups(
+    sa: &[usize],
+    lcp: &[usize],
+    file_of: &[usize],
+    file_offsets: &[usize],
+    min_tokens: usize,
+    files: &[FileData],
+) -> Vec<RawGroup> {
+    let n = sa.len();
+    if n < 2 {
+        return vec![];
+    }
+
+    // Stack-based LCP interval extraction.
+    // Each stack entry: (lcp_value, start_index_in_sa).
+    let mut stack: Vec<(usize, usize)> = Vec::new();
+    let mut groups: Vec<RawGroup> = Vec::new();
+
+    #[allow(clippy::needless_range_loop)] // `i` is used as a value, not just as an index
+    for i in 1..=n {
+        let cur_lcp = if i < n { lcp[i] } else { 0 };
+        let mut start = i;
+
+        while let Some(&(top_lcp, top_start)) = stack.last() {
+            if top_lcp <= cur_lcp {
+                break;
+            }
+            stack.pop();
+            start = top_start;
+
+            if top_lcp >= min_tokens {
+                // The interval [start-1 .. i-1] shares a common prefix of
+                // length `top_lcp`.
+                let interval_begin = start - 1;
+                let interval_end = i; // exclusive
+
+                if let Some(group) = build_raw_group(
+                    sa,
+                    file_of,
+                    file_offsets,
+                    files,
+                    interval_begin,
+                    interval_end,
+                    top_lcp,
+                ) {
+                    groups.push(group);
+                }
+            }
+        }
+
+        if i < n {
+            stack.push((cur_lcp, start));
+        }
+    }
+
+    groups
+}
+
+/// Build a `RawGroup` from an LCP interval, filtering to non-overlapping
+/// instances.
+fn build_raw_group(
+    sa: &[usize],
+    file_of: &[usize],
+    file_offsets: &[usize],
+    files: &[FileData],
+    begin: usize,
+    end: usize,
+    length: usize,
+) -> Option<RawGroup> {
+    let mut instances: Vec<(usize, usize)> = Vec::new();
+
+    for &pos in &sa[begin..end] {
+        let fid = file_of[pos];
+        if fid == usize::MAX {
+            continue; // sentinel position
+        }
+        let offset_in_file = pos - file_offsets[fid];
+
+        // Verify the clone doesn't extend beyond the file boundary.
+        if offset_in_file + length > files[fid].hashed_tokens.len() {
+            continue;
+        }
+
+        instances.push((fid, offset_in_file));
+    }
+
+    if instances.len() < 2 {
+        return None;
+    }
+
+    // Remove overlapping instances within the same file.
+    // Sort by (file_id, offset) and remove overlaps.
+    instances.sort_unstable();
+    let mut deduped: Vec<(usize, usize)> = Vec::with_capacity(instances.len());
+    for &(fid, offset) in &instances {
+        if let Some(&(last_fid, last_offset)) = deduped.last()
+            && fid == last_fid
+            && offset < last_offset + length
+        {
+            continue; // overlapping within the same file
+        }
+        deduped.push((fid, offset));
+    }
+
+    if deduped.len() < 2 {
+        return None;
+    }
+
+    Some(RawGroup {
+        instances: deduped,
+        length,
+    })
+}
+
+// ── Utility functions ──────────────────────────────────────
+
 /// Check if all instances of `smaller` overlap with instances of `larger`.
 fn is_subset_group(smaller: &CloneGroup, larger: &CloneGroup) -> bool {
     smaller.instances.iter().all(|s_inst| {
@@ -352,25 +514,6 @@ fn is_subset_group(smaller: &CloneGroup, larger: &CloneGroup) -> bool {
                 && s_inst.end_line <= l_inst.end_line
         })
     })
-}
-
-/// A raw clone pair before grouping.
-#[derive(Debug)]
-struct RawClone {
-    file_a: usize,
-    offset_a: usize,
-    file_b: usize,
-    offset_b: usize,
-    length: usize,
-}
-
-/// Compute the hash of a frame (sliding window) of tokens.
-fn compute_frame_hash(tokens: &[HashedToken], offset: usize, length: usize) -> u64 {
-    let mut buf = Vec::with_capacity(length * 8);
-    for token in &tokens[offset..offset + length] {
-        buf.extend_from_slice(&token.hash.to_le_bytes());
-    }
-    xxh3_64(&buf)
 }
 
 /// Build a `CloneInstance` from file data and token offset/length.
@@ -386,7 +529,7 @@ fn build_clone_instance(
         return None;
     }
 
-    // Map from hashed token indices back to source token spans
+    // Map from hashed token indices back to source token spans.
     let first_hashed = &tokens[token_offset];
     let last_hashed = &tokens[token_offset + token_length - 1];
 
@@ -400,7 +543,7 @@ fn build_clone_instance(
     let (start_line, start_col) = byte_offset_to_line_col(source, start_byte);
     let (end_line, end_col) = byte_offset_to_line_col(source, end_byte);
 
-    // Extract the fragment
+    // Extract the fragment.
     let fragment = if end_byte <= source.len() {
         source[start_byte..end_byte].to_string()
     } else {
@@ -450,7 +593,7 @@ fn compute_stats(
             }
         }
         // Each instance contributes token_count duplicated tokens,
-        // but only count duplicates (all instances beyond the first)
+        // but only count duplicates (all instances beyond the first).
         if group.instances.len() > 1 {
             duplicated_tokens += group.token_count * (group.instances.len() - 1);
         }
@@ -494,26 +637,6 @@ fn empty_report(total_files: usize) -> DuplicationReport {
     }
 }
 
-// ── Union-Find ──────────────────────────────────────────────
-
-/// Find the root of a node with path compression.
-fn find(parent: &mut [usize], mut x: usize) -> usize {
-    while parent[x] != x {
-        parent[x] = parent[parent[x]]; // path halving
-        x = parent[x];
-    }
-    x
-}
-
-/// Union two nodes.
-fn union(parent: &mut [usize], a: usize, b: usize) {
-    let ra = find(parent, a);
-    let rb = find(parent, b);
-    if ra != rb {
-        parent[rb] = ra;
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -549,9 +672,11 @@ mod tests {
         }
     }
 
+    // ── Existing tests (adapted for CloneDetector) ─────────
+
     #[test]
     fn empty_input_produces_empty_report() {
-        let detector = RabinKarpDetector::new(5, 1, false);
+        let detector = CloneDetector::new(5, 1, false);
         let report = detector.detect(vec![]);
         assert!(report.clone_groups.is_empty());
         assert_eq!(report.stats.total_files, 0);
@@ -559,7 +684,7 @@ mod tests {
 
     #[test]
     fn single_file_no_clones() {
-        let detector = RabinKarpDetector::new(3, 1, false);
+        let detector = CloneDetector::new(3, 1, false);
         let hashed = make_hashed_tokens(&[1, 2, 3, 4, 5]);
         let ft = make_file_tokens("a b c d e", 5);
         let report = detector.detect(vec![(PathBuf::from("a.ts"), hashed, ft)]);
@@ -568,9 +693,9 @@ mod tests {
 
     #[test]
     fn detects_exact_duplicate_across_files() {
-        let detector = RabinKarpDetector::new(3, 1, false);
+        let detector = CloneDetector::new(3, 1, false);
 
-        // Same token sequence in two files
+        // Same token sequence in two files.
         let hashes = vec![10, 20, 30, 40, 50];
         let source_a = "a\nb\nc\nd\ne";
         let source_b = "a\nb\nc\nd\ne";
@@ -593,7 +718,7 @@ mod tests {
 
     #[test]
     fn no_detection_below_min_tokens() {
-        let detector = RabinKarpDetector::new(10, 1, false);
+        let detector = CloneDetector::new(10, 1, false);
 
         let hashes = vec![10, 20, 30]; // Only 3 tokens, min is 10
         let hashed_a = make_hashed_tokens(&hashes);
@@ -621,40 +746,15 @@ mod tests {
     #[test]
     fn byte_offset_beyond_source() {
         let source = "abc";
-        // Should clamp to end of source
+        // Should clamp to end of source.
         let (line, col) = byte_offset_to_line_col(source, 100);
         assert_eq!(line, 1);
         assert_eq!(col, 3);
     }
 
     #[test]
-    fn compute_frame_hash_deterministic() {
-        let tokens = make_hashed_tokens(&[1, 2, 3, 4, 5]);
-        let h1 = compute_frame_hash(&tokens, 0, 3);
-        let h2 = compute_frame_hash(&tokens, 0, 3);
-        assert_eq!(h1, h2);
-    }
-
-    #[test]
-    fn compute_frame_hash_different_offsets() {
-        let tokens = make_hashed_tokens(&[1, 2, 3, 4, 5]);
-        let h1 = compute_frame_hash(&tokens, 0, 3);
-        let h2 = compute_frame_hash(&tokens, 1, 3);
-        assert_ne!(h1, h2);
-    }
-
-    #[test]
-    fn union_find_works() {
-        let mut parent: Vec<usize> = (0..5).collect();
-        union(&mut parent, 0, 1);
-        union(&mut parent, 2, 3);
-        union(&mut parent, 0, 2);
-        assert_eq!(find(&mut parent, 3), find(&mut parent, 1));
-    }
-
-    #[test]
     fn skip_local_filters_same_directory() {
-        let detector = RabinKarpDetector::new(3, 1, true);
+        let detector = CloneDetector::new(3, 1, true);
 
         let hashes = vec![10, 20, 30, 40, 50];
         let source = "a\nb\nc\nd\ne";
@@ -664,7 +764,7 @@ mod tests {
         let ft_a = make_file_tokens(source, 5);
         let ft_b = make_file_tokens(source, 5);
 
-        // Same directory -> should be filtered with skip_local
+        // Same directory -> should be filtered with skip_local.
         let report = detector.detect(vec![
             (PathBuf::from("src/a.ts"), hashed_a, ft_a),
             (PathBuf::from("src/b.ts"), hashed_b, ft_b),
@@ -678,7 +778,7 @@ mod tests {
 
     #[test]
     fn skip_local_keeps_cross_directory() {
-        let detector = RabinKarpDetector::new(3, 1, true);
+        let detector = CloneDetector::new(3, 1, true);
 
         let hashes = vec![10, 20, 30, 40, 50];
         let source = "a\nb\nc\nd\ne";
@@ -688,7 +788,7 @@ mod tests {
         let ft_a = make_file_tokens(source, 5);
         let ft_b = make_file_tokens(source, 5);
 
-        // Different directories -> should be kept
+        // Different directories -> should be kept.
         let report = detector.detect(vec![
             (PathBuf::from("src/components/a.ts"), hashed_a, ft_a),
             (PathBuf::from("src/utils/b.ts"), hashed_b, ft_b),
@@ -732,5 +832,218 @@ mod tests {
         assert_eq!(stats.clone_instances, 2);
         assert_eq!(stats.duplicated_lines, 10); // 5 lines in each of 2 instances
         assert!(stats.duplication_percentage > 0.0);
+    }
+
+    // ── New suffix array / LCP tests ───────────────────────
+
+    #[test]
+    fn sa_construction_basic() {
+        // "banana" encoded as integers: b=1, a=0, n=2
+        let text: Vec<i64> = vec![1, 0, 2, 0, 2, 0];
+        let sa = build_suffix_array(&text);
+
+        // Suffixes sorted lexicographically:
+        // SA[0] = 5: "a"           (0)
+        // SA[1] = 3: "ana"         (0,2,0)
+        // SA[2] = 1: "anana"       (0,2,0,2,0)
+        // SA[3] = 0: "banana"      (1,0,2,0,2,0)
+        // SA[4] = 4: "na"          (2,0)
+        // SA[5] = 2: "nana"        (2,0,2,0)
+        assert_eq!(sa, vec![5, 3, 1, 0, 4, 2]);
+    }
+
+    #[test]
+    fn lcp_construction_basic() {
+        let text: Vec<i64> = vec![1, 0, 2, 0, 2, 0];
+        let sa = build_suffix_array(&text);
+        let lcp = build_lcp(&text, &sa);
+
+        // LCP values for "banana":
+        // lcp[0] = 0 (by definition)
+        // lcp[1] = 1 (LCP of "a" and "ana" = "a" = 1)
+        // lcp[2] = 3 (LCP of "ana" and "anana" = "ana" = 3)
+        // lcp[3] = 0 (LCP of "anana" and "banana" = "" = 0)
+        // lcp[4] = 0 (LCP of "banana" and "na" = "" = 0)
+        // lcp[5] = 2 (LCP of "na" and "nana" = "na" = 2)
+        assert_eq!(lcp, vec![0, 1, 3, 0, 0, 2]);
+    }
+
+    #[test]
+    fn lcp_stops_at_sentinels() {
+        // Two "files": [0, 1, 2] sentinel [-1] [0, 1, 2]
+        let text: Vec<i64> = vec![0, 1, 2, -1, 0, 1, 2];
+        let sa = build_suffix_array(&text);
+        let lcp = build_lcp(&text, &sa);
+
+        // Find the SA positions corresponding to text positions 0 and 4
+        // (both start "0 1 2 ..."). LCP should be exactly 3.
+        let rank_0 = sa.iter().position(|&s| s == 0).expect("pos 0 in SA");
+        let rank_4 = sa.iter().position(|&s| s == 4).expect("pos 4 in SA");
+        let (lo, hi) = if rank_0 < rank_4 {
+            (rank_0, rank_4)
+        } else {
+            (rank_4, rank_0)
+        };
+
+        // The minimum LCP in the range (lo, hi] gives the LCP between them.
+        let min_lcp = lcp[(lo + 1)..=hi].iter().copied().min().unwrap_or(0);
+        assert_eq!(
+            min_lcp, 3,
+            "LCP between identical sequences across sentinel should be 3"
+        );
+    }
+
+    #[test]
+    fn rank_reduction_maps_correctly() {
+        let files = vec![
+            FileData {
+                path: PathBuf::from("a.ts"),
+                hashed_tokens: make_hashed_tokens(&[100, 200, 300]),
+                file_tokens: make_file_tokens("a b c", 3),
+            },
+            FileData {
+                path: PathBuf::from("b.ts"),
+                hashed_tokens: make_hashed_tokens(&[200, 300, 400]),
+                file_tokens: make_file_tokens("d e f", 3),
+            },
+        ];
+
+        let ranked = rank_reduce(&files);
+
+        // Unique hashes: 100, 200, 300, 400 -> ranks 0, 1, 2, 3
+        assert_eq!(ranked[0], vec![0, 1, 2]);
+        assert_eq!(ranked[1], vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn three_file_grouping() {
+        let detector = CloneDetector::new(3, 1, false);
+
+        let hashes = vec![10, 20, 30, 40, 50];
+        let source = "a\nb\nc\nd\ne";
+
+        let data: Vec<(PathBuf, Vec<HashedToken>, FileTokens)> = (0..3)
+            .map(|i| {
+                (
+                    PathBuf::from(format!("file{i}.ts")),
+                    make_hashed_tokens(&hashes),
+                    make_file_tokens(source, 5),
+                )
+            })
+            .collect();
+
+        let report = detector.detect(data);
+
+        assert!(
+            !report.clone_groups.is_empty(),
+            "Should detect clones across 3 identical files"
+        );
+
+        // The largest group should contain 3 instances.
+        let max_instances = report
+            .clone_groups
+            .iter()
+            .map(|g| g.instances.len())
+            .max()
+            .unwrap_or(0);
+        assert_eq!(
+            max_instances, 3,
+            "3 identical files should produce a group with 3 instances"
+        );
+    }
+
+    #[test]
+    fn overlapping_clones_largest_wins() {
+        let detector = CloneDetector::new(3, 1, false);
+
+        // File A and B: identical 10-token sequences.
+        let hashes: Vec<u64> = (1..=10).collect();
+        let source = "a\nb\nc\nd\ne\nf\ng\nh\ni\nj";
+
+        let hashed_a = make_hashed_tokens(&hashes);
+        let hashed_b = make_hashed_tokens(&hashes);
+        let ft_a = make_file_tokens(source, 10);
+        let ft_b = make_file_tokens(source, 10);
+
+        let report = detector.detect(vec![
+            (PathBuf::from("a.ts"), hashed_a, ft_a),
+            (PathBuf::from("b.ts"), hashed_b, ft_b),
+        ]);
+
+        assert!(!report.clone_groups.is_empty());
+        // The first group (sorted by token_count desc) should cover all 10.
+        assert_eq!(
+            report.clone_groups[0].token_count, 10,
+            "Maximal clone should cover all 10 tokens"
+        );
+    }
+
+    #[test]
+    fn no_self_overlap() {
+        let detector = CloneDetector::new(3, 1, false);
+
+        // File with repeated pattern: [1,2,3,1,2,3]
+        // The pattern [1,2,3] appears at offset 0 and offset 3.
+        let hashes = vec![1, 2, 3, 1, 2, 3];
+        // Source must be long enough for synthetic spans: token i has span (i*3, i*3+2).
+        // Last token (5) has span (15, 17), so source must be >= 17 bytes.
+        // Use a source with enough content spread across distinct lines.
+        let source = "aa\nbb\ncc\ndd\nee\nff\ngg";
+
+        let hashed = make_hashed_tokens(&hashes);
+        let ft = make_file_tokens(source, 6);
+
+        let report = detector.detect(vec![(PathBuf::from("a.ts"), hashed, ft)]);
+
+        // Verify that no clone instance overlaps with another in the same file.
+        for group in &report.clone_groups {
+            let mut file_instances: HashMap<&PathBuf, Vec<(usize, usize)>> = HashMap::new();
+            for inst in &group.instances {
+                file_instances
+                    .entry(&inst.file)
+                    .or_default()
+                    .push((inst.start_line, inst.end_line));
+            }
+            for (_file, mut ranges) in file_instances {
+                ranges.sort();
+                for w in ranges.windows(2) {
+                    assert!(
+                        w[1].0 > w[0].1,
+                        "Clone instances in the same file should not overlap: {:?} and {:?}",
+                        w[0],
+                        w[1]
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn empty_input_edge_case() {
+        let detector = CloneDetector::new(0, 0, false);
+        let report = detector.detect(vec![]);
+        assert!(report.clone_groups.is_empty());
+        assert_eq!(report.stats.total_files, 0);
+    }
+
+    #[test]
+    fn single_file_internal_duplication() {
+        let detector = CloneDetector::new(3, 1, false);
+
+        // File with a repeated block separated by a different token.
+        // [10, 20, 30, 99, 10, 20, 30]
+        let hashes = vec![10, 20, 30, 99, 10, 20, 30];
+        let source = "a\nb\nc\nx\na\nb\nc";
+
+        let hashed = make_hashed_tokens(&hashes);
+        let ft = make_file_tokens(source, 7);
+
+        let report = detector.detect(vec![(PathBuf::from("a.ts"), hashed, ft)]);
+
+        // Should detect the [10, 20, 30] clone at offsets 0 and 4.
+        assert!(
+            !report.clone_groups.is_empty(),
+            "Should detect internal duplication within a single file"
+        );
     }
 }
