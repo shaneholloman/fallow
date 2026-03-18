@@ -116,7 +116,7 @@ node bench-dupes.mjs          # Run duplication benchmarks
 | Duplication detection | Built-in | Not included |
 | Framework plugins | 40 (20 with config parsing) | 140+ (runtime config loading) |
 | Runtime dependency | None (standalone binary) | Node.js |
-| Config format | TOML | JSON |
+| Config format | JSONC, JSON, TOML | JSON |
 
 knip is a good tool with broader framework coverage. fallow covers the most popular frameworks and adds speed, duplication detection, git-aware analysis (`--changed-since`), baseline comparison (`--baseline`), and SARIF output for GitHub Code Scanning.
 
@@ -129,39 +129,43 @@ knip is a good tool with broader framework coverage. fallow covers the most popu
 | Algorithm | Suffix array with LCP | Rabin-Karp rolling hash |
 | Dead code integration | Built-in (`fallow check`) | Not included |
 | Runtime dependency | None (standalone binary) | Node.js |
-| Config format | TOML | JSON |
+| Config format | JSONC, JSON, TOML | JSON |
 
 jscpd is a mature, well-established duplication detector. fallow dupes offers significantly faster performance via suffix arrays instead of pairwise comparison, semantic-aware detection modes (renamed variables, different literals), and the convenience of a single tool for both dead code and duplication analysis.
 
 ## Configuration
 
-Create `fallow.toml` in your project root, or run `fallow init`:
+Create a config file in your project root, or run `fallow init`:
 
-```toml
-entry = ["src/workers/*.ts", "scripts/*.ts"]
-ignore = ["**/*.generated.ts", "**/*.d.ts"]
-ignore_dependencies = ["autoprefixer", "@types/node"]
-
-[detect]
-unused_files = true
-unused_exports = true
-unused_dependencies = true
-unused_types = true
-duplicate_exports = true
-
-# Per-issue-type severity: "error" (fail CI), "warn" (report only), "off" (ignore)
-[rules]
-unused_files = "error"
-unused_exports = "warn"
-unused_types = "off"
-unresolved_imports = "error"
+```jsonc
+// fallow.jsonc
+{
+  "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
+  "entry": ["src/workers/*.ts", "scripts/*.ts"],
+  "ignore": ["**/*.generated.ts", "**/*.d.ts"],
+  "ignore_dependencies": ["autoprefixer", "@types/node"],
+  "detect": {
+    "unused_files": true,
+    "unused_exports": true,
+    "unused_dependencies": true,
+    "unused_types": true,
+    "duplicate_exports": true
+  },
+  // Per-issue-type severity: "error" (fail CI), "warn" (report only), "off" (ignore)
+  "rules": {
+    "unused_files": "error",
+    "unused_exports": "warn",
+    "unused_types": "off",
+    "unresolved_imports": "error"
+  }
+}
 ```
 
-See the [full configuration reference](https://github.com/fallow-rs/fallow/wiki/Configuration) for all options, including `[rules]` severity levels, `[duplicates]` settings, `[[ignore_exports]]` rules, and custom framework presets.
+TOML is also supported (`fallow init --toml` creates `fallow.toml`). See the [full configuration reference](https://github.com/fallow-rs/fallow/wiki/Configuration) for all options, including `rules` severity levels, `duplicates` settings, `ignore_exports` rules, and custom framework presets.
 
 ## Framework support
 
-40 built-in plugins covering frameworks (Next.js, Nuxt, Remix, Astro, Angular, React Router, React Native, Expo, NestJS, Docusaurus), bundlers (Vite, Webpack, Rollup, Tsup), testing (Vitest, Jest, Playwright, Cypress, Mocha, Ava, Storybook), linting (ESLint, Biome, Stylelint, Commitlint), transpilation (TypeScript, Babel), CSS (Tailwind, PostCSS), databases (Prisma, Drizzle, Knex), monorepos (Turborepo, Nx, Changesets), CI/CD (semantic-release), deployment (Wrangler, Sentry), and more (GraphQL Codegen, MSW). If your framework isn't listed, you can add a [custom preset](https://github.com/fallow-rs/fallow/wiki/Custom-Presets) in `fallow.toml`.
+40 built-in plugins covering frameworks (Next.js, Nuxt, Remix, Astro, Angular, React Router, React Native, Expo, NestJS, Docusaurus), bundlers (Vite, Webpack, Rollup, Tsup), testing (Vitest, Jest, Playwright, Cypress, Mocha, Ava, Storybook), linting (ESLint, Biome, Stylelint, Commitlint), transpilation (TypeScript, Babel), CSS (Tailwind, PostCSS), databases (Prisma, Drizzle, Knex), monorepos (Turborepo, Nx, Changesets), CI/CD (semantic-release), deployment (Wrangler, Sentry), and more (GraphQL Codegen, MSW). If your framework isn't listed, you can add a [custom preset](https://github.com/fallow-rs/fallow/wiki/Custom-Presets) in your config file.
 
 ## CI integration
 
