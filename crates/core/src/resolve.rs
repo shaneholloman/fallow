@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use dashmap::DashMap;
-use fallow_config::ResolvedConfig;
 use oxc_resolver::{ResolveOptions, Resolver};
 use rayon::prelude::*;
 
@@ -79,10 +78,11 @@ pub struct ResolvedModule {
 /// Resolve all imports across all modules in parallel.
 pub fn resolve_all_imports(
     modules: &[ModuleInfo],
-    config: &ResolvedConfig,
     files: &[DiscoveredFile],
     workspaces: &[fallow_config::WorkspaceInfo],
     active_plugins: &[String],
+    path_aliases: &[(String, String)],
+    root: &Path,
 ) -> Vec<ResolvedModule> {
     // Build workspace name → root index for pnpm store fallback.
     // Canonicalize roots to match path_to_id (which uses canonical paths).
@@ -119,7 +119,7 @@ pub fn resolve_all_imports(
         files.iter().map(|f| (f.id, f.path.as_path())).collect();
 
     // Create resolver ONCE and share across threads (oxc_resolver::Resolver is Send + Sync)
-    let resolver = create_resolver(config, active_plugins);
+    let resolver = create_resolver(active_plugins);
 
     // Cache for bare specifier resolutions (e.g., `react`, `lodash/merge`)
     let bare_cache = BareSpecifierCache::new();
@@ -152,6 +152,8 @@ pub fn resolve_all_imports(
                         &raw_path_to_id,
                         &bare_cache,
                         &workspace_roots,
+                        path_aliases,
+                        root,
                     ),
                 })
                 .collect();
@@ -168,6 +170,8 @@ pub fn resolve_all_imports(
                         &raw_path_to_id,
                         &bare_cache,
                         &workspace_roots,
+                        path_aliases,
+                        root,
                     );
                     if !imp.destructured_names.is_empty() {
                         // `const { a, b } = await import('./x')` → Named imports
@@ -227,6 +231,8 @@ pub fn resolve_all_imports(
                         &raw_path_to_id,
                         &bare_cache,
                         &workspace_roots,
+                        path_aliases,
+                        root,
                     ),
                 })
                 .collect();
@@ -245,6 +251,8 @@ pub fn resolve_all_imports(
                         &raw_path_to_id,
                         &bare_cache,
                         &workspace_roots,
+                        path_aliases,
+                        root,
                     );
                     if req.destructured_names.is_empty() {
                         vec![ResolvedImport {
@@ -438,7 +446,7 @@ fn build_condition_names(active_plugins: &[String]) -> Vec<String> {
 /// When React Native or Expo plugins are active, platform-specific extensions
 /// (e.g., `.web.tsx`, `.ios.ts`) are prepended to the extension list so that
 /// Metro-style platform resolution works correctly.
-fn create_resolver(config: &ResolvedConfig, active_plugins: &[String]) -> Resolver {
+fn create_resolver(active_plugins: &[String]) -> Resolver {
     let mut options = ResolveOptions {
         extensions: build_extensions(active_plugins),
         // Support TypeScript's node16/nodenext module resolution where .ts files
@@ -457,32 +465,20 @@ fn create_resolver(config: &ResolvedConfig, active_plugins: &[String]) -> Resolv
         ..Default::default()
     };
 
-    // Auto-detect tsconfig.json (check common variants at project root)
-    let tsconfig_candidates = ["tsconfig.json", "tsconfig.app.json", "tsconfig.build.json"];
-    let root_tsconfig = tsconfig_candidates
-        .iter()
-        .map(|name| config.root.join(name))
-        .find(|p| p.exists());
-
-    if let Some(tsconfig) = root_tsconfig {
-        // Use manual config with auto references to also discover workspace tsconfigs
-        options.tsconfig = Some(oxc_resolver::TsconfigDiscovery::Manual(
-            oxc_resolver::TsconfigOptions {
-                config_file: tsconfig,
-                references: oxc_resolver::TsconfigReferences::Auto,
-            },
-        ));
-    } else {
-        // No root tsconfig found — use auto-discovery mode so oxc_resolver
-        // can find the nearest tsconfig.json for each file (important for
-        // workspace packages that have their own tsconfig)
-        options.tsconfig = Some(oxc_resolver::TsconfigDiscovery::Auto);
-    }
+    // Always use auto-discovery mode so oxc_resolver finds the nearest tsconfig.json
+    // for each file. This is critical for monorepos where workspace packages have
+    // their own tsconfig with path aliases (e.g., `~/*` → `./src/*`). Manual mode
+    // with a root tsconfig only uses that single tsconfig's paths for ALL files,
+    // missing workspace-specific aliases. Auto mode walks up from each file to find
+    // the nearest tsconfig.json and follows `extends` chains, so workspace tsconfigs
+    // that extend a root tsconfig still inherit root-level paths.
+    options.tsconfig = Some(oxc_resolver::TsconfigDiscovery::Auto);
 
     Resolver::new(options)
 }
 
 /// Resolve a single import specifier to a target.
+#[allow(clippy::too_many_arguments)]
 fn resolve_specifier(
     resolver: &Resolver,
     from_file: &Path,
@@ -491,6 +487,8 @@ fn resolve_specifier(
     raw_path_to_id: &HashMap<&Path, FileId>,
     bare_cache: &BareSpecifierCache,
     workspace_roots: &HashMap<&str, &Path>,
+    path_aliases: &[(String, String)],
+    root: &Path,
 ) -> ResolveResult {
     // URL imports (https://, http://, data:) are valid but can't be resolved locally
     if specifier.contains("://") || specifier.starts_with("data:") {
@@ -561,9 +559,24 @@ fn resolve_specifier(
         }
         Err(_) => {
             if is_alias {
-                // Path aliases that fail resolution are unresolvable, not npm packages.
-                // Classifying them as NpmPackage would cause false "unlisted dependency" reports.
-                ResolveResult::Unresolvable(specifier.to_string())
+                // Try plugin-provided path aliases before giving up.
+                // These substitute import prefixes (e.g., `~/` → `app/`) and re-resolve
+                // as relative imports from the project root.
+                if let Some(resolved) = try_path_alias_fallback(
+                    resolver,
+                    specifier,
+                    path_aliases,
+                    root,
+                    path_to_id,
+                    raw_path_to_id,
+                    workspace_roots,
+                ) {
+                    resolved
+                } else {
+                    // Path aliases that fail resolution are unresolvable, not npm packages.
+                    // Classifying them as NpmPackage would cause false "unlisted dependency" reports.
+                    ResolveResult::Unresolvable(specifier.to_string())
+                }
             } else if is_bare {
                 let pkg_name = extract_package_name(specifier);
                 ResolveResult::NpmPackage(pkg_name)
@@ -580,6 +593,71 @@ fn resolve_specifier(
     }
 
     result
+}
+
+/// Try resolving a specifier using plugin-provided path aliases.
+///
+/// Substitutes a matching alias prefix (e.g., `~/`) with a directory relative to the
+/// project root (e.g., `app/`) and resolves the resulting path. This handles framework
+/// aliases like Nuxt's `~/`, `~~/`, `#shared/` that aren't defined in tsconfig.json
+/// but map to real filesystem paths.
+fn try_path_alias_fallback(
+    resolver: &Resolver,
+    specifier: &str,
+    path_aliases: &[(String, String)],
+    root: &Path,
+    path_to_id: &HashMap<&Path, FileId>,
+    raw_path_to_id: &HashMap<&Path, FileId>,
+    workspace_roots: &HashMap<&str, &Path>,
+) -> Option<ResolveResult> {
+    for (prefix, replacement) in path_aliases {
+        if !specifier.starts_with(prefix.as_str()) {
+            continue;
+        }
+
+        let remainder = &specifier[prefix.len()..];
+        // Build the substituted path relative to root.
+        // If replacement is empty, remainder is relative to root directly.
+        let substituted = if replacement.is_empty() {
+            format!("./{remainder}")
+        } else {
+            format!("./{replacement}/{remainder}")
+        };
+
+        // Resolve from a synthetic file at the project root so relative paths work.
+        // Use a dummy file path in the root directory.
+        let root_file = root.join("__resolve_root__");
+        match resolver.resolve_file(&root_file, &substituted) {
+            Ok(resolved) => {
+                let resolved_path = resolved.path();
+                // Try raw path lookup first
+                if let Some(&file_id) = raw_path_to_id.get(resolved_path) {
+                    return Some(ResolveResult::InternalModule(file_id));
+                }
+                // Fall back to canonical path lookup
+                if let Ok(canonical) = resolved_path.canonicalize() {
+                    if let Some(&file_id) = path_to_id.get(canonical.as_path()) {
+                        return Some(ResolveResult::InternalModule(file_id));
+                    }
+                    if let Some(file_id) = try_source_fallback(&canonical, path_to_id) {
+                        return Some(ResolveResult::InternalModule(file_id));
+                    }
+                    if let Some(file_id) =
+                        try_pnpm_workspace_fallback(&canonical, path_to_id, workspace_roots)
+                    {
+                        return Some(ResolveResult::InternalModule(file_id));
+                    }
+                    if let Some(pkg_name) = extract_package_name_from_node_modules_path(&canonical)
+                    {
+                        return Some(ResolveResult::NpmPackage(pkg_name));
+                    }
+                    return Some(ResolveResult::ExternalFile(canonical));
+                }
+            }
+            Err(_) => continue,
+        }
+    }
+    None
 }
 
 /// Known output directory names that may appear in exports map targets.

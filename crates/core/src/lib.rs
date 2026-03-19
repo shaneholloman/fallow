@@ -180,10 +180,11 @@ fn analyze_full(config: &ResolvedConfig, retain: bool) -> Result<AnalysisOutput,
     let t = Instant::now();
     let resolved = resolve::resolve_all_imports(
         &modules,
-        config,
         files,
         workspaces,
         &plugin_result.active_plugins,
+        &plugin_result.path_aliases,
+        &config.root,
     );
     let resolve_ms = t.elapsed().as_secs_f64() * 1000.0;
 
@@ -338,6 +339,13 @@ fn run_plugins(
             result
                 .tooling_dependencies
                 .extend(ws_result.tooling_dependencies);
+            // Virtual module prefixes (e.g., Docusaurus @theme/, @site/) are
+            // package-name prefixes, not file paths — no workspace prefix needed.
+            for prefix in &ws_result.virtual_module_prefixes {
+                if !result.virtual_module_prefixes.contains(prefix) {
+                    result.virtual_module_prefixes.push(prefix.clone());
+                }
+            }
         }
     }
 

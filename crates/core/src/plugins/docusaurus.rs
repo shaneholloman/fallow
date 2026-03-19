@@ -34,7 +34,13 @@ const TOOLING_DEPENDENCIES: &[&str] = &[
 /// Virtual module prefixes provided by Docusaurus at build time.
 /// These are resolved by the Docusaurus bundler and should not be
 /// flagged as unlisted dependencies.
-const VIRTUAL_MODULE_PREFIXES: &[&str] = &["@theme/", "@docusaurus/", "@site/", "@generated/"];
+const VIRTUAL_MODULE_PREFIXES: &[&str] = &[
+    "@theme/",
+    "@theme-original/",
+    "@docusaurus/",
+    "@site/",
+    "@generated/",
+];
 
 impl Plugin for DocusaurusPlugin {
     fn name(&self) -> &'static str {

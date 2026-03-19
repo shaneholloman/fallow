@@ -110,8 +110,20 @@ pub fn find_dead_code_full(
     }
 
     if config.detect.unresolved_imports && !resolved_modules.is_empty() {
-        results.unresolved_imports =
-            find_unresolved_imports(resolved_modules, config, &suppressions_by_file);
+        let virtual_prefixes: Vec<&str> = plugin_result
+            .map(|pr| {
+                pr.virtual_module_prefixes
+                    .iter()
+                    .map(|s| s.as_str())
+                    .collect()
+            })
+            .unwrap_or_default();
+        results.unresolved_imports = find_unresolved_imports(
+            resolved_modules,
+            config,
+            &suppressions_by_file,
+            &virtual_prefixes,
+        );
     }
 
     if config.detect.duplicate_exports {
@@ -898,6 +910,13 @@ fn find_unlisted_dependencies(
         })
         .unwrap_or_default();
 
+    // Collect tooling dependencies from active plugins — these are framework-provided
+    // packages (e.g., Nuxt provides `ofetch`, `h3`, `vue-router` at runtime) that may
+    // be imported in user code without being listed in package.json.
+    let plugin_tooling: HashSet<&str> = plugin_result
+        .map(|pr| pr.tooling_dependencies.iter().map(|s| s.as_str()).collect())
+        .unwrap_or_default();
+
     let mut unlisted: HashMap<String, Vec<std::path::PathBuf>> = HashMap::new();
 
     for (package_name, file_ids) in &graph.package_usage {
@@ -906,6 +925,10 @@ fn find_unlisted_dependencies(
         }
         // Skip internal workspace package names
         if workspace_names.contains(package_name) {
+            continue;
+        }
+        // Skip framework-provided dependencies declared by active plugins
+        if plugin_tooling.contains(package_name.as_str()) {
             continue;
         }
         // Skip virtual module imports provided by active framework plugins
@@ -989,6 +1012,7 @@ fn find_unresolved_imports(
     resolved_modules: &[ResolvedModule],
     _config: &ResolvedConfig,
     suppressions_by_file: &HashMap<FileId, &[Suppression]>,
+    virtual_prefixes: &[&str],
 ) -> Vec<UnresolvedImport> {
     let mut unresolved = Vec::new();
 
@@ -998,6 +1022,15 @@ fn find_unresolved_imports(
 
         for import in &module.resolved_imports {
             if let crate::resolve::ResolveResult::Unresolvable(spec) = &import.target {
+                // Skip virtual module imports provided by active framework plugins
+                // (e.g., Nuxt's #imports, #app, #components, #build).
+                if virtual_prefixes
+                    .iter()
+                    .any(|prefix| spec.starts_with(prefix))
+                {
+                    continue;
+                }
+
                 let source = source_content.get_or_insert_with(|| read_source(&module.path));
                 let (line, col) = byte_offset_to_line_col(source, import.info.span.start);
 

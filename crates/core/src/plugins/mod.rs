@@ -98,6 +98,19 @@ pub trait Plugin: Send + Sync {
         &[]
     }
 
+    /// Path alias mappings provided by this framework at build time.
+    ///
+    /// Returns a list of `(prefix, replacement_dir)` tuples. When an import starting
+    /// with `prefix` fails to resolve, the resolver will substitute the prefix with
+    /// `replacement_dir` (relative to the project root) and retry.
+    ///
+    /// Called once when plugins are activated. The project `root` is provided so
+    /// plugins can inspect the filesystem (e.g., Nuxt checks whether `app/` exists
+    /// to determine the `srcDir`).
+    fn path_aliases(&self, _root: &Path) -> Vec<(&'static str, String)> {
+        vec![]
+    }
+
     /// Parse a config file's AST to discover additional entries, dependencies, etc.
     ///
     /// Called for each config file matching `config_patterns()`. The source code
@@ -267,6 +280,9 @@ pub struct AggregatedPluginResult {
     /// Import prefixes for virtual modules provided by active frameworks.
     /// Imports matching these prefixes should not be flagged as unlisted dependencies.
     pub virtual_module_prefixes: Vec<String>,
+    /// Path alias mappings from active plugins (prefix → replacement directory).
+    /// Used by the resolver to substitute import prefixes before re-resolving.
+    pub path_aliases: Vec<(String, String)>,
     /// Names of active plugins.
     pub active_plugins: Vec<String>,
 }
@@ -395,6 +411,9 @@ impl PluginRegistry {
             }
             for prefix in plugin.virtual_module_prefixes() {
                 result.virtual_module_prefixes.push((*prefix).to_string());
+            }
+            for (prefix, replacement) in plugin.path_aliases(root) {
+                result.path_aliases.push((prefix.to_string(), replacement));
             }
         }
 
