@@ -37,10 +37,10 @@
       }
     },
     "framework": {
-      "description": "Custom framework definitions.",
+      "description": "Custom framework definitions (inline plugin definitions).",
       "type": "array",
       "items": {
-        "$ref": "#/$defs/FrameworkPreset"
+        "$ref": "#/$defs/ExternalPluginDef"
       },
       "default": []
     },
@@ -114,7 +114,7 @@
       "default": false
     },
     "plugins": {
-      "description": "Paths to external plugin files or directories containing plugin TOML files.\n\nIn addition to these explicit paths, fallow automatically discovers:\n- `*.toml` files in `.fallow/plugins/`\n- `fallow-plugin-*.toml` files in the project root",
+      "description": "Paths to external plugin files or directories containing plugin files.\n\nSupports TOML, JSON, and JSONC formats.\n\nIn addition to these explicit paths, fallow automatically discovers:\n- `*.toml`, `*.json`, `*.jsonc` files in `.fallow/plugins/`\n- `fallow-plugin-*.{toml,json,jsonc}` files in the project root",
       "type": "array",
       "items": {
         "type": "string"
@@ -180,19 +180,19 @@
         }
       }
     },
-    "FrameworkPreset": {
-      "description": "Declarative framework detection and entry point configuration.\n\nUsers can define custom framework presets via the fallow config file to add\nproject-specific entry points, always-used files, and used export rules.\nBuilt-in framework support is provided by the plugin system in fallow-core.",
+    "ExternalPluginDef": {
+      "description": "A declarative plugin definition loaded from a standalone file or inline config.\n\nExternal plugins provide the same static pattern capabilities as built-in\nplugins (entry points, always-used files, used exports, tooling dependencies),\nbut are defined in standalone files or inline in the fallow config rather than\ncompiled Rust code.\n\nThey cannot do AST-based config parsing (`resolve_config()`), but cover the\nvast majority of framework integration use cases.\n\nSupports JSONC, JSON, and TOML formats. All use camelCase field names.\n\n```json\n{\n  \"$schema\": \"https://raw.githubusercontent.com/fallow-rs/fallow/main/plugin-schema.json\",\n  \"name\": \"my-framework\",\n  \"enablers\": [\"my-framework\", \"@my-framework/core\"],\n  \"entryPoints\": [\"src/routes/**/*.{ts,tsx}\"],\n  \"configPatterns\": [\"my-framework.config.{ts,js}\"],\n  \"alwaysUsed\": [\"src/setup.ts\"],\n  \"toolingDependencies\": [\"my-framework-cli\"],\n  \"usedExports\": [\n    { \"pattern\": \"src/routes/**/*.{ts,tsx}\", \"exports\": [\"default\", \"loader\", \"action\"] }\n  ]\n}\n```",
       "type": "object",
       "properties": {
         "name": {
-          "description": "Unique name for this framework.",
+          "description": "Unique name for this plugin.",
           "type": "string"
         },
         "detection": {
-          "description": "How to detect if this framework is in use.",
+          "description": "Rich detection logic (dependency checks, file existence, boolean combinators).\nTakes priority over `enablers` when set.",
           "anyOf": [
             {
-              "$ref": "#/$defs/FrameworkDetection"
+              "$ref": "#/$defs/PluginDetection"
             },
             {
               "type": "null"
@@ -200,16 +200,40 @@
           ],
           "default": null
         },
-        "entryPoints": {
-          "description": "Glob patterns for files that are entry points.",
+        "enablers": {
+          "description": "Package names that activate this plugin when found in package.json.\nSupports exact matches and prefix patterns (ending with `/`).\nOnly used when `detection` is not set.",
           "type": "array",
           "items": {
-            "$ref": "#/$defs/FrameworkEntryPattern"
+            "type": "string"
+          },
+          "default": []
+        },
+        "entryPoints": {
+          "description": "Glob patterns for entry point files.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "configPatterns": {
+          "description": "Glob patterns for config files (marked as always-used when active).",
+          "type": "array",
+          "items": {
+            "type": "string"
           },
           "default": []
         },
         "alwaysUsed": {
-          "description": "Files that are always considered \"used\".",
+          "description": "Files that are always considered \"used\" when this plugin is active.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "toolingDependencies": {
+          "description": "Dependencies that are tooling (used via CLI/config, not source imports).\nThese should not be flagged as unused devDependencies.",
           "type": "array",
           "items": {
             "type": "string"
@@ -217,10 +241,10 @@
           "default": []
         },
         "usedExports": {
-          "description": "Exports that are always considered used in matching files.",
+          "description": "Exports that are always considered used for matching file patterns.",
           "type": "array",
           "items": {
-            "$ref": "#/$defs/FrameworkUsedExport"
+            "$ref": "#/$defs/ExternalUsedExport"
           },
           "default": []
         }
@@ -229,11 +253,11 @@
         "name"
       ]
     },
-    "FrameworkDetection": {
-      "description": "How to detect if a framework is in use.",
+    "PluginDetection": {
+      "description": "How to detect if a plugin should be activated.\n\nWhen set on an `ExternalPluginDef`, this takes priority over `enablers`.\nSupports dependency checks, file existence checks, and boolean combinators.",
       "oneOf": [
         {
-          "description": "Framework detected if this package is in dependencies.",
+          "description": "Plugin detected if this package is in dependencies.",
           "type": "object",
           "properties": {
             "package": {
@@ -250,7 +274,7 @@
           ]
         },
         {
-          "description": "Framework detected if this file pattern matches.",
+          "description": "Plugin detected if this file pattern matches.",
           "type": "object",
           "properties": {
             "pattern": {
@@ -273,7 +297,7 @@
             "conditions": {
               "type": "array",
               "items": {
-                "$ref": "#/$defs/FrameworkDetection"
+                "$ref": "#/$defs/PluginDetection"
               }
             },
             "type": {
@@ -293,7 +317,7 @@
             "conditions": {
               "type": "array",
               "items": {
-                "$ref": "#/$defs/FrameworkDetection"
+                "$ref": "#/$defs/PluginDetection"
               }
             },
             "type": {
@@ -308,29 +332,16 @@
         }
       ]
     },
-    "FrameworkEntryPattern": {
-      "description": "Entry point pattern from a framework.",
-      "type": "object",
-      "properties": {
-        "pattern": {
-          "description": "Glob pattern for entry point files.",
-          "type": "string"
-        }
-      },
-      "required": [
-        "pattern"
-      ]
-    },
-    "FrameworkUsedExport": {
+    "ExternalUsedExport": {
       "description": "Exports considered used for files matching a pattern.",
       "type": "object",
       "properties": {
-        "filePattern": {
-          "description": "Files matching this glob pattern.",
+        "pattern": {
+          "description": "Glob pattern for files.",
           "type": "string"
         },
         "exports": {
-          "description": "These exports are always considered used.",
+          "description": "Export names always considered used.",
           "type": "array",
           "items": {
             "type": "string"
@@ -338,7 +349,7 @@
         }
       },
       "required": [
-        "filePattern",
+        "pattern",
         "exports"
       ]
     },
