@@ -11,7 +11,7 @@
 
 use std::path::{Path, PathBuf};
 
-use fallow_config::{ExternalPluginDef, PackageJson};
+use fallow_config::{ExternalPluginDef, PackageJson, PluginDetection};
 
 /// Result of resolving a plugin's config file.
 #[derive(Debug, Default)]
@@ -372,12 +372,13 @@ impl PluginRegistry {
             }
         }
 
-        // Phase 2b: Process external plugins
+        // Phase 2b: Process external plugins (includes inline framework definitions)
         let all_deps = pkg.all_dependency_names();
+        let all_dep_refs: Vec<&str> = all_deps.iter().map(|s| s.as_str()).collect();
         for ext in &self.external_plugins {
-            let is_active = if ext.enablers.is_empty() {
-                false
-            } else {
+            let is_active = if let Some(detection) = &ext.detection {
+                check_plugin_detection(detection, &all_dep_refs, root, discovered_files)
+            } else if !ext.enablers.is_empty() {
                 ext.enablers.iter().any(|enabler| {
                     if enabler.ends_with('/') {
                         all_deps.iter().any(|d| d.starts_with(enabler))
@@ -385,6 +386,8 @@ impl PluginRegistry {
                         all_deps.iter().any(|d| d == enabler)
                     }
                 })
+            } else {
+                false
             };
             if is_active {
                 result.active_plugins.push(ext.name.clone());
@@ -464,6 +467,40 @@ impl PluginRegistry {
         }
 
         result
+    }
+}
+
+/// Check if a `PluginDetection` condition is satisfied.
+fn check_plugin_detection(
+    detection: &PluginDetection,
+    all_deps: &[&str],
+    root: &Path,
+    discovered_files: &[PathBuf],
+) -> bool {
+    match detection {
+        PluginDetection::Dependency { package } => all_deps.iter().any(|d| *d == package),
+        PluginDetection::FileExists { pattern } => {
+            // Check against discovered files first (fast path)
+            if let Ok(matcher) = globset::Glob::new(pattern).map(|g| g.compile_matcher()) {
+                for file in discovered_files {
+                    let relative = file.strip_prefix(root).unwrap_or(file);
+                    if matcher.is_match(relative) {
+                        return true;
+                    }
+                }
+            }
+            // Fall back to glob on disk for non-source files (e.g., config files)
+            let full_pattern = root.join(pattern).to_string_lossy().to_string();
+            glob::glob(&full_pattern)
+                .ok()
+                .is_some_and(|mut g| g.next().is_some())
+        }
+        PluginDetection::All { conditions } => conditions
+            .iter()
+            .all(|c| check_plugin_detection(c, all_deps, root, discovered_files)),
+        PluginDetection::Any { conditions } => conditions
+            .iter()
+            .any(|c| check_plugin_detection(c, all_deps, root, discovered_files)),
     }
 }
 

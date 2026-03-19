@@ -53,17 +53,49 @@ fallow plugin-schema
 | `configPatterns` | string[] | Glob patterns for config files (marked always-used) |
 | `alwaysUsed` | string[] | Glob patterns for files always considered used |
 | `toolingDependencies` | string[] | Packages used via CLI, not source imports |
+| `detection` | object | Rich activation logic (dependency, fileExists, all/any) |
 | `usedExports` | object[] | Exports always considered used in matching files |
 
 ### `enablers`
 
-Package names checked against `package.json` dependencies. The plugin activates if **any** enabler matches.
+Package names checked against `package.json` dependencies. The plugin activates if **any** enabler matches. Only used when `detection` is not set.
 
 Supports prefix matching with a trailing `/`:
 
 ```jsonc
 {
   "enablers": ["@myorg/"]  // matches @myorg/core, @myorg/cli, etc.
+}
+```
+
+### `detection`
+
+Rich activation logic with boolean combinators. Takes priority over `enablers` when set.
+
+```jsonc
+{
+  // Activate when a specific package is installed
+  "detection": { "type": "dependency", "package": "next" }
+}
+```
+
+```jsonc
+{
+  // Activate when a config file exists
+  "detection": { "type": "fileExists", "pattern": "nuxt.config.*" }
+}
+```
+
+```jsonc
+{
+  // Combine conditions
+  "detection": {
+    "type": "all",
+    "conditions": [
+      { "type": "dependency", "package": "@my-org/core" },
+      { "type": "fileExists", "pattern": "my-org.config.*" }
+    ]
+  }
 }
 ```
 

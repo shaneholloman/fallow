@@ -301,7 +301,7 @@ fn find_unused_exports(
     let mut unused_exports = Vec::new();
     let mut unused_types = Vec::new();
 
-    // Pre-compile glob matchers for ignore rules and framework rules
+    // Pre-compile glob matchers for ignore rules
     let ignore_matchers: Vec<(globset::GlobMatcher, &[String])> = config
         .ignore_export_rules
         .iter()
@@ -312,18 +312,7 @@ fn find_unused_exports(
         })
         .collect();
 
-    let framework_matchers: Vec<(globset::GlobMatcher, &[String])> = config
-        .framework_rules
-        .iter()
-        .flat_map(|rule| &rule.used_exports)
-        .filter_map(|used| {
-            globset::Glob::new(&used.file_pattern)
-                .ok()
-                .map(|g| (g.compile_matcher(), used.exports.as_slice()))
-        })
-        .collect();
-
-    // Also compile plugin-discovered used_exports rules
+    // Compile plugin-discovered used_exports rules (includes framework preset rules)
     let plugin_matchers: Vec<(globset::GlobMatcher, Vec<&str>)> = plugin_result
         .map(|pr| {
             pr.used_exports
@@ -375,20 +364,14 @@ fn find_unused_exports(
             .unwrap_or(&module.path);
         let file_str = relative_path.to_string_lossy();
 
-        // Pre-check which ignore/framework matchers match this file
+        // Pre-check which ignore/plugin matchers match this file
         let matching_ignore: Vec<&[String]> = ignore_matchers
             .iter()
             .filter(|(m, _)| m.is_match(file_str.as_ref()))
             .map(|(_, exports)| *exports)
             .collect();
 
-        let matching_framework: Vec<&[String]> = framework_matchers
-            .iter()
-            .filter(|(m, _)| m.is_match(file_str.as_ref()))
-            .map(|(_, exports)| *exports)
-            .collect();
-
-        // Check plugin-discovered used_exports rules
+        // Check plugin-discovered used_exports rules (includes framework preset rules)
         let matching_plugin: Vec<&Vec<&str>> = plugin_matchers
             .iter()
             .filter(|(m, _)| m.is_match(file_str.as_ref()))
@@ -410,15 +393,7 @@ fn find_unused_exports(
                     continue;
                 }
 
-                // Check if this export is considered "used" by a framework rule
-                if matching_framework
-                    .iter()
-                    .any(|exports| exports.iter().any(|e| e == &export_str))
-                {
-                    continue;
-                }
-
-                // Check if this export is considered "used" by a plugin rule
+                // Check if this export is considered "used" by a plugin/framework rule
                 if matching_plugin
                     .iter()
                     .any(|exports| exports.iter().any(|e| *e == export_str))

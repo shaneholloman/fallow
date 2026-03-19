@@ -26,6 +26,7 @@ dashmap = { workspace = true }
 
 # File system
 ignore = { workspace = true }
+glob = { workspace = true }
 globset = { workspace = true }
 regex = { workspace = true }
 

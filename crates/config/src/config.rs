@@ -6,7 +6,6 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::external_plugin::{ExternalPluginDef, discover_external_plugins};
-use crate::framework::FrameworkPreset;
 use crate::workspace::WorkspaceConfig;
 
 /// Supported config file names in priority order.
@@ -36,9 +35,9 @@ pub struct FallowConfig {
     #[serde(default)]
     pub detect: DetectConfig,
 
-    /// Custom framework definitions.
+    /// Custom framework definitions (inline plugin definitions).
     #[serde(default)]
-    pub framework: Vec<FrameworkPreset>,
+    pub framework: Vec<ExternalPluginDef>,
 
     /// Workspace overrides.
     #[serde(default)]
@@ -336,7 +335,6 @@ pub struct ResolvedConfig {
     pub entry_patterns: Vec<String>,
     pub ignore_patterns: GlobSet,
     pub detect: DetectConfig,
-    pub framework_rules: Vec<crate::framework::FrameworkRule>,
     pub output: OutputFormat,
     pub cache_dir: PathBuf,
     pub threads: usize,
@@ -347,7 +345,7 @@ pub struct ResolvedConfig {
     pub rules: RulesConfig,
     /// Whether production mode is active.
     pub production: bool,
-    /// External plugin definitions loaded from plugin files (TOML, JSON, JSONC).
+    /// External plugin definitions (from plugin files + inline framework definitions).
     pub external_plugins: Vec<ExternalPluginDef>,
 }
 
@@ -475,8 +473,6 @@ impl FallowConfig {
         let ignore_patterns = ignore_builder.build().unwrap_or_default();
         let cache_dir = root.join(".fallow");
 
-        let framework_rules = crate::framework::resolve_framework_rules(&self.framework);
-
         // Merge detect booleans into rules: detect=false forces Severity::Off
         let mut rules = self.rules;
         rules.merge_detect(&self.detect);
@@ -487,14 +483,15 @@ impl FallowConfig {
             rules.unused_dev_dependencies = Severity::Off;
         }
 
-        let external_plugins = discover_external_plugins(&root, &self.plugins);
+        let mut external_plugins = discover_external_plugins(&root, &self.plugins);
+        // Merge inline framework definitions into external plugins
+        external_plugins.extend(self.framework);
 
         ResolvedConfig {
             root,
             entry_patterns: self.entry,
             ignore_patterns,
             detect: self.detect,
-            framework_rules,
             output: self.output,
             cache_dir,
             threads,

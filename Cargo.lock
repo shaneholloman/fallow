@@ -616,6 +616,7 @@ dependencies = [
  "dashmap 6.1.0",
  "fallow-config",
  "fixedbitset",
+ "glob",
  "globset",
  "ignore",
  "indicatif",

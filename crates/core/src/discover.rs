@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use fallow_config::{FrameworkDetection, PackageJson, ResolvedConfig};
+use fallow_config::{PackageJson, ResolvedConfig};
 use ignore::WalkBuilder;
 
 /// A discovered source file on disk.
@@ -33,7 +33,7 @@ pub enum EntryPointSource {
     PackageJsonExports,
     PackageJsonBin,
     PackageJsonScript,
-    FrameworkRule { name: String },
+    Plugin { name: String },
     TestFile,
     DefaultIndex,
     ManualEntry,
@@ -255,29 +255,6 @@ fn try_output_to_source_path(base: &Path, entry: &str) -> Option<PathBuf> {
     None
 }
 
-/// Pre-compile entry point and always_used glob matchers from a framework rule.
-fn compile_rule_matchers(
-    rule: &fallow_config::FrameworkRule,
-) -> (Vec<globset::GlobMatcher>, Vec<globset::GlobMatcher>) {
-    let entry_matchers: Vec<globset::GlobMatcher> = rule
-        .entry_points
-        .iter()
-        .filter_map(|ep| {
-            globset::Glob::new(&ep.pattern)
-                .ok()
-                .map(|g| g.compile_matcher())
-        })
-        .collect();
-
-    let always_matchers: Vec<globset::GlobMatcher> = rule
-        .always_used
-        .iter()
-        .filter_map(|p| globset::Glob::new(p).ok().map(|g| g.compile_matcher()))
-        .collect();
-
-    (entry_matchers, always_matchers)
-}
-
 /// Default index patterns used when no other entry points are found.
 const DEFAULT_INDEX_PATTERNS: &[&str] = &[
     "src/index.{ts,tsx,js,jsx}",
@@ -386,30 +363,7 @@ pub fn discover_entry_points(config: &ResolvedConfig, files: &[DiscoveredFile]) 
             }
         }
 
-        // 3. Framework rules — cache active status + pre-compile pattern matchers
-        let active_rules: Vec<&fallow_config::FrameworkRule> = config
-            .framework_rules
-            .iter()
-            .filter(|rule| is_framework_active(rule, &pkg, &config.root))
-            .collect();
-
-        for rule in &active_rules {
-            let (entry_matchers, always_matchers) = compile_rule_matchers(rule);
-
-            // Single pass over files for all matchers of this rule
-            for (idx, rel) in relative_paths.iter().enumerate() {
-                let matched = entry_matchers.iter().any(|m| m.is_match(rel))
-                    || always_matchers.iter().any(|m| m.is_match(rel));
-                if matched {
-                    entries.push(EntryPoint {
-                        path: files[idx].path.clone(),
-                        source: EntryPointSource::FrameworkRule {
-                            name: rule.name.clone(),
-                        },
-                    });
-                }
-            }
-        }
+        // Framework rules now flow through PluginRegistry via external_plugins.
     }
 
     // 4. Auto-discover nested package.json entry points
@@ -490,43 +444,13 @@ fn discover_nested_package_entries(
     }
 }
 
-/// Check if a framework rule is active based on its detection config.
-fn is_framework_active(
-    rule: &fallow_config::FrameworkRule,
-    pkg: &PackageJson,
-    root: &Path,
-) -> bool {
-    match &rule.detection {
-        None => true, // No detection = always active
-        Some(detection) => check_detection(detection, pkg, root),
-    }
-}
-
-fn check_detection(detection: &FrameworkDetection, pkg: &PackageJson, root: &Path) -> bool {
-    match detection {
-        FrameworkDetection::Dependency { package } => {
-            pkg.all_dependency_names().iter().any(|d| d == package)
-        }
-        FrameworkDetection::FileExists { pattern } => file_exists_glob(pattern, root),
-        FrameworkDetection::All { conditions } => {
-            conditions.iter().all(|c| check_detection(c, pkg, root))
-        }
-        FrameworkDetection::Any { conditions } => {
-            conditions.iter().any(|c| check_detection(c, pkg, root))
-        }
-    }
-}
-
 /// Discover entry points for a workspace package.
 pub fn discover_workspace_entry_points(
     ws_root: &Path,
-    config: &ResolvedConfig,
+    _config: &ResolvedConfig,
     all_files: &[DiscoveredFile],
 ) -> Vec<EntryPoint> {
     let mut entries = Vec::new();
-
-    // Also load root package.json for framework detection (monorepo deps are often at root)
-    let root_pkg = PackageJson::load(&config.root.join("package.json")).ok();
 
     let pkg_path = ws_root.join("package.json");
     if let Ok(pkg) = PackageJson::load(&pkg_path) {
@@ -558,45 +482,7 @@ pub fn discover_workspace_entry_points(
             }
         }
 
-        // Apply framework rules to workspace.
-        // Check activation against BOTH workspace and root package deps (monorepo hoisting).
-        // Use path prefix matching instead of per-file canonicalize (avoids O(files×workspaces) syscalls)
-        for rule in &config.framework_rules {
-            let ws_active = is_framework_active(rule, &pkg, ws_root);
-            let root_active = root_pkg
-                .as_ref()
-                .map(|rpkg| is_framework_active(rule, rpkg, &config.root))
-                .unwrap_or(false);
-
-            if !ws_active && !root_active {
-                continue;
-            }
-
-            let (entry_matchers, always_matchers) = compile_rule_matchers(rule);
-
-            // Only consider files within this workspace — use strip_prefix instead of canonicalize
-            for file in all_files {
-                let relative = match file.path.strip_prefix(ws_root) {
-                    Ok(rel) => rel,
-                    Err(_) => continue,
-                };
-                let relative_str = relative.to_string_lossy();
-                let matched = entry_matchers
-                    .iter()
-                    .any(|m| m.is_match(relative_str.as_ref()))
-                    || always_matchers
-                        .iter()
-                        .any(|m| m.is_match(relative_str.as_ref()));
-                if matched {
-                    entries.push(EntryPoint {
-                        path: file.path.clone(),
-                        source: EntryPointSource::FrameworkRule {
-                            name: rule.name.clone(),
-                        },
-                    });
-                }
-            }
-        }
+        // Framework rules now flow through PluginRegistry via external_plugins.
     }
 
     // Fall back to default index files if no entry points found for this workspace
@@ -706,100 +592,6 @@ fn looks_like_script_file(token: &str) -> bool {
     token.contains('/') || token.starts_with("./") || token.starts_with("../")
 }
 
-/// Check whether any file matching a glob pattern exists under root.
-///
-/// Uses `globset::Glob` for pattern compilation (supports brace expansion like
-/// `{ts,js}`) and walks the static prefix directory to find matches.
-fn file_exists_glob(pattern: &str, root: &Path) -> bool {
-    let matcher = match globset::Glob::new(pattern) {
-        Ok(g) => g.compile_matcher(),
-        Err(_) => return false,
-    };
-
-    // Extract the static directory prefix from the pattern to narrow the walk.
-    // E.g. for ".storybook/main.{ts,js}" the prefix is ".storybook".
-    let prefix: PathBuf = Path::new(pattern)
-        .components()
-        .take_while(|c| {
-            let s = c.as_os_str().to_string_lossy();
-            !s.contains('*') && !s.contains('?') && !s.contains('{') && !s.contains('[')
-        })
-        .collect();
-
-    let search_dir = if prefix.as_os_str().is_empty() {
-        root.to_path_buf()
-    } else {
-        // prefix may be an exact directory or include the filename portion.
-        let joined = root.join(&prefix);
-        if joined.is_dir() {
-            joined
-        } else if let Some(parent) = joined.parent() {
-            // Only use parent if it's NOT the root itself (avoid walking entire project)
-            if parent != root && parent.is_dir() {
-                parent.to_path_buf()
-            } else {
-                // The prefix directory doesn't exist — no match possible
-                return false;
-            }
-        } else {
-            return false;
-        }
-    };
-
-    if !search_dir.is_dir() {
-        return false;
-    }
-
-    walk_dir_recursive(&search_dir, root, &matcher)
-}
-
-/// Maximum recursion depth for directory walking to prevent infinite loops on symlink cycles.
-const MAX_WALK_DEPTH: usize = 20;
-
-/// Recursively walk a directory and check if any file matches the glob.
-fn walk_dir_recursive(dir: &Path, root: &Path, matcher: &globset::GlobMatcher) -> bool {
-    walk_dir_recursive_depth(dir, root, matcher, 0)
-}
-
-/// Inner recursive walker with depth tracking.
-fn walk_dir_recursive_depth(
-    dir: &Path,
-    root: &Path,
-    matcher: &globset::GlobMatcher,
-    depth: usize,
-) -> bool {
-    if depth >= MAX_WALK_DEPTH {
-        tracing::warn!(
-            dir = %dir.display(),
-            "Maximum directory walk depth reached, possible symlink cycle"
-        );
-        return false;
-    }
-
-    let entries = match std::fs::read_dir(dir) {
-        Ok(rd) => rd,
-        Err(_) => return false,
-    };
-
-    for entry in entries.flatten() {
-        // Use symlink_metadata to avoid following symlinks (prevents cycles)
-        let is_real_dir = entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false);
-        if is_real_dir {
-            if walk_dir_recursive_depth(&entry.path(), root, matcher, depth + 1) {
-                return true;
-            }
-        } else {
-            let path = entry.path();
-            let relative = path.strip_prefix(root).unwrap_or(&path);
-            if matcher.is_match(relative) {
-                return true;
-            }
-        }
-    }
-
-    false
-}
-
 /// Discover entry points from plugin results (dynamic config parsing).
 ///
 /// Converts plugin-discovered patterns and setup files into concrete entry points
@@ -841,7 +633,7 @@ pub fn discover_plugin_entry_points(
         if matchers.iter().any(|m| m.is_match(rel)) {
             entries.push(EntryPoint {
                 path: files[idx].path.clone(),
-                source: EntryPointSource::FrameworkRule {
+                source: EntryPointSource::Plugin {
                     name: "plugin".to_string(),
                 },
             });
@@ -858,7 +650,7 @@ pub fn discover_plugin_entry_points(
         if resolved.exists() {
             entries.push(EntryPoint {
                 path: resolved,
-                source: EntryPointSource::FrameworkRule {
+                source: EntryPointSource::Plugin {
                     name: "plugin-setup".to_string(),
                 },
             });
@@ -869,7 +661,7 @@ pub fn discover_plugin_entry_points(
                 if with_ext.exists() {
                     entries.push(EntryPoint {
                         path: with_ext,
-                        source: EntryPointSource::FrameworkRule {
+                        source: EntryPointSource::Plugin {
                             name: "plugin-setup".to_string(),
                         },
                     });

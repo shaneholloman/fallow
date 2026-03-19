@@ -7,11 +7,29 @@ use serde::{Deserialize, Serialize};
 /// Supported plugin file extensions.
 const PLUGIN_EXTENSIONS: &[&str] = &["toml", "json", "jsonc"];
 
-/// A declarative plugin definition loaded from a standalone file.
+/// How to detect if a plugin should be activated.
+///
+/// When set on an `ExternalPluginDef`, this takes priority over `enablers`.
+/// Supports dependency checks, file existence checks, and boolean combinators.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum PluginDetection {
+    /// Plugin detected if this package is in dependencies.
+    Dependency { package: String },
+    /// Plugin detected if this file pattern matches.
+    FileExists { pattern: String },
+    /// All conditions must be true.
+    All { conditions: Vec<PluginDetection> },
+    /// Any condition must be true.
+    Any { conditions: Vec<PluginDetection> },
+}
+
+/// A declarative plugin definition loaded from a standalone file or inline config.
 ///
 /// External plugins provide the same static pattern capabilities as built-in
 /// plugins (entry points, always-used files, used exports, tooling dependencies),
-/// but are defined in standalone files rather than compiled Rust code.
+/// but are defined in standalone files or inline in the fallow config rather than
+/// compiled Rust code.
 ///
 /// They cannot do AST-based config parsing (`resolve_config()`), but cover the
 /// vast majority of framework integration use cases.
@@ -43,8 +61,14 @@ pub struct ExternalPluginDef {
     /// Unique name for this plugin.
     pub name: String,
 
+    /// Rich detection logic (dependency checks, file existence, boolean combinators).
+    /// Takes priority over `enablers` when set.
+    #[serde(default)]
+    pub detection: Option<PluginDetection>,
+
     /// Package names that activate this plugin when found in package.json.
     /// Supports exact matches and prefix patterns (ending with `/`).
+    /// Only used when `detection` is not set.
     #[serde(default)]
     pub enablers: Vec<String>,
 
@@ -803,5 +827,62 @@ enablers = ["pkg"]
         assert!(!is_plugin_file(Path::new("plugin.yaml")));
         assert!(!is_plugin_file(Path::new("plugin.txt")));
         assert!(!is_plugin_file(Path::new("plugin")));
+    }
+
+    // ── PluginDetection tests ────────────────────────────────────
+
+    #[test]
+    fn detection_deserialize_dependency() {
+        let json = r#"{"type": "dependency", "package": "next"}"#;
+        let detection: PluginDetection = serde_json::from_str(json).unwrap();
+        assert!(matches!(detection, PluginDetection::Dependency { package } if package == "next"));
+    }
+
+    #[test]
+    fn detection_deserialize_file_exists() {
+        let json = r#"{"type": "fileExists", "pattern": "tsconfig.json"}"#;
+        let detection: PluginDetection = serde_json::from_str(json).unwrap();
+        assert!(
+            matches!(detection, PluginDetection::FileExists { pattern } if pattern == "tsconfig.json")
+        );
+    }
+
+    #[test]
+    fn detection_deserialize_all() {
+        let json = r#"{"type": "all", "conditions": [{"type": "dependency", "package": "a"}, {"type": "dependency", "package": "b"}]}"#;
+        let detection: PluginDetection = serde_json::from_str(json).unwrap();
+        assert!(matches!(detection, PluginDetection::All { conditions } if conditions.len() == 2));
+    }
+
+    #[test]
+    fn detection_deserialize_any() {
+        let json = r#"{"type": "any", "conditions": [{"type": "dependency", "package": "a"}]}"#;
+        let detection: PluginDetection = serde_json::from_str(json).unwrap();
+        assert!(matches!(detection, PluginDetection::Any { conditions } if conditions.len() == 1));
+    }
+
+    #[test]
+    fn plugin_with_detection_field() {
+        let json = r#"{
+            "name": "my-plugin",
+            "detection": {"type": "dependency", "package": "my-pkg"},
+            "entryPoints": ["src/**/*.ts"]
+        }"#;
+        let plugin: ExternalPluginDef = serde_json::from_str(json).unwrap();
+        assert_eq!(plugin.name, "my-plugin");
+        assert!(plugin.detection.is_some());
+        assert!(plugin.enablers.is_empty());
+        assert_eq!(plugin.entry_points, vec!["src/**/*.ts"]);
+    }
+
+    #[test]
+    fn plugin_without_detection_uses_enablers() {
+        let json = r#"{
+            "name": "my-plugin",
+            "enablers": ["my-pkg"]
+        }"#;
+        let plugin: ExternalPluginDef = serde_json::from_str(json).unwrap();
+        assert!(plugin.detection.is_none());
+        assert_eq!(plugin.enablers, vec!["my-pkg"]);
     }
 }

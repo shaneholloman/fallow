@@ -114,8 +114,7 @@ cd benchmarks && npm run generate:dupes && npm run bench:dupes  # vs jscpd
   - **Babel**: presets/plugins with short-name resolution (e.g. "env" → "@babel/preset-env"), extends, JSON/.babelrc support
   - **Rollup**: input entries, external deps
   - **PostCSS**: plugins (object keys, require() calls, string arrays)
-- **Custom framework presets** (`crates/config/src/framework.rs`) — Users can add custom framework definitions via `fallow.toml` for project-specific entry points and rules.
-- **External plugins** (`crates/config/src/external_plugin.rs`) — Standalone plugin definitions (JSONC, JSON, TOML) for community-driven framework support without writing Rust code. Discovered from: `plugins` config field, `.fallow/plugins/` directory, and `fallow-plugin-*.{jsonc,json,toml}` files in project root. Supports entry points, always-used files, used exports, config patterns, and tooling dependencies. All formats use camelCase field names. `$schema` field supported for IDE autocomplete in JSONC/JSON. See `docs/plugin-authoring.md` for the full format.
+- **External plugins** (`crates/config/src/external_plugin.rs`) — Standalone plugin definitions (JSONC, JSON, TOML) or inline via the `framework` config field. Discovered from: `plugins` config field, `.fallow/plugins/` directory, and `fallow-plugin-*.{jsonc,json,toml}` files in project root. Supports entry points, always-used files, used exports, config patterns, tooling dependencies, and rich `detection` logic (`dependency`, `fileExists`, `all`/`any` combinators). Inline `framework` definitions use the same `ExternalPluginDef` schema and are merged into the plugin pipeline. All formats use camelCase field names. `$schema` field supported for IDE autocomplete in JSONC/JSON. See `docs/plugin-authoring.md` for the full format.
 
 ## CLI features
 
