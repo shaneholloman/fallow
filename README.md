@@ -167,6 +167,18 @@ Create a config file in your project root, or run `fallow init`:
 
 TOML is also supported (`fallow init --toml` creates `fallow.toml`). See the [full configuration reference](https://github.com/fallow-rs/fallow/wiki/Configuration) for all options, including `rules` severity levels, `duplicates` settings, `ignore_exports` rules, and custom framework presets.
 
+### Migrating from knip or jscpd
+
+If you have an existing knip or jscpd config, fallow can migrate it automatically:
+
+```sh
+fallow migrate            # Auto-detect knip/jscpd configs, write fallow.jsonc
+fallow migrate --toml     # Output as TOML instead
+fallow migrate --dry-run  # Preview without writing
+```
+
+This reads your knip.json/knip.jsonc/.knip.json/.knip.jsonc and/or .jscpd.json (also checks package.json for embedded configs), maps settings to fallow equivalents, and warns about any fields that can't be migrated.
+
 ## Framework support
 
 46 built-in plugins covering frameworks (Next.js, Nuxt, Remix, SvelteKit, Gatsby, Astro, Angular, React Router, React Native, Expo, NestJS, Docusaurus), bundlers (Vite, Webpack, Rspack, Rollup, Tsup), testing (Vitest, Jest, Playwright, Cypress, Mocha, Ava, Storybook), linting (ESLint, Biome, Stylelint, Commitlint), transpilation (TypeScript, Babel), CSS (Tailwind, PostCSS), databases (Prisma, Drizzle, Knex), monorepos (Turborepo, Nx, Changesets), CI/CD (semantic-release), deployment (Wrangler, Sentry), git hooks (husky, lint-staged, lefthook), and more (GraphQL Codegen, MSW). If your framework isn't listed, you can add a [custom preset](https://github.com/fallow-rs/fallow/wiki/Custom-Presets) in your config file.
@@ -191,7 +203,8 @@ Supports `--changed-since main` for PR-only analysis, `--baseline` for failing o
 - **Inline suppression** — `// fallow-ignore-next-line` and `// fallow-ignore-file` comments to suppress individual findings
 - **Watch mode** — `fallow watch` re-analyzes on file changes
 - **Auto-fix** — `fallow fix` removes unused exports and dependencies (`--dry-run` to preview)
-- **LSP server** — real-time diagnostics and "remove unused export" code actions in your editor
+- **VS Code extension** — tree views for dead code and duplicates, status bar, auto-download of the LSP binary, one-click fixes ([`editors/vscode`](editors/vscode))
+- **LSP server** — real-time diagnostics and "remove unused export" code actions in any editor
 - **Workspace support** — npm, yarn, and pnpm workspaces (including `pnpm-workspace.yaml`)
 - **Script binary analysis** — parses `package.json` scripts to detect CLI tool usage, reducing false positives in unused dependency detection
 - **Dynamic import resolution** — partial resolution of template literals, `import.meta.glob`, and `require.context`

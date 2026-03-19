@@ -7,6 +7,7 @@ use fallow_config::{FallowConfig, OutputFormat, RulesConfig, Severity, discover_
 
 mod baseline;
 mod fix;
+mod migrate;
 mod report;
 
 use baseline::{BaselineData, DuplicationBaselineData, filter_new_clone_groups, filter_new_issues};
@@ -218,6 +219,21 @@ enum Command {
 
     /// Dump the CLI interface as machine-readable JSON for agent introspection
     Schema,
+
+    /// Migrate configuration from knip or jscpd to fallow
+    Migrate {
+        /// Generate TOML instead of JSONC
+        #[arg(long)]
+        toml: bool,
+
+        /// Only preview the generated config without writing
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Path to source config file (auto-detect if not specified)
+        #[arg(long, value_name = "PATH")]
+        from: Option<PathBuf>,
+    },
 }
 
 #[derive(Clone, clap::ValueEnum)]
@@ -758,6 +774,11 @@ fn main() -> ExitCode {
             trace.as_deref(),
         ),
         Command::Schema => unreachable!("handled above"),
+        Command::Migrate {
+            toml,
+            dry_run,
+            from,
+        } => migrate::run_migrate(&root, toml, dry_run, from),
     }
 }
 

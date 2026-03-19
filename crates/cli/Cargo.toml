@@ -17,9 +17,13 @@ clap = { workspace = true }
 colored = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+json_comments = { workspace = true }
 indicatif = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 miette = { workspace = true }
 notify = { workspace = true }
 notify-debouncer-mini = { workspace = true }
+
+[dev-dependencies]
+toml = { workspace = true }

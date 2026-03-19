@@ -120,6 +120,19 @@ fallow init          # creates fallow.jsonc
 fallow init --toml   # creates fallow.toml
 ```
 
+### `migrate`
+
+Migrate configuration from knip and/or jscpd to fallow. Auto-detects config files in the project root (knip.json, knip.jsonc, .knip.json, .knip.jsonc, .jscpd.json, and package.json embedded configs).
+
+```bash
+fallow migrate              # auto-detect and write fallow.jsonc
+fallow migrate --toml       # output as TOML
+fallow migrate --dry-run    # preview without writing
+fallow migrate --from PATH  # specify source config file
+```
+
+Maps knip rules/exclude/include to fallow's rules system, knip ignore/ignoreDependencies to fallow equivalents, and jscpd settings (minTokens, minLines, threshold, mode, skipLocal, ignore) to fallow's duplicates config. Warns about unmappable fields with suggestions.
+
 ### `schema`
 
 Dump the full CLI interface definition as machine-readable JSON. Use this for runtime introspection of available commands, flags, and options.
