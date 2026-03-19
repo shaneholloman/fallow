@@ -1,0 +1,97 @@
+---
+source: crates/cli/tests/snapshot_tests.rs
+assertion_line: 89
+expression: "json_str.replace(&format!(\"\\\"version\\\": \\\"{}\\\"\", env!(\"CARGO_PKG_VERSION\")),\n\"\\\"version\\\": \\\"[VERSION]\\\"\",)"
+---
+{
+  "unused_files": [
+    {
+      "path": "/project/src/dead.ts"
+    }
+  ],
+  "unused_exports": [
+    {
+      "path": "/project/src/utils.ts",
+      "export_name": "helperFn",
+      "is_type_only": false,
+      "line": 10,
+      "col": 4,
+      "span_start": 120,
+      "is_re_export": false
+    }
+  ],
+  "unused_types": [
+    {
+      "path": "/project/src/types.ts",
+      "export_name": "OldType",
+      "is_type_only": true,
+      "line": 5,
+      "col": 0,
+      "span_start": 60,
+      "is_re_export": false
+    }
+  ],
+  "unused_dependencies": [
+    {
+      "package_name": "lodash",
+      "location": "dependencies",
+      "path": "/project/package.json"
+    }
+  ],
+  "unused_dev_dependencies": [
+    {
+      "package_name": "jest",
+      "location": "devDependencies",
+      "path": "/project/package.json"
+    }
+  ],
+  "unused_enum_members": [
+    {
+      "path": "/project/src/enums.ts",
+      "parent_name": "Status",
+      "member_name": "Deprecated",
+      "kind": "enum_member",
+      "line": 8,
+      "col": 2
+    }
+  ],
+  "unused_class_members": [
+    {
+      "path": "/project/src/service.ts",
+      "parent_name": "UserService",
+      "member_name": "legacyMethod",
+      "kind": "class_method",
+      "line": 42,
+      "col": 4
+    }
+  ],
+  "unresolved_imports": [
+    {
+      "path": "/project/src/app.ts",
+      "specifier": "./missing-module",
+      "line": 3,
+      "col": 0
+    }
+  ],
+  "unlisted_dependencies": [
+    {
+      "package_name": "chalk",
+      "imported_from": [
+        "/project/src/cli.ts"
+      ]
+    }
+  ],
+  "duplicate_exports": [
+    {
+      "export_name": "Config",
+      "locations": [
+        "/project/src/config.ts",
+        "/project/src/types.ts"
+      ]
+    }
+  ],
+  "type_only_dependencies": [],
+  "version": "[VERSION]",
+  "elapsed_ms": 42,
+  "total_issues": 10
+}

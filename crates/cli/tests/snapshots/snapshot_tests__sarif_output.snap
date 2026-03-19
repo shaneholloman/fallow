@@ -1,0 +1,310 @@
+---
+source: crates/cli/tests/snapshot_tests.rs
+assertion_line: 118
+expression: "json_str.replace(&format!(\"\\\"version\\\": \\\"{}\\\"\", env!(\"CARGO_PKG_VERSION\")),\n\"\\\"version\\\": \\\"[VERSION]\\\"\",)"
+---
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "fallow",
+          "version": "[VERSION]",
+          "informationUri": "https://github.com/fallow-rs/fallow",
+          "rules": [
+            {
+              "id": "fallow/unused-file",
+              "shortDescription": {
+                "text": "File is not reachable from any entry point"
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              }
+            },
+            {
+              "id": "fallow/unused-export",
+              "shortDescription": {
+                "text": "Export is never imported"
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              }
+            },
+            {
+              "id": "fallow/unused-type",
+              "shortDescription": {
+                "text": "Type export is never imported"
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              }
+            },
+            {
+              "id": "fallow/unused-dependency",
+              "shortDescription": {
+                "text": "Dependency listed but never imported"
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              }
+            },
+            {
+              "id": "fallow/unused-dev-dependency",
+              "shortDescription": {
+                "text": "Dev dependency listed but never imported"
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              }
+            },
+            {
+              "id": "fallow/unused-enum-member",
+              "shortDescription": {
+                "text": "Enum member is never referenced"
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              }
+            },
+            {
+              "id": "fallow/unused-class-member",
+              "shortDescription": {
+                "text": "Class member is never referenced"
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              }
+            },
+            {
+              "id": "fallow/unresolved-import",
+              "shortDescription": {
+                "text": "Import could not be resolved"
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              }
+            },
+            {
+              "id": "fallow/unlisted-dependency",
+              "shortDescription": {
+                "text": "Dependency used but not in package.json"
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              }
+            },
+            {
+              "id": "fallow/duplicate-export",
+              "shortDescription": {
+                "text": "Export name appears in multiple modules"
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "fallow/unused-file",
+          "level": "error",
+          "message": {
+            "text": "File is not reachable from any entry point"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/dead.ts"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "fallow/unused-export",
+          "level": "error",
+          "message": {
+            "text": "Export 'helperFn' is never imported by other modules"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/utils.ts"
+                },
+                "region": {
+                  "startLine": 10,
+                  "startColumn": 5
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "fallow/unused-type",
+          "level": "error",
+          "message": {
+            "text": "Type export 'OldType' is never imported by other modules"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/types.ts"
+                },
+                "region": {
+                  "startLine": 5,
+                  "startColumn": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "fallow/unused-dependency",
+          "level": "error",
+          "message": {
+            "text": "Package 'lodash' is in dependencies but never imported"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "package.json"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "fallow/unused-dev-dependency",
+          "level": "error",
+          "message": {
+            "text": "Package 'jest' is in devDependencies but never imported"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "package.json"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "fallow/unused-enum-member",
+          "level": "error",
+          "message": {
+            "text": "Enum member 'Status.Deprecated' is never referenced"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/enums.ts"
+                },
+                "region": {
+                  "startLine": 8,
+                  "startColumn": 3
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "fallow/unused-class-member",
+          "level": "error",
+          "message": {
+            "text": "Class member 'UserService.legacyMethod' is never referenced"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/service.ts"
+                },
+                "region": {
+                  "startLine": 42,
+                  "startColumn": 5
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "fallow/unresolved-import",
+          "level": "error",
+          "message": {
+            "text": "Import './missing-module' could not be resolved"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/app.ts"
+                },
+                "region": {
+                  "startLine": 3,
+                  "startColumn": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "fallow/unlisted-dependency",
+          "level": "error",
+          "message": {
+            "text": "Package 'chalk' is imported but not listed in package.json"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "package.json"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "fallow/duplicate-export",
+          "level": "error",
+          "message": {
+            "text": "Export 'Config' appears in multiple modules"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/config.ts"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "fallow/duplicate-export",
+          "level": "error",
+          "message": {
+            "text": "Export 'Config' appears in multiple modules"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/types.ts"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

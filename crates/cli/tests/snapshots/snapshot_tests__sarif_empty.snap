@@ -1,0 +1,113 @@
+---
+source: crates/cli/tests/snapshot_tests.rs
+assertion_line: 132
+expression: "json_str.replace(&format!(\"\\\"version\\\": \\\"{}\\\"\", env!(\"CARGO_PKG_VERSION\")),\n\"\\\"version\\\": \\\"[VERSION]\\\"\",)"
+---
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "fallow",
+          "version": "[VERSION]",
+          "informationUri": "https://github.com/fallow-rs/fallow",
+          "rules": [
+            {
+              "id": "fallow/unused-file",
+              "shortDescription": {
+                "text": "File is not reachable from any entry point"
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              }
+            },
+            {
+              "id": "fallow/unused-export",
+              "shortDescription": {
+                "text": "Export is never imported"
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              }
+            },
+            {
+              "id": "fallow/unused-type",
+              "shortDescription": {
+                "text": "Type export is never imported"
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              }
+            },
+            {
+              "id": "fallow/unused-dependency",
+              "shortDescription": {
+                "text": "Dependency listed but never imported"
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              }
+            },
+            {
+              "id": "fallow/unused-dev-dependency",
+              "shortDescription": {
+                "text": "Dev dependency listed but never imported"
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              }
+            },
+            {
+              "id": "fallow/unused-enum-member",
+              "shortDescription": {
+                "text": "Enum member is never referenced"
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              }
+            },
+            {
+              "id": "fallow/unused-class-member",
+              "shortDescription": {
+                "text": "Class member is never referenced"
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              }
+            },
+            {
+              "id": "fallow/unresolved-import",
+              "shortDescription": {
+                "text": "Import could not be resolved"
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              }
+            },
+            {
+              "id": "fallow/unlisted-dependency",
+              "shortDescription": {
+                "text": "Dependency used but not in package.json"
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              }
+            },
+            {
+              "id": "fallow/duplicate-export",
+              "shortDescription": {
+                "text": "Export name appears in multiple modules"
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              }
+            }
+          ]
+        }
+      },
+      "results": []
+    }
+  ]
+}
