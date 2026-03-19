@@ -27,7 +27,7 @@ Pipeline: Config → File Discovery → Incremental Parallel Parsing (rayon + ox
 
 Key modules in fallow-core:
 - `project.rs` — `ProjectState` struct: owns the file registry (stable FileIds sorted by path) and workspace metadata. Foundation for cross-workspace resolution and future incremental analysis.
-- `discover.rs` — File walking + entry point detection (also workspace-aware). FileIds are assigned deterministically by path sort order (not size) for stability across runs.
+- `discover.rs` — File walking + entry point detection (also workspace-aware). FileIds are assigned deterministically by path sort order (not size) for stability across runs. Hidden directory allowlist (`.storybook`, `.well-known`, `.changeset`, `.github`) — other dotdirs are skipped. Only root-level `build/` is ignored (not nested `test/build/` etc.).
 - `extract.rs` — AST visitor extracting imports, exports, re-exports, members, whole-object uses, dynamic import patterns; SFC (Vue/Svelte) script extraction (HTML comment filtering, `<script src="...">` support); Astro frontmatter extraction; MDX import/export extraction; CSS Module class name extraction (`.module.css`/`.module.scss` → named exports). Returns `ParseResult` with modules + cache hit/miss statistics for incremental analysis visibility.
 - `resolve.rs` — oxc_resolver-based import resolution + glob-based dynamic import pattern resolution + DashMap-backed bare specifier cache for lock-free parallel lookups. Cross-workspace imports resolve through node_modules symlinks via canonicalize. Pnpm content-addressable store detection: `.pnpm` virtual store paths are mapped back to workspace source files for injected dependencies.
 - `graph.rs` — Module graph with re-export chain propagation
@@ -86,6 +86,7 @@ cd benchmarks && npm run generate:dupes && npm run bench:dupes  # vs jscpd
 19. CSS Modules (`.module.css`/`.module.scss`): class names extracted as named exports. Default imports (`import styles from '...'`) resolve member accesses (`styles.className`) to named exports via graph-level narrowing. Handles spread/`Object.values` conservatively.
 20. Package.json `exports` field subpath resolution: cross-workspace imports through exports maps (e.g., `"./utils": "./dist/utils.js"`) resolve correctly. Output directories (`dist/`, `build/`, `out/`, `esm/`, `cjs/`) are mapped back to `src/` equivalents with source extension fallback, including nested output subdirectories (e.g., `dist/esm/utils.mjs` → `src/utils.ts`), since fallow ignores output directories by default.
 21. Pnpm content-addressable store detection: `.pnpm` virtual store paths (e.g., `node_modules/.pnpm/@myorg+ui@1.0.0/node_modules/@myorg/ui/dist/index.js`) are mapped back to workspace source files. Handles injected dependencies, scoped/unscoped packages, and peer dependency suffixes.
+22. Package.json entry point fields: `main`, `module`, `types`, `typings`, `source`, `browser` (string or object), `bin` (string or object), and `exports` (recursive). The `source` field is a common convention for pointing to unbuilt source entry points.
 
 ## Framework support (46 plugins)
 
