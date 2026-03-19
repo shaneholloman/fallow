@@ -23,12 +23,12 @@ tests/
 
 ## Architecture
 
-Pipeline: Config → File Discovery → Parallel Parsing (rayon + oxc_parser) → Script Analysis → Module Resolution (oxc_resolver) → Graph Construction → Re-export Chain Resolution → Dead Code Detection → Reporting
+Pipeline: Config → File Discovery → Incremental Parallel Parsing (rayon + oxc_parser, cache-aware) → Script Analysis → Module Resolution (oxc_resolver) → Graph Construction → Re-export Chain Resolution → Dead Code Detection → Reporting
 
 Key modules in fallow-core:
 - `project.rs` — `ProjectState` struct: owns the file registry (stable FileIds sorted by path) and workspace metadata. Foundation for cross-workspace resolution and future incremental analysis.
 - `discover.rs` — File walking + entry point detection (also workspace-aware). FileIds are assigned deterministically by path sort order (not size) for stability across runs.
-- `extract.rs` — AST visitor extracting imports, exports, re-exports, members, whole-object uses, dynamic import patterns; SFC (Vue/Svelte) script extraction (HTML comment filtering, `<script src="...">` support); Astro frontmatter extraction; MDX import/export extraction
+- `extract.rs` — AST visitor extracting imports, exports, re-exports, members, whole-object uses, dynamic import patterns; SFC (Vue/Svelte) script extraction (HTML comment filtering, `<script src="...">` support); Astro frontmatter extraction; MDX import/export extraction. Returns `ParseResult` with modules + cache hit/miss statistics for incremental analysis visibility.
 - `resolve.rs` — oxc_resolver-based import resolution + glob-based dynamic import pattern resolution + DashMap-backed bare specifier cache for lock-free parallel lookups. Cross-workspace imports resolve through node_modules symlinks via canonicalize.
 - `graph.rs` — Module graph with re-export chain propagation
 - `analyze.rs` — Dead code detection (10 issue types) with inline suppression filtering
@@ -40,7 +40,7 @@ Key modules in fallow-core:
 - `cross_reference.rs` — Cross-references duplication findings with dead code analysis: identifies clone instances that are also unused (in unused files or overlapping unused exports) as high-priority combined findings
 - `plugins/` — Plugin system: `Plugin` trait, registry (46 built-in plugins, ~20 with AST-based config parsing); `config_parser.rs` provides Oxc-based helpers for extracting imports, string arrays, object keys, require() sources, and string-or-array values from JS/TS/JSON config files
 - `trace.rs` — Debug & trace tooling: trace export usage (`trace_export`), file edges (`trace_file`), dependency usage (`trace_dependency`), clone location (`trace_clone`), and `PipelineTimings` struct for `--performance` output
-- `cache.rs` — Incremental bincode cache with xxh3 hashing
+- `cache.rs` — Incremental bincode cache with xxh3 hashing. Unchanged files skip AST parsing and load from cache; only changed/new files are parsed. Cache is pruned of stale entries (deleted files) on each run. `--performance` output shows cache hit/miss stats.
 - `progress.rs` — indicatif progress bars
 - `errors.rs` — Error types
 

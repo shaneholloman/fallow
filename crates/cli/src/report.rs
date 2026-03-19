@@ -1408,11 +1408,16 @@ fn print_performance_human(t: &PipelineTimings) {
         "{}",
         format!("│  script analysis:  {:>8.1}ms", t.script_analysis_ms).dimmed()
     );
+    let cache_detail = if t.cache_hits > 0 {
+        format!(", {} cached, {} parsed", t.cache_hits, t.cache_misses)
+    } else {
+        String::new()
+    };
     eprintln!(
         "{}",
         format!(
-            "│  parse/extract:    {:>8.1}ms  ({} modules)",
-            t.parse_extract_ms, t.module_count
+            "│  parse/extract:    {:>8.1}ms  ({} modules{})",
+            t.parse_extract_ms, t.module_count, cache_detail
         )
         .dimmed()
     );

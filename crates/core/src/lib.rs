@@ -134,18 +134,31 @@ fn analyze_full(config: &ResolvedConfig, retain: bool) -> Result<AnalysisOutput,
         cache::CacheStore::load(&config.cache_dir)
     };
 
-    let modules = extract::parse_all_files(files, config, cache_store.as_ref());
+    let parse_result = extract::parse_all_files(files, config, cache_store.as_ref());
+    let modules = parse_result.modules;
+    let cache_hits = parse_result.cache_hits;
+    let cache_misses = parse_result.cache_misses;
     let parse_ms = t.elapsed().as_secs_f64() * 1000.0;
 
-    // Update cache with parsed results
+    // Update cache — only write modules that were freshly parsed (cache misses).
+    // Unchanged files are already in the cache with the correct hash, so
+    // re-serializing them would be wasted work.
     let t = Instant::now();
     if !config.no_cache {
         let store = cache_store.get_or_insert_with(cache::CacheStore::new);
         for module in &modules {
             if let Some(file) = files.get(module.file_id.0 as usize) {
+                // Skip modules that came from cache (content_hash already matches)
+                if let Some(cached) = store.get_by_path_only(&file.path)
+                    && cached.content_hash == module.content_hash
+                {
+                    continue;
+                }
                 store.insert(&file.path, cache::module_to_cached(module));
             }
         }
+        // Prune cache entries for files that no longer exist in the project
+        store.retain_paths(files);
         if let Err(e) = store.save(&config.cache_dir) {
             tracing::warn!("Failed to save cache: {e}");
         }
@@ -187,13 +200,19 @@ fn analyze_full(config: &ResolvedConfig, retain: bool) -> Result<AnalysisOutput,
 
     let total_ms = pipeline_start.elapsed().as_secs_f64() * 1000.0;
 
+    let cache_summary = if cache_hits > 0 {
+        format!(" ({} cached, {} parsed)", cache_hits, cache_misses)
+    } else {
+        String::new()
+    };
+
     tracing::debug!(
         "\n┌─ Pipeline Profile ─────────────────────────────\n\
          │  discover files:   {:>8.1}ms  ({} files)\n\
          │  workspaces:       {:>8.1}ms\n\
          │  plugins:          {:>8.1}ms\n\
          │  script analysis:  {:>8.1}ms\n\
-         │  parse/extract:    {:>8.1}ms  ({} modules)\n\
+         │  parse/extract:    {:>8.1}ms  ({} modules{})\n\
          │  cache update:     {:>8.1}ms\n\
          │  entry points:     {:>8.1}ms  ({} entries)\n\
          │  resolve imports:  {:>8.1}ms\n\
@@ -209,6 +228,7 @@ fn analyze_full(config: &ResolvedConfig, retain: bool) -> Result<AnalysisOutput,
         scripts_ms,
         parse_ms,
         modules.len(),
+        cache_summary,
         cache_ms,
         entry_points_ms,
         entry_points.len(),
@@ -228,6 +248,8 @@ fn analyze_full(config: &ResolvedConfig, retain: bool) -> Result<AnalysisOutput,
             script_analysis_ms: scripts_ms,
             parse_extract_ms: parse_ms,
             module_count: modules.len(),
+            cache_hits,
+            cache_misses,
             cache_update_ms: cache_ms,
             entry_points_ms,
             entry_point_count: entry_points.len(),

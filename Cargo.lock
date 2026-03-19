@@ -582,11 +582,13 @@ dependencies = [
  "fallow-config",
  "fallow-core",
  "indicatif",
+ "json_comments",
  "miette",
  "notify",
  "notify-debouncer-mini",
  "serde",
  "serde_json",
+ "toml",
  "tracing",
  "tracing-subscriber",
 ]

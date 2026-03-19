@@ -164,18 +164,28 @@ pub struct RequireCallInfo {
     pub local_name: Option<String>,
 }
 
+/// Result of parsing all files, including incremental cache statistics.
+pub struct ParseResult {
+    /// Extracted module information for all successfully parsed files.
+    pub modules: Vec<ModuleInfo>,
+    /// Number of files whose parse results were loaded from cache (unchanged).
+    pub cache_hits: usize,
+    /// Number of files that required a full parse (new or changed).
+    pub cache_misses: usize,
+}
+
 /// Parse all files in parallel, extracting imports and exports.
 /// Uses the cache to skip reparsing files whose content hasn't changed.
 pub fn parse_all_files(
     files: &[DiscoveredFile],
     _config: &ResolvedConfig,
     cache: Option<&CacheStore>,
-) -> Vec<ModuleInfo> {
+) -> ParseResult {
     use std::sync::atomic::{AtomicUsize, Ordering};
     let cache_hits = AtomicUsize::new(0);
     let cache_misses = AtomicUsize::new(0);
 
-    let result: Vec<ModuleInfo> = files
+    let modules: Vec<ModuleInfo> = files
         .par_iter()
         .filter_map(|file| parse_single_file_cached(file, cache, &cache_hits, &cache_misses))
         .collect();
@@ -190,7 +200,11 @@ pub fn parse_all_files(
         );
     }
 
-    result
+    ParseResult {
+        modules,
+        cache_hits: hits,
+        cache_misses: misses,
+    }
 }
 
 /// Parse a single file, consulting the cache first.

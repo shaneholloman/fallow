@@ -106,6 +106,10 @@ pub struct PipelineTimings {
     pub script_analysis_ms: f64,
     pub parse_extract_ms: f64,
     pub module_count: usize,
+    /// Number of files whose parse results were loaded from cache (skipped parsing).
+    pub cache_hits: usize,
+    /// Number of files that required a full parse (new or changed content).
+    pub cache_misses: usize,
     pub cache_update_ms: f64,
     pub entry_points_ms: f64,
     pub entry_point_count: usize,

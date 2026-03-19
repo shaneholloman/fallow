@@ -187,6 +187,25 @@ impl CacheStore {
         self.entries.insert(key, module);
     }
 
+    /// Look up a cached module by path only (ignoring hash).
+    /// Used to check whether a module's content hash matches without
+    /// requiring the caller to know the hash upfront.
+    pub fn get_by_path_only(&self, path: &Path) -> Option<&CachedModule> {
+        let key = path.to_string_lossy().to_string();
+        self.entries.get(&key)
+    }
+
+    /// Remove cache entries for files that are no longer in the project.
+    /// Keeps the cache from growing unboundedly as files are deleted.
+    pub fn retain_paths(&mut self, files: &[crate::discover::DiscoveredFile]) {
+        use std::collections::HashSet;
+        let current_paths: HashSet<String> = files
+            .iter()
+            .map(|f| f.path.to_string_lossy().to_string())
+            .collect();
+        self.entries.retain(|key, _| current_paths.contains(key));
+    }
+
     /// Number of cached entries.
     pub fn len(&self) -> usize {
         self.entries.len()
@@ -933,5 +952,108 @@ mod tests {
         assert!(restored.imports[0].is_type_only);
         assert_eq!(restored.imports[0].span.start, 0);
         assert_eq!(restored.imports[0].span.end, 10);
+    }
+
+    #[test]
+    fn get_by_path_only_returns_entry_regardless_of_hash() {
+        let mut store = CacheStore::new();
+        let module = CachedModule {
+            content_hash: 42,
+            exports: vec![],
+            imports: vec![],
+            re_exports: vec![],
+            dynamic_imports: vec![],
+            require_calls: vec![],
+            member_accesses: vec![],
+            whole_object_uses: vec![],
+            dynamic_import_patterns: vec![],
+            has_cjs_exports: false,
+            suppressions: vec![],
+        };
+        store.insert(Path::new("test.ts"), module);
+
+        // get_by_path_only should return the entry without checking hash
+        let result = store.get_by_path_only(Path::new("test.ts"));
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().content_hash, 42);
+    }
+
+    #[test]
+    fn get_by_path_only_returns_none_for_missing() {
+        let store = CacheStore::new();
+        assert!(
+            store
+                .get_by_path_only(Path::new("nonexistent.ts"))
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn retain_paths_removes_stale_entries() {
+        use crate::discover::DiscoveredFile;
+        use std::path::PathBuf;
+
+        let mut store = CacheStore::new();
+        let m = || CachedModule {
+            content_hash: 1,
+            exports: vec![],
+            imports: vec![],
+            re_exports: vec![],
+            dynamic_imports: vec![],
+            require_calls: vec![],
+            member_accesses: vec![],
+            whole_object_uses: vec![],
+            dynamic_import_patterns: vec![],
+            has_cjs_exports: false,
+            suppressions: vec![],
+        };
+
+        store.insert(Path::new("/project/a.ts"), m());
+        store.insert(Path::new("/project/b.ts"), m());
+        store.insert(Path::new("/project/c.ts"), m());
+        assert_eq!(store.len(), 3);
+
+        // Only a.ts and c.ts still exist in the project
+        let files = vec![
+            DiscoveredFile {
+                id: FileId(0),
+                path: PathBuf::from("/project/a.ts"),
+                size_bytes: 100,
+            },
+            DiscoveredFile {
+                id: FileId(1),
+                path: PathBuf::from("/project/c.ts"),
+                size_bytes: 50,
+            },
+        ];
+
+        store.retain_paths(&files);
+        assert_eq!(store.len(), 2);
+        assert!(store.get_by_path_only(Path::new("/project/a.ts")).is_some());
+        assert!(store.get_by_path_only(Path::new("/project/b.ts")).is_none());
+        assert!(store.get_by_path_only(Path::new("/project/c.ts")).is_some());
+    }
+
+    #[test]
+    fn retain_paths_with_empty_files_clears_cache() {
+        let mut store = CacheStore::new();
+        let m = CachedModule {
+            content_hash: 1,
+            exports: vec![],
+            imports: vec![],
+            re_exports: vec![],
+            dynamic_imports: vec![],
+            require_calls: vec![],
+            member_accesses: vec![],
+            whole_object_uses: vec![],
+            dynamic_import_patterns: vec![],
+            has_cjs_exports: false,
+            suppressions: vec![],
+        };
+        store.insert(Path::new("a.ts"), m);
+        assert_eq!(store.len(), 1);
+
+        store.retain_paths(&[]);
+        assert!(store.is_empty());
     }
 }
