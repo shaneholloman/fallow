@@ -263,6 +263,37 @@ static SRC_ATTR_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
 static HTML_COMMENT_RE: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"(?s)<!--.*?-->").expect("valid regex"));
 
+/// Regex to extract CSS @import sources.
+/// Matches: @import "path"; @import 'path'; @import url("path"); @import url('path'); @import url(path);
+static CSS_IMPORT_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r#"@import\s+(?:url\(\s*(?:["']([^"']+)["']|([^)]+))\s*\)|["']([^"']+)["'])"#)
+        .expect("valid regex")
+});
+
+/// Regex to extract SCSS @use and @forward sources.
+/// Matches: @use "path"; @use 'path'; @forward "path"; @forward 'path';
+static SCSS_USE_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r#"@(?:use|forward)\s+["']([^"']+)["']"#).expect("valid regex")
+});
+
+/// Regex to extract @apply class references.
+/// Matches: @apply class1 class2 class3;
+static CSS_APPLY_RE: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r#"@apply\s+[^;}\n]+"#).expect("valid regex"));
+
+/// Regex to extract @tailwind directives.
+/// Matches: @tailwind base; @tailwind components; @tailwind utilities;
+static CSS_TAILWIND_RE: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r#"@tailwind\s+\w+"#).expect("valid regex"));
+
+/// Regex to match CSS block comments (`/* ... */`) for stripping before extraction.
+static CSS_COMMENT_RE: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"(?s)/\*.*?\*/").expect("valid regex"));
+
+/// Regex to match SCSS single-line comments (`// ...`) for stripping before extraction.
+static SCSS_LINE_COMMENT_RE: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"//[^\n]*").expect("valid regex"));
+
 pub(crate) struct SfcScript {
     pub body: String,
     pub is_typescript: bool,
@@ -335,6 +366,12 @@ fn is_mdx_file(path: &Path) -> bool {
         .is_some_and(|ext| ext == "mdx")
 }
 
+fn is_css_file(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|ext| ext == "css" || ext == "scss")
+}
+
 /// Extract frontmatter from an Astro component.
 pub(crate) fn extract_astro_frontmatter(source: &str) -> Option<SfcScript> {
     ASTRO_FRONTMATTER_RE.captures(source).map(|cap| {
@@ -355,8 +392,8 @@ pub(crate) fn extract_astro_frontmatter(source: &str) -> Option<SfcScript> {
 /// for dead code analysis. Multi-line imports (with unmatched braces) are handled
 /// by tracking brace depth.
 ///
-/// NOTE: CSS/SCSS `@apply` was considered but rejected — it references Tailwind
-/// utility classes, not JS/TS exports, and is not relevant to dead code detection.
+/// NOTE: CSS/SCSS `@apply` is handled in `parse_css_to_module()`, not here.
+/// MDX import/export extraction only handles JS/TS `import`/`export` statements.
 pub(crate) fn extract_mdx_statements(source: &str) -> String {
     let mut statements = Vec::new();
     let mut in_multiline = false;
@@ -538,6 +575,105 @@ fn parse_mdx_to_module(file_id: FileId, source: &str, content_hash: u64) -> Modu
     info
 }
 
+/// Returns true if a CSS import source is a remote URL or data URI that should be skipped.
+fn is_css_url_import(source: &str) -> bool {
+    source.starts_with("http://") || source.starts_with("https://") || source.starts_with("data:")
+}
+
+/// Strip comments from CSS/SCSS source to avoid matching directives inside comments.
+fn strip_css_comments(source: &str, is_scss: bool) -> String {
+    let stripped = CSS_COMMENT_RE.replace_all(source, "");
+    if is_scss {
+        SCSS_LINE_COMMENT_RE.replace_all(&stripped, "").into_owned()
+    } else {
+        stripped.into_owned()
+    }
+}
+
+/// Parse a CSS/SCSS file, extracting @import, @use, @forward, @apply, and @tailwind directives.
+fn parse_css_to_module(
+    file_id: FileId,
+    path: &Path,
+    source: &str,
+    content_hash: u64,
+) -> ModuleInfo {
+    let suppressions = crate::suppress::parse_suppressions_from_source(source);
+    let is_scss = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|ext| ext == "scss");
+
+    // Strip comments before matching to avoid false positives from commented-out code.
+    let stripped = strip_css_comments(source, is_scss);
+
+    let mut imports = Vec::new();
+
+    // Extract @import statements
+    for cap in CSS_IMPORT_RE.captures_iter(&stripped) {
+        let source_path = cap
+            .get(1)
+            .or_else(|| cap.get(2))
+            .or_else(|| cap.get(3))
+            .map(|m| m.as_str().trim().to_string());
+        if let Some(src) = source_path
+            && !src.is_empty()
+            && !is_css_url_import(&src)
+        {
+            imports.push(ImportInfo {
+                source: src,
+                imported_name: ImportedName::SideEffect,
+                local_name: String::new(),
+                is_type_only: false,
+                span: Span::default(),
+            });
+        }
+    }
+
+    // Extract SCSS @use/@forward statements
+    if is_scss {
+        for cap in SCSS_USE_RE.captures_iter(&stripped) {
+            if let Some(m) = cap.get(1) {
+                imports.push(ImportInfo {
+                    source: m.as_str().to_string(),
+                    imported_name: ImportedName::SideEffect,
+                    local_name: String::new(),
+                    is_type_only: false,
+                    span: Span::default(),
+                });
+            }
+        }
+    }
+
+    // If @apply or @tailwind directives exist, create a synthetic import to tailwindcss
+    // to mark the dependency as used
+    let has_apply = CSS_APPLY_RE.is_match(&stripped);
+    let has_tailwind = CSS_TAILWIND_RE.is_match(&stripped);
+    if has_apply || has_tailwind {
+        imports.push(ImportInfo {
+            source: "tailwindcss".to_string(),
+            imported_name: ImportedName::SideEffect,
+            local_name: String::new(),
+            is_type_only: false,
+            span: Span::default(),
+        });
+    }
+
+    ModuleInfo {
+        file_id,
+        exports: Vec::new(),
+        imports,
+        re_exports: Vec::new(),
+        dynamic_imports: Vec::new(),
+        dynamic_import_patterns: Vec::new(),
+        require_calls: Vec::new(),
+        member_accesses: Vec::new(),
+        whole_object_uses: Vec::new(),
+        has_cjs_exports: false,
+        content_hash,
+        suppressions,
+    }
+}
+
 /// Parse source text into a ModuleInfo.
 fn parse_source_to_module(
     file_id: FileId,
@@ -553,6 +689,9 @@ fn parse_source_to_module(
     }
     if is_mdx_file(path) {
         return parse_mdx_to_module(file_id, source, content_hash);
+    }
+    if is_css_file(path) {
+        return parse_css_to_module(file_id, path, source, content_hash);
     }
 
     let source_type = SourceType::from_path(path).unwrap_or_default();
@@ -2466,5 +2605,306 @@ More content.
         // There should be exactly 1 DynamicImportInfo, not 2.
         let info = parse_source("async function f() { const mod = await import('./service'); }");
         assert_eq!(info.dynamic_imports.len(), 1);
+    }
+
+    // ---- CSS/SCSS extraction tests ----
+
+    fn parse_css(source: &str, filename: &str) -> ModuleInfo {
+        parse_source_to_module(FileId(0), Path::new(filename), source, 0)
+    }
+
+    #[test]
+    fn extracts_css_import_quoted() {
+        let info = parse_css(r#"@import "./reset.css";"#, "styles.css");
+        assert_eq!(info.imports.len(), 1);
+        assert_eq!(info.imports[0].source, "./reset.css");
+        assert_eq!(info.imports[0].imported_name, ImportedName::SideEffect);
+    }
+
+    #[test]
+    fn extracts_css_import_single_quoted() {
+        let info = parse_css("@import './variables.css';", "styles.css");
+        assert_eq!(info.imports.len(), 1);
+        assert_eq!(info.imports[0].source, "./variables.css");
+    }
+
+    #[test]
+    fn extracts_css_import_url() {
+        let info = parse_css(r#"@import url("./base.css");"#, "styles.css");
+        assert_eq!(info.imports.len(), 1);
+        assert_eq!(info.imports[0].source, "./base.css");
+    }
+
+    #[test]
+    fn extracts_css_import_url_single_quoted() {
+        let info = parse_css("@import url('./base.css');", "styles.css");
+        assert_eq!(info.imports.len(), 1);
+        assert_eq!(info.imports[0].source, "./base.css");
+    }
+
+    #[test]
+    fn extracts_css_import_url_unquoted() {
+        let info = parse_css("@import url(./base.css);", "styles.css");
+        assert_eq!(info.imports.len(), 1);
+        assert_eq!(info.imports[0].source, "./base.css");
+    }
+
+    #[test]
+    fn extracts_multiple_css_imports() {
+        let info = parse_css(
+            r#"
+@import "./reset.css";
+@import "./variables.css";
+@import url("./base.css");
+"#,
+            "styles.css",
+        );
+        assert_eq!(info.imports.len(), 3);
+        assert_eq!(info.imports[0].source, "./reset.css");
+        assert_eq!(info.imports[1].source, "./variables.css");
+        assert_eq!(info.imports[2].source, "./base.css");
+    }
+
+    #[test]
+    fn extracts_css_import_tailwind_package() {
+        let info = parse_css(r#"@import "tailwindcss";"#, "styles.css");
+        assert_eq!(info.imports.len(), 1);
+        assert_eq!(info.imports[0].source, "tailwindcss");
+    }
+
+    #[test]
+    fn css_apply_creates_tailwind_dependency() {
+        let info = parse_css(
+            r#"
+.btn {
+    @apply px-4 py-2 bg-blue-500 text-white;
+}
+"#,
+            "styles.css",
+        );
+        assert!(
+            info.imports.iter().any(|i| i.source == "tailwindcss"),
+            "should create synthetic tailwindcss import"
+        );
+    }
+
+    #[test]
+    fn css_tailwind_directive_creates_dependency() {
+        let info = parse_css(
+            r#"
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+"#,
+            "styles.css",
+        );
+        assert!(
+            info.imports.iter().any(|i| i.source == "tailwindcss"),
+            "should create synthetic tailwindcss import"
+        );
+    }
+
+    #[test]
+    fn css_without_apply_no_tailwind_dependency() {
+        let info = parse_css(
+            r#"
+.btn {
+    padding: 4px;
+    color: blue;
+}
+"#,
+            "styles.css",
+        );
+        assert!(
+            !info.imports.iter().any(|i| i.source == "tailwindcss"),
+            "should NOT create tailwindcss import without @apply"
+        );
+    }
+
+    #[test]
+    fn extracts_scss_use() {
+        let info = parse_css(r#"@use "./variables";"#, "styles.scss");
+        assert_eq!(info.imports.len(), 1);
+        assert_eq!(info.imports[0].source, "./variables");
+    }
+
+    #[test]
+    fn extracts_scss_forward() {
+        let info = parse_css(r#"@forward "./mixins";"#, "styles.scss");
+        assert_eq!(info.imports.len(), 1);
+        assert_eq!(info.imports[0].source, "./mixins");
+    }
+
+    #[test]
+    fn scss_use_not_extracted_from_css() {
+        let info = parse_css(r#"@use "./variables";"#, "styles.css");
+        // @use is SCSS-only, should not be extracted from .css files
+        assert_eq!(info.imports.len(), 0);
+    }
+
+    #[test]
+    fn css_apply_with_multiple_classes() {
+        let info = parse_css(
+            r#"
+.card {
+    @apply shadow-lg rounded-lg p-4;
+}
+.header {
+    @apply text-xl font-bold;
+}
+"#,
+            "styles.css",
+        );
+        // Should have exactly one synthetic tailwindcss import (not one per @apply)
+        let tw_imports: Vec<_> = info
+            .imports
+            .iter()
+            .filter(|i| i.source == "tailwindcss")
+            .collect();
+        assert_eq!(tw_imports.len(), 1);
+    }
+
+    #[test]
+    fn css_file_has_no_exports() {
+        let info = parse_css(
+            r#"
+@import "./reset.css";
+.btn { @apply px-4 py-2; }
+"#,
+            "styles.css",
+        );
+        assert!(info.exports.is_empty(), "CSS files should not have exports");
+        assert!(info.re_exports.is_empty());
+    }
+
+    #[test]
+    fn scss_combined_imports_and_apply() {
+        let info = parse_css(
+            r#"
+@use "./variables";
+@use "./mixins";
+@import "./reset.css";
+
+.btn {
+    @apply px-4 py-2;
+}
+"#,
+            "app.scss",
+        );
+        // 3 file imports + 1 synthetic tailwindcss
+        assert_eq!(info.imports.len(), 4);
+        assert!(info.imports.iter().any(|i| i.source == "./variables"));
+        assert!(info.imports.iter().any(|i| i.source == "./mixins"));
+        assert!(info.imports.iter().any(|i| i.source == "./reset.css"));
+        assert!(info.imports.iter().any(|i| i.source == "tailwindcss"));
+    }
+
+    #[test]
+    fn css_import_with_media_query() {
+        let info = parse_css(r#"@import "./print.css" print;"#, "styles.css");
+        assert_eq!(info.imports.len(), 1);
+        assert_eq!(info.imports[0].source, "./print.css");
+    }
+
+    #[test]
+    fn css_commented_apply_not_extracted() {
+        let info = parse_css(
+            r#"
+/* @apply px-4 py-2; */
+.btn {
+    padding: 4px;
+}
+"#,
+            "styles.css",
+        );
+        assert!(
+            !info.imports.iter().any(|i| i.source == "tailwindcss"),
+            "commented-out @apply should NOT create tailwindcss import"
+        );
+    }
+
+    #[test]
+    fn css_commented_import_not_extracted() {
+        let info = parse_css(
+            r#"
+/* @import "./old-reset.css"; */
+.btn { color: red; }
+"#,
+            "styles.css",
+        );
+        assert!(info.imports.is_empty());
+    }
+
+    #[test]
+    fn css_commented_tailwind_not_extracted() {
+        let info = parse_css(
+            r#"
+/*
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+*/
+.btn { color: red; }
+"#,
+            "styles.css",
+        );
+        assert!(
+            !info.imports.iter().any(|i| i.source == "tailwindcss"),
+            "commented-out @tailwind should NOT create tailwindcss import"
+        );
+    }
+
+    #[test]
+    fn scss_line_comment_not_extracted() {
+        let info = parse_css(
+            r#"
+// @use "./old-variables";
+// @apply px-4;
+.btn { color: red; }
+"#,
+            "styles.scss",
+        );
+        assert!(info.imports.is_empty());
+    }
+
+    #[test]
+    fn css_url_import_skipped() {
+        let info = parse_css(
+            r#"
+@import "https://fonts.googleapis.com/css?family=Roboto";
+@import url("https://cdn.example.com/reset.css");
+@import "./local.css";
+"#,
+            "styles.css",
+        );
+        assert_eq!(info.imports.len(), 1);
+        assert_eq!(info.imports[0].source, "./local.css");
+    }
+
+    #[test]
+    fn css_data_uri_import_skipped() {
+        let info = parse_css(
+            r#"@import url("data:text/css;base64,Ym9keSB7fQ==");"#,
+            "styles.css",
+        );
+        assert!(info.imports.is_empty());
+    }
+
+    #[test]
+    fn css_mixed_comments_and_real_directives() {
+        let info = parse_css(
+            r#"
+/* @import "./commented-out.css"; */
+@import "./real-import.css";
+/* @apply hidden; */
+.visible {
+    @apply block text-lg;
+}
+"#,
+            "styles.css",
+        );
+        assert_eq!(info.imports.len(), 2); // real-import.css + tailwindcss
+        assert!(info.imports.iter().any(|i| i.source == "./real-import.css"));
+        assert!(info.imports.iter().any(|i| i.source == "tailwindcss"));
     }
 }

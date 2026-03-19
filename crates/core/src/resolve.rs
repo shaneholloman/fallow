@@ -334,6 +334,8 @@ fn create_resolver(config: &ResolvedConfig) -> Resolver {
             ".svelte".into(),
             ".astro".into(),
             ".mdx".into(),
+            ".css".into(),
+            ".scss".into(),
         ],
         // Support TypeScript's node16/nodenext module resolution where .ts files
         // are imported with .js extensions (e.g., `import './api.js'` for `api.ts`).

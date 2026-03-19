@@ -10,7 +10,7 @@ Fallow finds unused files, exports, dependencies, types, enum members, class mem
 crates/
   config/   — Configuration types, custom framework presets, package.json parsing, workspace discovery
   core/     — Analysis engine: discovery, parsing, resolution, graph, plugins, caching, progress
-  cli/      — CLI binary (check, dupes, watch, fix, init, list, schema commands)
+  cli/      — CLI binary (check, dupes, watch, fix, init, migrate, list, schema commands)
   lsp/      — LSP server with diagnostics, code actions
   mcp/      — MCP server for AI agent integration (stdio transport, wraps CLI)
 editors/
@@ -121,6 +121,7 @@ cd benchmarks && npm run generate:dupes && npm run bench:dupes  # vs jscpd
 - `watch` — file watcher with debounced re-analysis
 - `fix` — auto-remove unused exports and deps (--dry-run, --yes/--force for non-TTY confirmation, --format json for structured output)
 - `init` — create fallow.jsonc (default) or fallow.toml (`--toml`), includes `$schema` for IDE autocomplete
+- `migrate` — migrate config from knip and/or jscpd to fallow (--toml, --dry-run, --from PATH; auto-detects knip.json/knip.jsonc/.knip.json/.knip.jsonc/package.json#knip and .jscpd.json/package.json#jscpd)
 - `list` — show active plugins, entry points, files (--format json for structured output)
 - `schema` — dump CLI interface as machine-readable JSON for agent introspection
 - `config-schema` — print JSON Schema for fallow config files (enables IDE validation)

@@ -295,6 +295,16 @@ fn tokenize_file_inner(path: &Path, source: &str, strip_types: bool) -> FileToke
         };
     }
 
+    // CSS/SCSS files are not JS/TS — skip tokenization for duplication detection.
+    if ext == "css" || ext == "scss" {
+        let line_count = source.lines().count().max(1);
+        return FileTokens {
+            tokens: Vec::new(),
+            source: source.to_string(),
+            line_count,
+        };
+    }
+
     let source_type = SourceType::from_path(path).unwrap_or_default();
     let allocator = Allocator::default();
     let parser_return = Parser::new(&allocator, source, source_type).parse();

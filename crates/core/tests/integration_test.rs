@@ -2004,3 +2004,33 @@ fn external_plugin_config_patterns_always_used() {
         "my-framework.config.ts should be always-used via config_patterns, unused: {unused_file_names:?}"
     );
 }
+
+#[test]
+fn css_apply_marks_tailwind_as_used() {
+    let root = fixture_path("css-apply-project");
+    let config = create_config(root.clone());
+    let results = fallow_core::analyze(&config).expect("analysis should succeed");
+
+    // tailwindcss should NOT be in unused dependencies (it's used via @apply in styles.css)
+    let unused_dep_names: Vec<&str> = results
+        .unused_dependencies
+        .iter()
+        .map(|d| d.package_name.as_str())
+        .collect();
+    assert!(
+        !unused_dep_names.contains(&"tailwindcss"),
+        "tailwindcss should not be unused, it's referenced via @apply in CSS: {unused_dep_names:?}"
+    );
+
+    // unused.css should be detected as an unused file
+    let unused_files: Vec<&str> = results
+        .unused_files
+        .iter()
+        .filter_map(|f| f.path.file_name())
+        .filter_map(|f| f.to_str())
+        .collect();
+    assert!(
+        unused_files.contains(&"unused.css"),
+        "unused.css should be detected as unused: {unused_files:?}"
+    );
+}
