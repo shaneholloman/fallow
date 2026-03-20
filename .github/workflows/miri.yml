@@ -1,0 +1,54 @@
+name: Miri
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'crates/graph/**'
+      - 'crates/extract/**'
+      - 'crates/types/**'
+      - '.github/workflows/miri.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'crates/graph/**'
+      - 'crates/extract/**'
+      - 'crates/types/**'
+      - '.github/workflows/miri.yml'
+
+concurrency:
+  group: miri-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  miri:
+    name: Miri memory safety
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: miri
+
+      # Pure data structure tests — no file I/O, all tests run
+      - name: fallow-types
+        run: cargo +nightly miri test -p fallow-types
+
+      # Graph construction and resolution tests — skip proptest (file I/O for
+      # persisted failures is unsupported under Miri)
+      - name: fallow-graph
+        run: cargo +nightly miri test -p fallow-graph -- --skip proptests
+
+      # AST extraction and parser tests — skip cache module (file I/O)
+      - name: fallow-extract
+        run: cargo +nightly miri test -p fallow-extract -- --skip cache
