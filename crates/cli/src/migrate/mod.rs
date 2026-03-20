@@ -316,7 +316,7 @@ fn generate_jsonc(result: &MigrationResult) -> String {
         "  \"$schema\": \"https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json\",\n",
     );
 
-    let obj = result.config.as_object().unwrap();
+    let obj = result.config.as_object().expect("config is always an Object");
     let source_comment = result.sources.join(", ");
     let _ = writeln!(output, "  // Migrated from {source_comment}");
 
@@ -376,7 +376,7 @@ fn generate_toml(result: &MigrationResult) -> String {
     let source_comment = result.sources.join(", ");
     let _ = writeln!(output, "# Migrated from {source_comment}\n");
 
-    let obj = result.config.as_object().unwrap();
+    let obj = result.config.as_object().expect("config is always an Object");
 
     // Top-level simple fields first
     // Note: fallow config uses #[serde(rename_all = "camelCase")] so TOML keys must be camelCase
