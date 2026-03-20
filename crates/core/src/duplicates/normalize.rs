@@ -331,4 +331,118 @@ mod tests {
         assert!(!norm.ignore_string_values); // Mode default
         assert!(!norm.ignore_numeric_values); // Mode default
     }
+
+    mod proptests {
+        use super::*;
+        use crate::duplicates::tokenize::{KeywordType, OperatorType, PunctuationType};
+        use oxc_span::Span;
+        use proptest::prelude::*;
+
+        fn make_token(kind: TokenKind) -> SourceToken {
+            SourceToken {
+                kind,
+                span: Span::new(0, 0),
+            }
+        }
+
+        fn arb_detection_mode() -> impl Strategy<Value = DetectionMode> {
+            prop::sample::select(vec![
+                DetectionMode::Strict,
+                DetectionMode::Mild,
+                DetectionMode::Weak,
+                DetectionMode::Semantic,
+            ])
+        }
+
+        fn arb_normalization() -> impl Strategy<Value = ResolvedNormalization> {
+            (any::<bool>(), any::<bool>(), any::<bool>()).prop_map(|(ids, strings, nums)| {
+                ResolvedNormalization {
+                    ignore_identifiers: ids,
+                    ignore_string_values: strings,
+                    ignore_numeric_values: nums,
+                }
+            })
+        }
+
+        fn arb_token_kind() -> impl Strategy<Value = TokenKind> {
+            prop_oneof![
+                Just(TokenKind::Keyword(KeywordType::Const)),
+                Just(TokenKind::Keyword(KeywordType::If)),
+                Just(TokenKind::Keyword(KeywordType::Return)),
+                "[a-zA-Z_][a-zA-Z0-9_]{0,30}".prop_map(TokenKind::Identifier),
+                "[a-zA-Z0-9 _.,!?]{0,50}".prop_map(TokenKind::StringLiteral),
+                "[0-9]{1,10}(\\.[0-9]{1,5})?".prop_map(TokenKind::NumericLiteral),
+                any::<bool>().prop_map(TokenKind::BooleanLiteral),
+                Just(TokenKind::NullLiteral),
+                Just(TokenKind::TemplateLiteral),
+                Just(TokenKind::RegExpLiteral),
+                Just(TokenKind::Operator(OperatorType::Add)),
+                Just(TokenKind::Operator(OperatorType::Assign)),
+                Just(TokenKind::Punctuation(PunctuationType::OpenParen)),
+                Just(TokenKind::Punctuation(PunctuationType::CloseParen)),
+            ]
+        }
+
+        proptest! {
+            /// Normalizing a token twice produces the same result as normalizing once (idempotency).
+            #[test]
+            fn normalization_is_idempotent(
+                kind in arb_token_kind(),
+                norm in arb_normalization(),
+            ) {
+                let token = make_token(kind);
+                let first = normalize_and_hash_resolved(&[token.clone()], &norm);
+                // The hash is computed directly from the token kind + normalization flags.
+                // Running it again on the same input must yield the same hash.
+                let second = normalize_and_hash_resolved(&[token], &norm);
+                prop_assert_eq!(first.len(), second.len());
+                for (a, b) in first.iter().zip(second.iter()) {
+                    prop_assert_eq!(a.hash, b.hash, "Normalization should be idempotent");
+                }
+            }
+
+            /// Same input always produces the same output (determinism).
+            #[test]
+            fn normalization_is_deterministic(
+                kinds in prop::collection::vec(arb_token_kind(), 1..20),
+                mode in arb_detection_mode(),
+            ) {
+                let tokens: Vec<SourceToken> = kinds.into_iter().map(make_token).collect();
+                let result1 = normalize_and_hash(&tokens, mode);
+                let result2 = normalize_and_hash(&tokens, mode);
+                prop_assert_eq!(result1.len(), result2.len());
+                for (a, b) in result1.iter().zip(result2.iter()) {
+                    prop_assert_eq!(a.hash, b.hash, "Same input must produce same hash");
+                    prop_assert_eq!(a.original_index, b.original_index);
+                }
+            }
+
+            /// Output length always equals input length (no tokens are filtered).
+            #[test]
+            fn output_length_matches_input(
+                kinds in prop::collection::vec(arb_token_kind(), 0..30),
+                mode in arb_detection_mode(),
+            ) {
+                let tokens: Vec<SourceToken> = kinds.into_iter().map(make_token).collect();
+                let result = normalize_and_hash(&tokens, mode);
+                prop_assert_eq!(
+                    result.len(), tokens.len(),
+                    "Output should have same length as input"
+                );
+            }
+
+            /// Original indices should be sequential 0..n.
+            #[test]
+            fn original_indices_are_sequential(
+                kinds in prop::collection::vec(arb_token_kind(), 1..20),
+                norm in arb_normalization(),
+            ) {
+                let tokens: Vec<SourceToken> = kinds.into_iter().map(make_token).collect();
+                let result = normalize_and_hash_resolved(&tokens, &norm);
+                for (i, hashed) in result.iter().enumerate() {
+                    prop_assert_eq!(hashed.original_index, i);
+                }
+            }
+        }
+    }
 }

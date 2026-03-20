@@ -1322,4 +1322,84 @@ mod tests {
         assert_eq!(with_rn[1], "browser");
         assert_eq!(with_rn[2], "import");
     }
+
+    mod proptests {
+        use super::*;
+        use proptest::prelude::*;
+
+        proptest! {
+            /// Any specifier starting with `.` or `/` must NOT be classified as a bare specifier.
+            #[test]
+            fn relative_paths_are_not_bare(suffix in "[a-zA-Z0-9_/.-]{0,80}") {
+                let dot = format!(".{suffix}");
+                let slash = format!("/{suffix}");
+                prop_assert!(!is_bare_specifier(&dot), "'.{suffix}' was classified as bare");
+                prop_assert!(!is_bare_specifier(&slash), "'/{suffix}' was classified as bare");
+            }
+
+            /// Scoped packages (@scope/pkg) should extract exactly `@scope/pkg` — two segments.
+            #[test]
+            fn scoped_package_name_has_two_segments(
+                scope in "[a-z][a-z0-9-]{0,20}",
+                pkg in "[a-z][a-z0-9-]{0,20}",
+                subpath in "(/[a-z0-9-]{1,20}){0,3}",
+            ) {
+                let specifier = format!("@{scope}/{pkg}{subpath}");
+                let extracted = extract_package_name(&specifier);
+                let expected = format!("@{scope}/{pkg}");
+                prop_assert_eq!(extracted, expected);
+            }
+
+            /// Unscoped packages should extract exactly the first path segment.
+            #[test]
+            fn unscoped_package_name_is_first_segment(
+                pkg in "[a-z][a-z0-9-]{0,30}",
+                subpath in "(/[a-z0-9-]{1,20}){0,3}",
+            ) {
+                let specifier = format!("{pkg}{subpath}");
+                let extracted = extract_package_name(&specifier);
+                prop_assert_eq!(extracted, pkg);
+            }
+
+            /// is_bare_specifier and is_path_alias should never panic on arbitrary strings.
+            #[test]
+            fn bare_specifier_and_path_alias_no_panic(s in "[a-zA-Z0-9@#~/._-]{1,100}") {
+                let _ = is_bare_specifier(&s);
+                let _ = is_path_alias(&s);
+            }
+
+            /// `@/` prefix should always be detected as a path alias.
+            #[test]
+            fn at_slash_is_path_alias(suffix in "[a-zA-Z0-9_/.-]{0,80}") {
+                let specifier = format!("@/{suffix}");
+                prop_assert!(is_path_alias(&specifier));
+            }
+
+            /// `~/` prefix should always be detected as a path alias.
+            #[test]
+            fn tilde_slash_is_path_alias(suffix in "[a-zA-Z0-9_/.-]{0,80}") {
+                let specifier = format!("~/{suffix}");
+                prop_assert!(is_path_alias(&specifier));
+            }
+
+            /// `#` prefix should always be detected as a path alias (Node.js imports map).
+            #[test]
+            fn hash_prefix_is_path_alias(suffix in "[a-zA-Z0-9_/.-]{0,80}") {
+                let specifier = format!("#{suffix}");
+                prop_assert!(is_path_alias(&specifier));
+            }
+
+            /// Extracted package name from node_modules path should never be empty.
+            #[test]
+            fn node_modules_package_name_never_empty(
+                pkg in "[a-z][a-z0-9-]{0,20}",
+                file in "[a-z]{1,10}\\.(js|ts|mjs)",
+            ) {
+                let path = std::path::PathBuf::from(format!("/project/node_modules/{pkg}/{file}"));
+                if let Some(name) = extract_package_name_from_node_modules_path(&path) {
+                    prop_assert!(!name.is_empty());
+                }
+            }
+        }
+    }
 }

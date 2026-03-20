@@ -829,4 +829,61 @@ mod tests {
         assert!(!is_allowed_hidden_dir(OsStr::new("src")));
         assert!(!is_allowed_hidden_dir(OsStr::new("node_modules")));
     }
+
+    mod proptests {
+        use super::*;
+        use proptest::prelude::*;
+
+        proptest! {
+            /// Valid glob patterns should never panic when compiled via globset.
+            #[test]
+            fn glob_patterns_never_panic_on_compile(
+                prefix in "[a-zA-Z0-9_]{1,20}",
+                ext in prop::sample::select(vec!["ts", "tsx", "js", "jsx", "vue", "svelte", "astro", "mdx"]),
+            ) {
+                let pattern = format!("**/{prefix}*.{ext}");
+                // Should not panic — either compiles or returns Err gracefully
+                let result = globset::Glob::new(&pattern);
+                prop_assert!(result.is_ok(), "Glob::new should not fail for well-formed patterns");
+            }
+
+            /// Files with known source extensions should be in the SOURCE_EXTENSIONS list.
+            #[test]
+            fn known_extensions_in_source_list(
+                ext in prop::sample::select(vec!["ts", "tsx", "js", "jsx", "mts", "cts", "mjs", "cjs", "vue", "svelte", "astro", "mdx", "css", "scss"]),
+            ) {
+                prop_assert!(
+                    SOURCE_EXTENSIONS.contains(&ext),
+                    "Extension '{ext}' should be in SOURCE_EXTENSIONS"
+                );
+            }
+
+            /// compile_glob_set should never panic on arbitrary well-formed glob patterns.
+            #[test]
+            fn compile_glob_set_no_panic(
+                patterns in prop::collection::vec("[a-zA-Z0-9_*/.]{1,30}", 0..10),
+            ) {
+                // Should not panic regardless of input
+                let _ = compile_glob_set(&patterns);
+            }
+
+            /// looks_like_file_path should never panic on arbitrary strings.
+            #[test]
+            fn looks_like_file_path_no_panic(s in "[a-zA-Z0-9_./@-]{1,80}") {
+                let _ = looks_like_file_path(&s);
+            }
+
+            /// looks_like_script_file should never panic on arbitrary strings.
+            #[test]
+            fn looks_like_script_file_no_panic(s in "[a-zA-Z0-9_./@-]{1,80}") {
+                let _ = looks_like_script_file(&s);
+            }
+
+            /// extract_script_file_refs should never panic on arbitrary input.
+            #[test]
+            fn extract_script_file_refs_no_panic(s in "[a-zA-Z0-9 _./@&|;-]{1,200}") {
+                let _ = extract_script_file_refs(&s);
+            }
+        }
+    }
 }

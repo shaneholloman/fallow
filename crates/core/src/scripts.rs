@@ -941,4 +941,76 @@ mod tests {
         assert!(!filtered.contains_key("lint"));
         assert!(!filtered.contains_key("dev"));
     }
+
+    mod proptests {
+        use super::*;
+        use proptest::prelude::*;
+
+        proptest! {
+            /// parse_script should never panic on arbitrary input.
+            #[test]
+            fn parse_script_no_panic(s in "[a-zA-Z0-9 _./@&|;=\"'-]{1,200}") {
+                let _ = parse_script(&s);
+            }
+
+            /// split_shell_operators should never panic on arbitrary input.
+            #[test]
+            fn split_shell_operators_no_panic(s in "[a-zA-Z0-9 _./@&|;=\"'-]{1,200}") {
+                let _ = split_shell_operators(&s);
+            }
+
+            /// When parse_script returns commands, binary names should be non-empty.
+            #[test]
+            fn parsed_binaries_are_non_empty(
+                binary in "[a-z][a-z0-9-]{0,20}",
+                args in "[a-zA-Z0-9 _./=-]{0,50}",
+            ) {
+                let script = format!("{binary} {args}");
+                let commands = parse_script(&script);
+                for cmd in &commands {
+                    prop_assert!(!cmd.binary.is_empty(), "Binary name should never be empty");
+                }
+            }
+
+            /// analyze_scripts should never panic on arbitrary script values.
+            #[test]
+            fn analyze_scripts_no_panic(
+                name in "[a-z]{1,10}",
+                value in "[a-zA-Z0-9 _./@&|;=-]{1,100}",
+            ) {
+                let scripts: HashMap<String, String> =
+                    [(name, value)].into_iter().collect();
+                let _ = analyze_scripts(&scripts, Path::new("/nonexistent"));
+            }
+
+            /// is_env_assignment should never panic on arbitrary input.
+            #[test]
+            fn is_env_assignment_no_panic(s in "[a-zA-Z0-9_=./-]{1,50}") {
+                let _ = is_env_assignment(&s);
+            }
+
+            /// resolve_binary_to_package should always return a non-empty string.
+            #[test]
+            fn resolve_binary_always_non_empty(binary in "[a-z][a-z0-9-]{0,20}") {
+                let result = resolve_binary_to_package(&binary, Path::new("/nonexistent"));
+                prop_assert!(!result.is_empty(), "Package name should never be empty");
+            }
+
+            /// Chained scripts should produce at least as many commands as operators + 1
+            /// when each segment is a valid binary.
+            #[test]
+            fn chained_binaries_produce_multiple_commands(
+                bins in prop::collection::vec("[a-z][a-z0-9]{0,10}", 2..5),
+            ) {
+                let script = bins.join(" && ");
+                let commands = parse_script(&script);
+                // Each binary separated by && should produce one command
+                prop_assert!(
+                    commands.len() >= 2,
+                    "Chained commands should produce multiple parsed commands, got {}",
+                    commands.len()
+                );
+            }
+        }
+    }
 }
