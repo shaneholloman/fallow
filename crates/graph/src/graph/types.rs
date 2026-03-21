@@ -94,5 +94,6 @@ const _: () = assert!(std::mem::size_of::<SymbolReference>() == 16);
 #[cfg(target_pointer_width = "64")]
 const _: () = assert!(std::mem::size_of::<ReExportEdge>() == 56);
 // `ModuleNode` is stored in a Vec — one per discovered file.
-#[cfg(target_pointer_width = "64")]
+// PathBuf has different sizes on Unix vs Windows, so restrict to Unix.
+#[cfg(all(target_pointer_width = "64", unix))]
 const _: () = assert!(std::mem::size_of::<ModuleNode>() == 96);
