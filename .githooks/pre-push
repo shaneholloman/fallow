@@ -16,4 +16,13 @@ cargo test --workspace
 echo "→ cargo doc (rustdoc warnings)"
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --document-private-items 2>&1 | tail -1
 
+# Miri on fast crates (~10s) — skip if nightly/miri not installed
+if rustup run nightly cargo miri --version &>/dev/null; then
+    echo "→ miri (types + graph)"
+    cargo +nightly miri test -p fallow-types --lib --tests
+    cargo +nightly miri test -p fallow-graph --lib --tests -- --skip proptests
+else
+    echo "→ miri (skipped — nightly or miri not installed)"
+fi
+
 echo "=== All checks passed ==="
