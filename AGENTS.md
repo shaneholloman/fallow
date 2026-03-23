@@ -281,6 +281,20 @@ Issue type tokens: `unused-file`, `unused-export`, `unused-type`, `unused-depend
 
 Unknown tokens are silently ignored (the comment has no effect). When an agent adds a suppression comment, always use the exact tokens listed above.
 
+### JSDoc `@public` tag
+
+Exports annotated with `/** @public */` are never reported as unused. This is intended for library authors whose exports are consumed by external projects outside the analyzed repository.
+
+```ts
+/** @public */
+export function createClient() { ... }  // Never reported as unused
+
+/** @api public */
+export type ClientOptions = { ... }     // TSDoc @api convention also supported
+```
+
+Only `/** */` JSDoc block comments are recognized — line comments (`// @public`) have no effect.
+
 ## Agent Skills
 
 For agents that support the [Agent Skills](https://agentskills.io) specification, install structured fallow skills with workflows, gotchas, and patterns:

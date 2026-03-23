@@ -24,6 +24,7 @@ pub fn cached_to_module(
             },
             local_name: e.local_name.clone(),
             is_type_only: e.is_type_only,
+            is_public: e.is_public,
             span: Span::new(e.span_start, e.span_end),
             members: e
                 .members
@@ -154,6 +155,7 @@ pub fn module_to_cached(
                 },
                 is_default: matches!(e.name, ExportName::Default),
                 is_type_only: e.is_type_only,
+                is_public: e.is_public,
                 local_name: e.local_name.clone(),
                 span_start: e.span.start,
                 span_end: e.span.end,

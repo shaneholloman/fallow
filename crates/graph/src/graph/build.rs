@@ -57,6 +57,7 @@ fn build_module_node(
                 .map(|e| ExportSymbol {
                     name: e.name.clone(),
                     is_type_only: e.is_type_only,
+                    is_public: e.is_public,
                     span: e.span,
                     references: Vec::new(),
                     members: e.members.clone(),
@@ -94,6 +95,7 @@ fn build_module_node(
             exports.push(ExportSymbol {
                 name: export_name,
                 is_type_only: re.info.is_type_only,
+                is_public: false,
                 span: oxc_span::Span::new(0, 0), // re-exports don't have a meaningful span on the barrel
                 references: Vec::new(),
                 members: Vec::new(),
@@ -239,6 +241,7 @@ fn create_synthetic_exports_for_star_re_exports(
         exports.push(ExportSymbol {
             name: export_name,
             is_type_only: false,
+            is_public: false,
             span: oxc_span::Span::new(0, 0),
             references: vec![SymbolReference {
                 from_file: source_id,

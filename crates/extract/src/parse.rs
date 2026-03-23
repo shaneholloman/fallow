@@ -1,11 +1,12 @@
 use std::path::Path;
 
 use oxc_allocator::Allocator;
-use oxc_ast::ast::Program;
+use oxc_ast::ast::{Comment, Program};
 use oxc_ast_visit::Visit;
 use oxc_parser::Parser;
 use oxc_span::SourceType;
 
+use crate::ExportInfo;
 use crate::ModuleInfo;
 use crate::astro::{is_astro_file, parse_astro_to_module};
 use crate::css::{is_css_file, parse_css_to_module};
@@ -74,10 +75,111 @@ pub fn parse_source_to_module(
         }
     }
 
+    // Apply JSDoc @public tags to exports
+    apply_jsdoc_public_tags(
+        &mut extractor.exports,
+        &parser_return.program.comments,
+        source,
+    );
+
     let mut info = extractor.into_module_info(file_id, content_hash, suppressions);
     info.unused_import_bindings = unused_bindings;
     info.line_offsets = fallow_types::extract::compute_line_offsets(source);
     info
+}
+
+/// Apply JSDoc `@public` tags to exports by matching leading JSDoc comments.
+///
+/// `Comment.attached_to` points to the `export` keyword byte offset, while
+/// `ExportInfo.span` stores the identifier byte offset (e.g., `foo` in
+/// `export const foo`). This function bridges the gap: it collects `@public`
+/// comment attachment offsets, then for each export finds the nearest preceding
+/// attachment point and validates it's part of the same export statement.
+fn apply_jsdoc_public_tags(exports: &mut [ExportInfo], comments: &[Comment], source: &str) {
+    if exports.is_empty() || comments.is_empty() {
+        return;
+    }
+
+    // Collect byte offsets where @public JSDoc comments attach
+    let mut public_offsets: Vec<u32> = Vec::new();
+    for comment in comments {
+        if comment.is_jsdoc() {
+            let content_span = comment.content_span();
+            let start = content_span.start as usize;
+            let end = (content_span.end as usize).min(source.len());
+            if start < end && has_public_tag(&source[start..end]) {
+                public_offsets.push(comment.attached_to);
+            }
+        }
+    }
+
+    if public_offsets.is_empty() {
+        return;
+    }
+
+    public_offsets.sort_unstable();
+
+    for export in exports.iter_mut() {
+        // Skip synthetic exports (re-export entries with span 0..0)
+        if export.span.start == 0 && export.span.end == 0 {
+            continue;
+        }
+
+        // Check for exact match first (e.g., `export default` where span = decl span)
+        if public_offsets.binary_search(&export.span.start).is_ok() {
+            export.is_public = true;
+            continue;
+        }
+
+        // Find the largest @public offset that is <= this export's span start
+        let idx = public_offsets.partition_point(|&o| o <= export.span.start);
+        if idx > 0 {
+            let offset = public_offsets[idx - 1] as usize;
+            let export_start = export.span.start as usize;
+            if offset < export_start && export_start <= source.len() {
+                let between = &source[offset..export_start];
+                // Validate: the text between the comment attachment and the identifier
+                // should be a clean export preamble (e.g., "export const ") with no
+                // statement boundaries separating them.
+                if between.starts_with("export") && !between.contains(';') && !between.contains('}')
+                {
+                    export.is_public = true;
+                }
+            }
+        }
+    }
+}
+
+/// Check if a byte is an identifier-continuation character (alphanumeric or `_`).
+const fn is_ident_char(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_'
+}
+
+/// Check if a JSDoc comment body contains a `@public` or `@api public` tag.
+fn has_public_tag(comment_text: &str) -> bool {
+    // Check for @public (standalone tag, not part of another word)
+    for (i, _) in comment_text.match_indices("@public") {
+        let after = i + "@public".len();
+        // Must not be followed by an identifier char (alphanumeric or _)
+        if after >= comment_text.len() || !is_ident_char(comment_text.as_bytes()[after]) {
+            return true;
+        }
+    }
+    // Check for @api public (TSDoc convention)
+    for (i, _) in comment_text.match_indices("@api") {
+        let after = i + "@api".len();
+        // @api must be a standalone tag (not @apipublic, @api_foo)
+        if after < comment_text.len() && !is_ident_char(comment_text.as_bytes()[after]) {
+            let rest = comment_text[after..].trim_start();
+            if rest.starts_with("public") {
+                let after_public = "public".len();
+                if after_public >= rest.len() || !is_ident_char(rest.as_bytes()[after_public]) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }
 
 /// Use `oxc_semantic` to find import bindings that are never referenced in the file.

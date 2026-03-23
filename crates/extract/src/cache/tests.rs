@@ -130,6 +130,7 @@ fn module_to_cached_roundtrip_named_export() {
             name: ExportName::Named("foo".to_string()),
             local_name: Some("foo".to_string()),
             is_type_only: false,
+            is_public: false,
             span: Span::new(10, 20),
             members: vec![],
         }],
@@ -169,6 +170,7 @@ fn module_to_cached_roundtrip_default_export() {
             name: ExportName::Default,
             local_name: None,
             is_type_only: false,
+            is_public: false,
             span: Span::new(0, 10),
             members: vec![],
         }],
@@ -352,6 +354,7 @@ fn module_to_cached_roundtrip_members() {
             name: ExportName::Named("Color".to_string()),
             local_name: Some("Color".to_string()),
             is_type_only: false,
+            is_public: false,
             span: Span::new(0, 50),
             members: vec![
                 MemberInfo {

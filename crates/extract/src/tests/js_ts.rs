@@ -736,3 +736,133 @@ fn function_overloads_deduplicated_to_single_export() {
     );
     assert_eq!(info.exports[0].name, ExportName::Named("parse".to_string()));
 }
+
+// ---- JSDoc @public tag extraction tests ----
+
+#[test]
+fn jsdoc_public_tag_on_named_export() {
+    let info = parse_source("/** @public */\nexport const foo = 1;");
+    assert_eq!(info.exports.len(), 1);
+    assert!(info.exports[0].is_public);
+}
+
+#[test]
+fn jsdoc_public_tag_on_function_export() {
+    let info = parse_source("/** @public */\nexport function bar() {}");
+    assert_eq!(info.exports.len(), 1);
+    assert!(info.exports[0].is_public);
+}
+
+#[test]
+fn jsdoc_public_tag_on_default_export() {
+    let info = parse_source("/** @public */\nexport default function main() {}");
+    assert_eq!(info.exports.len(), 1);
+    assert!(info.exports[0].is_public);
+}
+
+#[test]
+fn jsdoc_public_tag_on_class_export() {
+    let info = parse_source("/** @public */\nexport class Foo {}");
+    assert_eq!(info.exports.len(), 1);
+    assert!(info.exports[0].is_public);
+}
+
+#[test]
+fn jsdoc_public_tag_on_type_export() {
+    let info = parse_source("/** @public */\nexport type Foo = string;");
+    assert_eq!(info.exports.len(), 1);
+    assert!(info.exports[0].is_public);
+}
+
+#[test]
+fn jsdoc_public_tag_on_interface_export() {
+    let info = parse_source("/** @public */\nexport interface Bar {}");
+    assert_eq!(info.exports.len(), 1);
+    assert!(info.exports[0].is_public);
+}
+
+#[test]
+fn jsdoc_public_tag_on_enum_export() {
+    let info = parse_source("/** @public */\nexport enum Status { Active, Inactive }");
+    assert_eq!(info.exports.len(), 1);
+    assert!(info.exports[0].is_public);
+}
+
+#[test]
+fn jsdoc_public_tag_multiline() {
+    let info = parse_source("/**\n * Some description.\n * @public\n */\nexport const foo = 1;");
+    assert_eq!(info.exports.len(), 1);
+    assert!(info.exports[0].is_public);
+}
+
+#[test]
+fn jsdoc_public_tag_with_other_tags() {
+    let info = parse_source("/** @deprecated @public */\nexport const foo = 1;");
+    assert_eq!(info.exports.len(), 1);
+    assert!(info.exports[0].is_public);
+}
+
+#[test]
+fn jsdoc_api_public_tag() {
+    let info = parse_source("/** @api public */\nexport const foo = 1;");
+    assert_eq!(info.exports.len(), 1);
+    assert!(info.exports[0].is_public);
+}
+
+#[test]
+fn no_jsdoc_tag_not_public() {
+    let info = parse_source("export const foo = 1;");
+    assert_eq!(info.exports.len(), 1);
+    assert!(!info.exports[0].is_public);
+}
+
+#[test]
+fn line_comment_not_jsdoc() {
+    // Only /** */ JSDoc comments count, not // comments
+    let info = parse_source("// @public\nexport const foo = 1;");
+    assert_eq!(info.exports.len(), 1);
+    assert!(!info.exports[0].is_public);
+}
+
+#[test]
+fn jsdoc_public_does_not_match_public_foo() {
+    // @publicFoo should NOT match @public
+    let info = parse_source("/** @publicFoo */\nexport const foo = 1;");
+    assert_eq!(info.exports.len(), 1);
+    assert!(!info.exports[0].is_public);
+}
+
+#[test]
+fn jsdoc_public_does_not_match_public_underscore() {
+    // @public_api should NOT match @public (underscore is an identifier char)
+    let info = parse_source("/** @public_api */\nexport const foo = 1;");
+    assert_eq!(info.exports.len(), 1);
+    assert!(!info.exports[0].is_public);
+}
+
+#[test]
+fn jsdoc_apipublic_no_space_does_not_match() {
+    // @apipublic (no space) should NOT match @api public
+    let info = parse_source("/** @apipublic */\nexport const foo = 1;");
+    assert_eq!(info.exports.len(), 1);
+    assert!(!info.exports[0].is_public);
+}
+
+#[test]
+fn jsdoc_public_on_export_specifier_list() {
+    let source = "const foo = 1;\nconst bar = 2;\n/** @public */\nexport { foo, bar };";
+    let info = parse_source(source);
+    // @public on the export statement applies to all specifiers
+    assert_eq!(info.exports.len(), 2);
+    assert!(info.exports[0].is_public);
+    assert!(info.exports[1].is_public);
+}
+
+#[test]
+fn jsdoc_public_only_applies_to_attached_export() {
+    let source = "/** @public */\nexport const foo = 1;\nexport const bar = 2;";
+    let info = parse_source(source);
+    assert_eq!(info.exports.len(), 2);
+    assert!(info.exports[0].is_public);
+    assert!(!info.exports[1].is_public);
+}

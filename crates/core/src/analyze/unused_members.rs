@@ -295,6 +295,7 @@ mod tests {
         ExportSymbol {
             name: ExportName::Named(name.to_string()),
             is_type_only: false,
+            is_public: false,
             span: Span::new(0, 10),
             references,
             members,

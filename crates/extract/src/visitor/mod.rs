@@ -114,6 +114,7 @@ impl ModuleInfoExtractor {
                             name,
                             local_name: Some(id.name.to_string()),
                             is_type_only,
+                            is_public: false,
                             span: id.span,
                             members: vec![],
                         });
@@ -127,6 +128,7 @@ impl ModuleInfoExtractor {
                         name: ExportName::Named(id.name.to_string()),
                         local_name: Some(id.name.to_string()),
                         is_type_only,
+                        is_public: false,
                         span: id.span,
                         members,
                     });
@@ -137,6 +139,7 @@ impl ModuleInfoExtractor {
                     name: ExportName::Named(alias.id.name.to_string()),
                     local_name: Some(alias.id.name.to_string()),
                     is_type_only: true,
+                    is_public: false,
                     span: alias.id.span,
                     members: vec![],
                 });
@@ -146,6 +149,7 @@ impl ModuleInfoExtractor {
                     name: ExportName::Named(iface.id.name.to_string()),
                     local_name: Some(iface.id.name.to_string()),
                     is_type_only: true,
+                    is_public: false,
                     span: iface.id.span,
                     members: vec![],
                 });
@@ -175,6 +179,7 @@ impl ModuleInfoExtractor {
                     name: ExportName::Named(enumd.id.name.to_string()),
                     local_name: Some(enumd.id.name.to_string()),
                     is_type_only,
+                    is_public: false,
                     span: enumd.id.span,
                     members,
                 });
@@ -185,6 +190,7 @@ impl ModuleInfoExtractor {
                         name: ExportName::Named(id.name.to_string()),
                         local_name: Some(id.name.to_string()),
                         is_type_only: true,
+                        is_public: false,
                         span: id.span,
                         members: vec![],
                     });
@@ -194,6 +200,7 @@ impl ModuleInfoExtractor {
                         name: ExportName::Named(lit.value.to_string()),
                         local_name: Some(lit.value.to_string()),
                         is_type_only: true,
+                        is_public: false,
                         span: lit.span,
                         members: vec![],
                     });
@@ -210,6 +217,7 @@ impl ModuleInfoExtractor {
                     name: ExportName::Named(id.name.to_string()),
                     local_name: Some(id.name.to_string()),
                     is_type_only,
+                    is_public: false,
                     span: id.span,
                     members: vec![],
                 });
@@ -428,6 +436,7 @@ impl<'a> Visit<'a> for ModuleInfoExtractor {
                     name: ExportName::Named(spec.exported.name().to_string()),
                     local_name: Some(spec.local.name().to_string()),
                     is_type_only: is_type_only || spec.export_kind.is_type(),
+                    is_public: false,
                     span: spec.span,
                     members: vec![],
                 });
@@ -442,6 +451,7 @@ impl<'a> Visit<'a> for ModuleInfoExtractor {
             name: ExportName::Default,
             local_name: None,
             is_type_only: false,
+            is_public: false,
             span: decl.span,
             members: vec![],
         });
@@ -741,6 +751,7 @@ impl<'a> Visit<'a> for ModuleInfoExtractor {
                                     name: ExportName::Named(name.to_string()),
                                     local_name: None,
                                     is_type_only: false,
+                                    is_public: false,
                                     span: p.span,
                                     members: vec![],
                                 });
@@ -754,6 +765,7 @@ impl<'a> Visit<'a> for ModuleInfoExtractor {
                         name: ExportName::Named(member.property.name.to_string()),
                         local_name: None,
                         is_type_only: false,
+                        is_public: false,
                         span: expr.span,
                         members: vec![],
                     });

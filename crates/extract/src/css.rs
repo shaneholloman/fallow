@@ -121,6 +121,7 @@ pub fn extract_css_module_exports(source: &str) -> Vec<ExportInfo> {
                     name: ExportName::Named(class_name),
                     local_name: None,
                     is_type_only: false,
+                    is_public: false,
                     span: Span::default(),
                     members: Vec::new(),
                 });

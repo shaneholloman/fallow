@@ -98,6 +98,11 @@ pub fn find_unused_exports(
             .collect();
 
         for export in &module.exports {
+            // Skip exports marked @public (library API surface, consumed externally)
+            if export.is_public {
+                continue;
+            }
+
             if export.references.is_empty() {
                 let export_str = export.name.to_string();
 
@@ -425,6 +430,7 @@ mod tests {
         ExportSymbol {
             name: ExportName::Named(name.to_string()),
             is_type_only: false,
+            is_public: false,
             span: Span::new(span_start, span_end),
             references: vec![],
             members: vec![],
@@ -440,6 +446,7 @@ mod tests {
         ExportSymbol {
             name: ExportName::Named(name.to_string()),
             is_type_only: false,
+            is_public: false,
             span: Span::new(span_start, span_end),
             references: vec![SymbolReference {
                 from_file: FileId(from),
@@ -502,6 +509,7 @@ mod tests {
         graph.modules[1].exports = vec![ExportSymbol {
             name: ExportName::Default,
             is_type_only: false,
+            is_public: false,
             span: Span::new(10, 20),
             references: vec![],
             members: vec![],
@@ -510,6 +518,7 @@ mod tests {
         graph.modules[2].exports = vec![ExportSymbol {
             name: ExportName::Default,
             is_type_only: false,
+            is_public: false,
             span: Span::new(10, 20),
             references: vec![],
             members: vec![],

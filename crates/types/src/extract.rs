@@ -93,6 +93,11 @@ pub struct ExportInfo {
     pub local_name: Option<String>,
     /// Whether this is a type-only export (`export type`).
     pub is_type_only: bool,
+    /// Whether this export has a `@public` JSDoc/TSDoc tag.
+    /// Exports marked `@public` are never reported as unused — they are
+    /// assumed to be consumed by external consumers (library API surface).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub is_public: bool,
     /// Source span of the export declaration.
     #[serde(serialize_with = "serialize_span")]
     pub span: Span,

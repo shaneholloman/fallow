@@ -47,6 +47,9 @@ pub struct ExportSymbol {
     pub name: ExportName,
     /// Whether this is a type-only export.
     pub is_type_only: bool,
+    /// Whether this export has a `@public` JSDoc/TSDoc tag.
+    /// Exports marked `@public` are never reported as unused.
+    pub is_public: bool,
     /// Source span of the export declaration.
     pub span: oxc_span::Span,
     /// Which files reference this export.

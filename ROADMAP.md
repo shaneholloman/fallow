@@ -57,7 +57,6 @@ Fallow exists in a small but active space. Here's how it fits:
 These are ideas, not commitments. They ship as 1.x releases based on user demand.
 
 - **More auto-fix targets** — delete unused files (`--allow-remove-files`), remove unused class members, post-fix formatting integration. Auto-fix is the highest-leverage feature for adoption — users want one-command cleanup.
-- **JSDoc/TSDoc tag support** — `@public` (never report as unused), `@internal` (only report if unused within project). Common request from library authors.
 - **Fine-grained incremental analysis** — patch the graph in place, track export-level dependencies. Cache-aware parsing already covers the main bottleneck; this would additionally skip file I/O for unchanged files.
 - **Class member instance tracking** — `instance.method()` and `this.property` should count as usage of class member declarations. Currently class member detection has a high false-positive rate on projects with instance-level access patterns.
 - **Custom export conditions / unbuilt workspace fallback** — when resolving cross-workspace imports and `build`/`dist` directories don't exist, fall back to `src/` resolution. Many monorepos (TanStack/query, etc.) use custom conditions.
