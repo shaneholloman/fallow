@@ -305,12 +305,21 @@ jobs:
 
       - name: Publish platform packages
         run: |
+          VERSION="${TAG_REF#refs/tags/v}"
           FAILED=0
           for dir in ./npm/darwin-arm64 ./npm/darwin-x64 ./npm/linux-x64-gnu ./npm/linux-arm64-gnu ./npm/linux-x64-musl ./npm/linux-arm64-musl ./npm/win32-x64-msvc; do
-            echo "Publishing $(basename "$dir")..."
+            PKG_NAME=$(node -e "console.log(require('$dir/package.json').name)")
+            echo "Publishing $PKG_NAME@$VERSION..."
+            if npm view "$PKG_NAME@$VERSION" version >/dev/null 2>&1; then
+              echo "  Already published, skipping"
+              continue
+            fi
             if ! npm publish "$dir" --access public --provenance; then
-              echo "::error::Failed to publish $(basename "$dir")"
-              FAILED=1
+              echo "  Provenance publish failed, retrying without provenance..."
+              if ! npm publish "$dir" --access public; then
+                echo "::error::Failed to publish $PKG_NAME@$VERSION"
+                FAILED=1
+              fi
             fi
           done
           if [ "$FAILED" -eq 1 ]; then
@@ -318,7 +327,14 @@ jobs:
           fi
 
       - name: Publish fallow
-        run: npm publish ./npm/fallow --access public --provenance --ignore-scripts
+        run: |
+          VERSION="${TAG_REF#refs/tags/v}"
+          if npm view "fallow@$VERSION" version >/dev/null 2>&1; then
+            echo "fallow@$VERSION already published, skipping"
+          else
+            npm publish ./npm/fallow --access public --provenance --ignore-scripts || \
+              npm publish ./npm/fallow --access public --ignore-scripts
+          fi
 
   vscode-publish:
     name: Publish VS Code Extension
