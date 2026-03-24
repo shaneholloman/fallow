@@ -362,4 +362,129 @@ mod tests {
         // non-relative paths and false values should be excluded
         assert_eq!(entries.len(), 1);
     }
+
+    #[test]
+    fn package_json_exports_string() {
+        let pkg: PackageJson =
+            serde_json::from_str(r#"{"exports": "./dist/index.js"}"#).unwrap();
+        let entries = pkg.entry_points();
+        assert_eq!(entries, vec!["./dist/index.js"]);
+    }
+
+    #[test]
+    fn package_json_workspace_patterns_object_with_nohoist() {
+        let pkg: PackageJson = serde_json::from_str(
+            r#"{
+            "workspaces": {
+                "packages": ["packages/*", "apps/*"],
+                "nohoist": ["**/react-native"]
+            }
+        }"#,
+        )
+        .unwrap();
+        let patterns = pkg.workspace_patterns();
+        assert_eq!(patterns, vec!["packages/*", "apps/*"]);
+    }
+
+    #[test]
+    fn package_json_missing_optional_fields() {
+        let pkg: PackageJson = serde_json::from_str(r#"{}"#).unwrap();
+        assert!(pkg.name.is_none());
+        assert!(pkg.main.is_none());
+        assert!(pkg.module.is_none());
+        assert!(pkg.types.is_none());
+        assert!(pkg.typings.is_none());
+        assert!(pkg.source.is_none());
+        assert!(pkg.browser.is_none());
+        assert!(pkg.bin.is_none());
+        assert!(pkg.exports.is_none());
+        assert!(pkg.dependencies.is_none());
+        assert!(pkg.dev_dependencies.is_none());
+        assert!(pkg.peer_dependencies.is_none());
+        assert!(pkg.optional_dependencies.is_none());
+        assert!(pkg.scripts.is_none());
+        assert!(pkg.workspaces.is_none());
+        assert!(pkg.entry_points().is_empty());
+        assert!(pkg.workspace_patterns().is_empty());
+        assert!(pkg.all_dependency_names().is_empty());
+    }
+
+    #[test]
+    fn package_json_all_dependency_names() {
+        let pkg: PackageJson = serde_json::from_str(
+            r#"{
+            "dependencies": {"react": "^18", "react-dom": "^18"},
+            "devDependencies": {"typescript": "^5"},
+            "peerDependencies": {"node": ">=18"},
+            "optionalDependencies": {"fsevents": "^2"}
+        }"#,
+        )
+        .unwrap();
+        let deps = pkg.all_dependency_names();
+        assert_eq!(deps.len(), 5);
+        assert!(deps.contains(&"react".to_string()));
+        assert!(deps.contains(&"react-dom".to_string()));
+        assert!(deps.contains(&"typescript".to_string()));
+        assert!(deps.contains(&"node".to_string()));
+        assert!(deps.contains(&"fsevents".to_string()));
+    }
+
+    #[test]
+    fn package_json_production_dependency_names() {
+        let pkg: PackageJson = serde_json::from_str(
+            r#"{
+            "dependencies": {"react": "^18"},
+            "devDependencies": {"typescript": "^5"}
+        }"#,
+        )
+        .unwrap();
+        let prod = pkg.production_dependency_names();
+        assert_eq!(prod, vec!["react"]);
+        let dev = pkg.dev_dependency_names();
+        assert_eq!(dev, vec!["typescript"]);
+    }
+
+    #[test]
+    fn package_json_bin_field_string() {
+        let pkg: PackageJson =
+            serde_json::from_str(r#"{"bin": "./cli.js"}"#).unwrap();
+        let entries = pkg.entry_points();
+        assert!(entries.contains(&"./cli.js".to_string()));
+    }
+
+    #[test]
+    fn package_json_bin_field_object() {
+        let pkg: PackageJson = serde_json::from_str(
+            r#"{"bin": {"my-cli": "./bin/cli.js", "my-tool": "./bin/tool.js"}}"#,
+        )
+        .unwrap();
+        let entries = pkg.entry_points();
+        assert!(entries.contains(&"./bin/cli.js".to_string()));
+        assert!(entries.contains(&"./bin/tool.js".to_string()));
+    }
+
+    #[test]
+    fn package_json_exports_deeply_nested() {
+        let pkg: PackageJson = serde_json::from_str(
+            r#"{
+            "exports": {
+                ".": {
+                    "node": {
+                        "import": "./dist/node.mjs",
+                        "require": "./dist/node.cjs"
+                    },
+                    "browser": {
+                        "import": "./dist/browser.mjs"
+                    }
+                }
+            }
+        }"#,
+        )
+        .unwrap();
+        let entries = pkg.entry_points();
+        assert_eq!(entries.len(), 3);
+        assert!(entries.contains(&"./dist/node.mjs".to_string()));
+        assert!(entries.contains(&"./dist/node.cjs".to_string()));
+        assert!(entries.contains(&"./dist/browser.mjs".to_string()));
+    }
 }

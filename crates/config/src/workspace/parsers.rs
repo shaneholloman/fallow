@@ -339,4 +339,161 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
+
+    #[test]
+    fn strip_trailing_commas_no_commas() {
+        let input = r#"{"a": 1, "b": [2, 3]}"#;
+        assert_eq!(strip_trailing_commas(input), input);
+    }
+
+    #[test]
+    fn strip_trailing_commas_empty_input() {
+        assert_eq!(strip_trailing_commas(""), "");
+    }
+
+    #[test]
+    fn strip_trailing_commas_nested_objects() {
+        let input = "{\n  \"a\": {\n    \"b\": 1,\n    \"c\": 2,\n  },\n  \"d\": 3,\n}";
+        let expected = "{\n  \"a\": {\n    \"b\": 1,\n    \"c\": 2\n  },\n  \"d\": 3\n}";
+        assert_eq!(strip_trailing_commas(input), expected);
+    }
+
+    #[test]
+    fn strip_trailing_commas_array_of_objects() {
+        let input = r#"[{"a": 1,}, {"b": 2,},]"#;
+        let expected = r#"[{"a": 1}, {"b": 2}]"#;
+        assert_eq!(strip_trailing_commas(input), expected);
+    }
+
+    #[test]
+    fn tsconfig_references_malformed_json() {
+        let temp_dir = std::env::temp_dir().join("fallow-test-tsconfig-malformed");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        std::fs::write(
+            temp_dir.join("tsconfig.json"),
+            r#"{ this is not valid json at all"#,
+        )
+        .unwrap();
+
+        let refs = parse_tsconfig_references(&temp_dir);
+        assert!(refs.is_empty());
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn tsconfig_references_empty_array() {
+        let temp_dir = std::env::temp_dir().join("fallow-test-tsconfig-empty-refs");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        std::fs::write(
+            temp_dir.join("tsconfig.json"),
+            r#"{"references": []}"#,
+        )
+        .unwrap();
+
+        let refs = parse_tsconfig_references(&temp_dir);
+        assert!(refs.is_empty());
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn parse_pnpm_workspace_malformed() {
+        // Garbage input should return empty, not panic
+        let patterns = parse_pnpm_workspace_yaml(":::not yaml at all:::");
+        assert!(patterns.is_empty());
+    }
+
+    #[test]
+    fn parse_pnpm_workspace_packages_key_empty_list() {
+        let yaml = "packages:\nother:\n  - something\n";
+        let patterns = parse_pnpm_workspace_yaml(yaml);
+        assert!(patterns.is_empty());
+    }
+
+    #[test]
+    fn expand_workspace_glob_exact_path() {
+        let temp_dir = std::env::temp_dir().join("fallow-test-expand-exact");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(temp_dir.join("packages/core")).unwrap();
+        std::fs::write(
+            temp_dir.join("packages/core/package.json"),
+            r#"{"name": "core"}"#,
+        )
+        .unwrap();
+
+        let canonical_root = temp_dir.canonicalize().unwrap();
+        let results = expand_workspace_glob(&temp_dir, "packages/core", &canonical_root);
+        assert_eq!(results.len(), 1);
+        assert!(results[0].0.ends_with("packages/core"));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn expand_workspace_glob_star() {
+        let temp_dir = std::env::temp_dir().join("fallow-test-expand-star");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(temp_dir.join("packages/a")).unwrap();
+        std::fs::create_dir_all(temp_dir.join("packages/b")).unwrap();
+        std::fs::create_dir_all(temp_dir.join("packages/c")).unwrap();
+        std::fs::write(
+            temp_dir.join("packages/a/package.json"),
+            r#"{"name": "a"}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            temp_dir.join("packages/b/package.json"),
+            r#"{"name": "b"}"#,
+        )
+        .unwrap();
+        // c has no package.json — should be excluded
+
+        let canonical_root = temp_dir.canonicalize().unwrap();
+        let results = expand_workspace_glob(&temp_dir, "packages/*", &canonical_root);
+        assert_eq!(results.len(), 2);
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn expand_workspace_glob_nested() {
+        let temp_dir = std::env::temp_dir().join("fallow-test-expand-nested");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(temp_dir.join("packages/scope/a")).unwrap();
+        std::fs::create_dir_all(temp_dir.join("packages/scope/b")).unwrap();
+        std::fs::write(
+            temp_dir.join("packages/scope/a/package.json"),
+            r#"{"name": "@scope/a"}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            temp_dir.join("packages/scope/b/package.json"),
+            r#"{"name": "@scope/b"}"#,
+        )
+        .unwrap();
+
+        let canonical_root = temp_dir.canonicalize().unwrap();
+        let results = expand_workspace_glob(&temp_dir, "packages/**/*", &canonical_root);
+        assert_eq!(results.len(), 2);
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn expand_workspace_glob_no_matches() {
+        let temp_dir = std::env::temp_dir().join("fallow-test-expand-nomatch");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let canonical_root = temp_dir.canonicalize().unwrap();
+        let results = expand_workspace_glob(&temp_dir, "nonexistent/*", &canonical_root);
+        assert!(results.is_empty());
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
 }
