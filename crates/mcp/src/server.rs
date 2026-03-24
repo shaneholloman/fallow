@@ -1424,6 +1424,10 @@ mod tests {
         assert!(err.message.contains("FALLOW_BIN"));
     }
 
+    // The following tests shell out to `/bin/sh` which is Unix-only.
+    // On Windows, these are skipped.
+
+    #[cfg(unix)]
     #[tokio::test]
     async fn run_fallow_exit_code_0_with_stdout() {
         // `echo '{"ok":true}'` exits 0 and writes to stdout
@@ -1438,6 +1442,7 @@ mod tests {
         assert!(text.contains(r#"{"ok":true}"#));
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn run_fallow_exit_code_0_empty_stdout_returns_empty_json() {
         // A command that succeeds with no output
@@ -1448,6 +1453,7 @@ mod tests {
         assert_eq!(extract_text(&result), "{}");
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn run_fallow_exit_code_1_treated_as_success_with_issues() {
         // Exit code 1 with JSON stdout = issues found (not an error)
@@ -1465,6 +1471,7 @@ mod tests {
         assert!(text.contains("issues"));
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn run_fallow_exit_code_1_empty_stdout_returns_empty_json() {
         let result = run_fallow("/bin/sh", &["-c".to_string(), "exit 1".to_string()])
@@ -1474,6 +1481,7 @@ mod tests {
         assert_eq!(extract_text(&result), "{}");
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn run_fallow_exit_code_2_with_stderr_returns_error() {
         let result = run_fallow(
@@ -1491,6 +1499,7 @@ mod tests {
         assert!(text.contains("invalid config"));
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn run_fallow_exit_code_2_empty_stderr_returns_generic_error() {
         let result = run_fallow("/bin/sh", &["-c".to_string(), "exit 2".to_string()])
@@ -1501,6 +1510,7 @@ mod tests {
         assert_eq!(text, "fallow exited with code 2");
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn run_fallow_high_exit_code_returns_error() {
         let result = run_fallow("/bin/sh", &["-c".to_string(), "exit 127".to_string()])
@@ -1511,6 +1521,7 @@ mod tests {
         assert!(text.contains("127"));
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn run_fallow_stderr_is_trimmed_in_error_message() {
         let result = run_fallow(
