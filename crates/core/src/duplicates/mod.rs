@@ -8,6 +8,8 @@
 pub mod detect;
 pub mod families;
 pub mod normalize;
+pub mod token_types;
+mod token_visitor;
 pub mod tokenize;
 pub(crate) mod types;
 

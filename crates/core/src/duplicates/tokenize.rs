@@ -1,184 +1,15 @@
 use std::path::Path;
 
 use oxc_allocator::Allocator;
-use oxc_ast::ast::*;
 use oxc_ast_visit::Visit;
-use oxc_ast_visit::walk;
 use oxc_parser::Parser;
-use oxc_span::{GetSpan, SourceType, Span};
-use oxc_syntax::scope::ScopeFlags;
+use oxc_span::{SourceType, Span};
 
-/// A single token extracted from the AST with its source location.
-#[derive(Debug, Clone)]
-pub struct SourceToken {
-    /// The kind of token.
-    pub kind: TokenKind,
-    /// Byte offset into the source file.
-    pub span: Span,
-}
-
-/// Normalized token types for clone detection.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum TokenKind {
-    // Keywords
-    Keyword(KeywordType),
-    // Identifiers -- value is the actual name (blinded in semantic mode)
-    Identifier(String),
-    // Literals
-    StringLiteral(String),
-    NumericLiteral(String),
-    BooleanLiteral(bool),
-    NullLiteral,
-    TemplateLiteral,
-    RegExpLiteral,
-    // Operators
-    Operator(OperatorType),
-    // Punctuation / delimiters
-    Punctuation(PunctuationType),
-}
-
-/// TypeScript/JavaScript keyword types.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum KeywordType {
-    Var,
-    Let,
-    Const,
-    Function,
-    Return,
-    If,
-    Else,
-    For,
-    While,
-    Do,
-    Switch,
-    Case,
-    Break,
-    Continue,
-    Default,
-    Throw,
-    Try,
-    Catch,
-    Finally,
-    New,
-    Delete,
-    Typeof,
-    Instanceof,
-    In,
-    Of,
-    Void,
-    This,
-    Super,
-    Class,
-    Extends,
-    Import,
-    Export,
-    From,
-    As,
-    Async,
-    Await,
-    Yield,
-    Static,
-    Get,
-    Set,
-    Type,
-    Interface,
-    Enum,
-    Implements,
-    Abstract,
-    Declare,
-    Readonly,
-    Keyof,
-    Satisfies,
-}
-
-/// Operator categories.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum OperatorType {
-    Assign,
-    Add,
-    Sub,
-    Mul,
-    Div,
-    Mod,
-    Exp,
-    Eq,
-    NEq,
-    StrictEq,
-    StrictNEq,
-    Lt,
-    Gt,
-    LtEq,
-    GtEq,
-    And,
-    Or,
-    Not,
-    BitwiseAnd,
-    BitwiseOr,
-    BitwiseXor,
-    BitwiseNot,
-    ShiftLeft,
-    ShiftRight,
-    UnsignedShiftRight,
-    NullishCoalescing,
-    OptionalChaining,
-    Spread,
-    Ternary,
-    Arrow,
-    Comma,
-    AddAssign,
-    SubAssign,
-    MulAssign,
-    DivAssign,
-    ModAssign,
-    ExpAssign,
-    AndAssign,
-    OrAssign,
-    NullishAssign,
-    BitwiseAndAssign,
-    BitwiseOrAssign,
-    BitwiseXorAssign,
-    ShiftLeftAssign,
-    ShiftRightAssign,
-    UnsignedShiftRightAssign,
-    Increment,
-    Decrement,
-    Instanceof,
-    In,
-}
-
-/// Punctuation / delimiter types.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum PunctuationType {
-    OpenParen,
-    CloseParen,
-    OpenBrace,
-    CloseBrace,
-    OpenBracket,
-    CloseBracket,
-    Semicolon,
-    Colon,
-    Dot,
-}
-
-/// Result of tokenizing a source file.
-#[derive(Debug, Clone)]
-pub struct FileTokens {
-    /// The extracted token sequence.
-    pub tokens: Vec<SourceToken>,
-    /// Source text (needed for extracting fragments).
-    pub source: String,
-    /// Total number of lines in the source.
-    pub line_count: usize,
-}
-
-/// Create a 1-byte span at the given byte position.
-///
-/// Used for synthetic punctuation tokens (`(`, `)`, `,`, `.`) that don't
-/// have their own AST span. Using the parent expression's full span would
-/// inflate clone line ranges, especially in chained method calls.
-const fn point_span(pos: u32) -> Span {
-    Span::new(pos, pos + 1)
-}
+// Re-export all public types so existing `use ... tokenize::X` paths continue to work.
+pub use super::token_types::{
+    FileTokens, KeywordType, OperatorType, PunctuationType, SourceToken, TokenKind,
+};
+use super::token_visitor::TokenExtractor;
 
 /// Tokenize a source file into a sequence of normalized tokens.
 ///
@@ -338,670 +169,10 @@ fn tokenize_file_inner(path: &Path, source: &str, strip_types: bool) -> FileToke
     }
 }
 
-/// AST visitor that extracts a flat sequence of normalized tokens.
-struct TokenExtractor {
-    tokens: Vec<SourceToken>,
-    /// When true, skip TypeScript type annotations, interfaces, and type aliases
-    /// to enable cross-language clone detection between .ts and .js files.
-    strip_types: bool,
-}
-
-impl TokenExtractor {
-    const fn with_strip_types(strip_types: bool) -> Self {
-        Self {
-            tokens: Vec::new(),
-            strip_types,
-        }
-    }
-
-    fn push(&mut self, kind: TokenKind, span: Span) {
-        self.tokens.push(SourceToken { kind, span });
-    }
-
-    fn push_keyword(&mut self, kw: KeywordType, span: Span) {
-        self.push(TokenKind::Keyword(kw), span);
-    }
-
-    fn push_op(&mut self, op: OperatorType, span: Span) {
-        self.push(TokenKind::Operator(op), span);
-    }
-
-    fn push_punc(&mut self, p: PunctuationType, span: Span) {
-        self.push(TokenKind::Punctuation(p), span);
-    }
-}
-
-impl<'a> Visit<'a> for TokenExtractor {
-    // ── Statements ──────────────────────────────────────────
-
-    fn visit_variable_declaration(&mut self, decl: &VariableDeclaration<'a>) {
-        let kw = match decl.kind {
-            VariableDeclarationKind::Var => KeywordType::Var,
-            VariableDeclarationKind::Let => KeywordType::Let,
-            VariableDeclarationKind::Const => KeywordType::Const,
-            VariableDeclarationKind::Using | VariableDeclarationKind::AwaitUsing => {
-                KeywordType::Const
-            }
-        };
-        self.push_keyword(kw, decl.span);
-        walk::walk_variable_declaration(self, decl);
-    }
-
-    fn visit_return_statement(&mut self, stmt: &ReturnStatement<'a>) {
-        self.push_keyword(KeywordType::Return, stmt.span);
-        walk::walk_return_statement(self, stmt);
-    }
-
-    fn visit_if_statement(&mut self, stmt: &IfStatement<'a>) {
-        self.push_keyword(KeywordType::If, stmt.span);
-        self.push_punc(PunctuationType::OpenParen, stmt.span);
-        self.visit_expression(&stmt.test);
-        self.push_punc(PunctuationType::CloseParen, stmt.span);
-        self.visit_statement(&stmt.consequent);
-        if let Some(alt) = &stmt.alternate {
-            self.push_keyword(KeywordType::Else, stmt.span);
-            self.visit_statement(alt);
-        }
-    }
-
-    fn visit_for_statement(&mut self, stmt: &ForStatement<'a>) {
-        self.push_keyword(KeywordType::For, stmt.span);
-        self.push_punc(PunctuationType::OpenParen, stmt.span);
-        walk::walk_for_statement(self, stmt);
-        self.push_punc(PunctuationType::CloseParen, stmt.span);
-    }
-
-    fn visit_for_in_statement(&mut self, stmt: &ForInStatement<'a>) {
-        self.push_keyword(KeywordType::For, stmt.span);
-        self.push_punc(PunctuationType::OpenParen, stmt.span);
-        self.visit_for_statement_left(&stmt.left);
-        self.push_keyword(KeywordType::In, stmt.span);
-        self.visit_expression(&stmt.right);
-        self.push_punc(PunctuationType::CloseParen, stmt.span);
-        self.visit_statement(&stmt.body);
-    }
-
-    fn visit_for_of_statement(&mut self, stmt: &ForOfStatement<'a>) {
-        self.push_keyword(KeywordType::For, stmt.span);
-        self.push_punc(PunctuationType::OpenParen, stmt.span);
-        self.visit_for_statement_left(&stmt.left);
-        self.push_keyword(KeywordType::Of, stmt.span);
-        self.visit_expression(&stmt.right);
-        self.push_punc(PunctuationType::CloseParen, stmt.span);
-        self.visit_statement(&stmt.body);
-    }
-
-    fn visit_while_statement(&mut self, stmt: &WhileStatement<'a>) {
-        self.push_keyword(KeywordType::While, stmt.span);
-        self.push_punc(PunctuationType::OpenParen, stmt.span);
-        walk::walk_while_statement(self, stmt);
-        self.push_punc(PunctuationType::CloseParen, stmt.span);
-    }
-
-    fn visit_do_while_statement(&mut self, stmt: &DoWhileStatement<'a>) {
-        self.push_keyword(KeywordType::Do, stmt.span);
-        walk::walk_do_while_statement(self, stmt);
-    }
-
-    fn visit_switch_statement(&mut self, stmt: &SwitchStatement<'a>) {
-        self.push_keyword(KeywordType::Switch, stmt.span);
-        self.push_punc(PunctuationType::OpenParen, stmt.span);
-        walk::walk_switch_statement(self, stmt);
-        self.push_punc(PunctuationType::CloseParen, stmt.span);
-    }
-
-    fn visit_switch_case(&mut self, case: &SwitchCase<'a>) {
-        if case.test.is_some() {
-            self.push_keyword(KeywordType::Case, case.span);
-        } else {
-            self.push_keyword(KeywordType::Default, case.span);
-        }
-        self.push_punc(PunctuationType::Colon, case.span);
-        walk::walk_switch_case(self, case);
-    }
-
-    fn visit_break_statement(&mut self, stmt: &BreakStatement<'a>) {
-        self.push_keyword(KeywordType::Break, stmt.span);
-    }
-
-    fn visit_continue_statement(&mut self, stmt: &ContinueStatement<'a>) {
-        self.push_keyword(KeywordType::Continue, stmt.span);
-    }
-
-    fn visit_throw_statement(&mut self, stmt: &ThrowStatement<'a>) {
-        self.push_keyword(KeywordType::Throw, stmt.span);
-        walk::walk_throw_statement(self, stmt);
-    }
-
-    fn visit_try_statement(&mut self, stmt: &TryStatement<'a>) {
-        self.push_keyword(KeywordType::Try, stmt.span);
-        walk::walk_try_statement(self, stmt);
-    }
-
-    fn visit_catch_clause(&mut self, clause: &CatchClause<'a>) {
-        self.push_keyword(KeywordType::Catch, clause.span);
-        walk::walk_catch_clause(self, clause);
-    }
-
-    fn visit_block_statement(&mut self, block: &BlockStatement<'a>) {
-        self.push_punc(PunctuationType::OpenBrace, block.span);
-        walk::walk_block_statement(self, block);
-        self.push_punc(PunctuationType::CloseBrace, block.span);
-    }
-
-    // ── Expressions ─────────────────────────────────────────
-
-    fn visit_identifier_reference(&mut self, ident: &IdentifierReference<'a>) {
-        self.push(TokenKind::Identifier(ident.name.to_string()), ident.span);
-    }
-
-    fn visit_binding_identifier(&mut self, ident: &BindingIdentifier<'a>) {
-        self.push(TokenKind::Identifier(ident.name.to_string()), ident.span);
-    }
-
-    fn visit_string_literal(&mut self, lit: &StringLiteral<'a>) {
-        self.push(TokenKind::StringLiteral(lit.value.to_string()), lit.span);
-    }
-
-    fn visit_numeric_literal(&mut self, lit: &NumericLiteral<'a>) {
-        let raw_str = lit
-            .raw
-            .as_ref()
-            .map_or_else(|| lit.value.to_string(), |r| r.to_string());
-        self.push(TokenKind::NumericLiteral(raw_str), lit.span);
-    }
-
-    fn visit_boolean_literal(&mut self, lit: &BooleanLiteral) {
-        self.push(TokenKind::BooleanLiteral(lit.value), lit.span);
-    }
-
-    fn visit_null_literal(&mut self, lit: &NullLiteral) {
-        self.push(TokenKind::NullLiteral, lit.span);
-    }
-
-    fn visit_template_literal(&mut self, lit: &TemplateLiteral<'a>) {
-        self.push(TokenKind::TemplateLiteral, lit.span);
-        walk::walk_template_literal(self, lit);
-    }
-
-    fn visit_reg_exp_literal(&mut self, lit: &RegExpLiteral<'a>) {
-        self.push(TokenKind::RegExpLiteral, lit.span);
-    }
-
-    fn visit_this_expression(&mut self, expr: &ThisExpression) {
-        self.push_keyword(KeywordType::This, expr.span);
-    }
-
-    fn visit_super(&mut self, expr: &Super) {
-        self.push_keyword(KeywordType::Super, expr.span);
-    }
-
-    fn visit_array_expression(&mut self, expr: &ArrayExpression<'a>) {
-        self.push_punc(PunctuationType::OpenBracket, expr.span);
-        walk::walk_array_expression(self, expr);
-        self.push_punc(PunctuationType::CloseBracket, expr.span);
-    }
-
-    fn visit_object_expression(&mut self, expr: &ObjectExpression<'a>) {
-        self.push_punc(PunctuationType::OpenBrace, expr.span);
-        walk::walk_object_expression(self, expr);
-        self.push_punc(PunctuationType::CloseBrace, expr.span);
-    }
-
-    fn visit_call_expression(&mut self, expr: &CallExpression<'a>) {
-        self.visit_expression(&expr.callee);
-        // Use point spans for synthetic punctuation to avoid inflating clone
-        // ranges when call expressions are chained (expr.span covers the
-        // entire chain, not just this call's parentheses).
-        let open = point_span(expr.callee.span().end);
-        self.push_punc(PunctuationType::OpenParen, open);
-        for arg in &expr.arguments {
-            self.visit_argument(arg);
-            let comma = point_span(arg.span().end);
-            self.push_op(OperatorType::Comma, comma);
-        }
-        let close = point_span(expr.span.end.saturating_sub(1));
-        self.push_punc(PunctuationType::CloseParen, close);
-    }
-
-    fn visit_new_expression(&mut self, expr: &NewExpression<'a>) {
-        self.push_keyword(KeywordType::New, expr.span);
-        self.visit_expression(&expr.callee);
-        let open = point_span(expr.callee.span().end);
-        self.push_punc(PunctuationType::OpenParen, open);
-        for arg in &expr.arguments {
-            self.visit_argument(arg);
-            let comma = point_span(arg.span().end);
-            self.push_op(OperatorType::Comma, comma);
-        }
-        let close = point_span(expr.span.end.saturating_sub(1));
-        self.push_punc(PunctuationType::CloseParen, close);
-    }
-
-    fn visit_static_member_expression(&mut self, expr: &StaticMemberExpression<'a>) {
-        self.visit_expression(&expr.object);
-        // Use point span at the dot position (right after the object).
-        let dot = point_span(expr.object.span().end);
-        self.push_punc(PunctuationType::Dot, dot);
-        self.push(
-            TokenKind::Identifier(expr.property.name.to_string()),
-            expr.property.span,
-        );
-    }
-
-    fn visit_computed_member_expression(&mut self, expr: &ComputedMemberExpression<'a>) {
-        self.visit_expression(&expr.object);
-        let open = point_span(expr.object.span().end);
-        self.push_punc(PunctuationType::OpenBracket, open);
-        self.visit_expression(&expr.expression);
-        let close = point_span(expr.span.end.saturating_sub(1));
-        self.push_punc(PunctuationType::CloseBracket, close);
-    }
-
-    fn visit_assignment_expression(&mut self, expr: &AssignmentExpression<'a>) {
-        self.visit_assignment_target(&expr.left);
-        let op = match expr.operator {
-            AssignmentOperator::Assign => OperatorType::Assign,
-            AssignmentOperator::Addition => OperatorType::AddAssign,
-            AssignmentOperator::Subtraction => OperatorType::SubAssign,
-            AssignmentOperator::Multiplication => OperatorType::MulAssign,
-            AssignmentOperator::Division => OperatorType::DivAssign,
-            AssignmentOperator::Remainder => OperatorType::ModAssign,
-            AssignmentOperator::Exponential => OperatorType::ExpAssign,
-            AssignmentOperator::LogicalAnd => OperatorType::AndAssign,
-            AssignmentOperator::LogicalOr => OperatorType::OrAssign,
-            AssignmentOperator::LogicalNullish => OperatorType::NullishAssign,
-            AssignmentOperator::BitwiseAnd => OperatorType::BitwiseAndAssign,
-            AssignmentOperator::BitwiseOR => OperatorType::BitwiseOrAssign,
-            AssignmentOperator::BitwiseXOR => OperatorType::BitwiseXorAssign,
-            AssignmentOperator::ShiftLeft => OperatorType::ShiftLeftAssign,
-            AssignmentOperator::ShiftRight => OperatorType::ShiftRightAssign,
-            AssignmentOperator::ShiftRightZeroFill => OperatorType::UnsignedShiftRightAssign,
-        };
-        self.push_op(op, expr.span);
-        self.visit_expression(&expr.right);
-    }
-
-    fn visit_binary_expression(&mut self, expr: &BinaryExpression<'a>) {
-        self.visit_expression(&expr.left);
-        let op = match expr.operator {
-            BinaryOperator::Addition => OperatorType::Add,
-            BinaryOperator::Subtraction => OperatorType::Sub,
-            BinaryOperator::Multiplication => OperatorType::Mul,
-            BinaryOperator::Division => OperatorType::Div,
-            BinaryOperator::Remainder => OperatorType::Mod,
-            BinaryOperator::Exponential => OperatorType::Exp,
-            BinaryOperator::Equality => OperatorType::Eq,
-            BinaryOperator::Inequality => OperatorType::NEq,
-            BinaryOperator::StrictEquality => OperatorType::StrictEq,
-            BinaryOperator::StrictInequality => OperatorType::StrictNEq,
-            BinaryOperator::LessThan => OperatorType::Lt,
-            BinaryOperator::GreaterThan => OperatorType::Gt,
-            BinaryOperator::LessEqualThan => OperatorType::LtEq,
-            BinaryOperator::GreaterEqualThan => OperatorType::GtEq,
-            BinaryOperator::BitwiseAnd => OperatorType::BitwiseAnd,
-            BinaryOperator::BitwiseOR => OperatorType::BitwiseOr,
-            BinaryOperator::BitwiseXOR => OperatorType::BitwiseXor,
-            BinaryOperator::ShiftLeft => OperatorType::ShiftLeft,
-            BinaryOperator::ShiftRight => OperatorType::ShiftRight,
-            BinaryOperator::ShiftRightZeroFill => OperatorType::UnsignedShiftRight,
-            BinaryOperator::Instanceof => OperatorType::Instanceof,
-            BinaryOperator::In => OperatorType::In,
-        };
-        self.push_op(op, expr.span);
-        self.visit_expression(&expr.right);
-    }
-
-    fn visit_logical_expression(&mut self, expr: &LogicalExpression<'a>) {
-        self.visit_expression(&expr.left);
-        let op = match expr.operator {
-            LogicalOperator::And => OperatorType::And,
-            LogicalOperator::Or => OperatorType::Or,
-            LogicalOperator::Coalesce => OperatorType::NullishCoalescing,
-        };
-        self.push_op(op, expr.span);
-        self.visit_expression(&expr.right);
-    }
-
-    fn visit_unary_expression(&mut self, expr: &UnaryExpression<'a>) {
-        let op = match expr.operator {
-            UnaryOperator::UnaryPlus => OperatorType::Add,
-            UnaryOperator::UnaryNegation => OperatorType::Sub,
-            UnaryOperator::LogicalNot => OperatorType::Not,
-            UnaryOperator::BitwiseNot => OperatorType::BitwiseNot,
-            UnaryOperator::Typeof => {
-                self.push_keyword(KeywordType::Typeof, expr.span);
-                walk::walk_unary_expression(self, expr);
-                return;
-            }
-            UnaryOperator::Void => {
-                self.push_keyword(KeywordType::Void, expr.span);
-                walk::walk_unary_expression(self, expr);
-                return;
-            }
-            UnaryOperator::Delete => {
-                self.push_keyword(KeywordType::Delete, expr.span);
-                walk::walk_unary_expression(self, expr);
-                return;
-            }
-        };
-        self.push_op(op, expr.span);
-        walk::walk_unary_expression(self, expr);
-    }
-
-    fn visit_update_expression(&mut self, expr: &UpdateExpression<'a>) {
-        let op = match expr.operator {
-            UpdateOperator::Increment => OperatorType::Increment,
-            UpdateOperator::Decrement => OperatorType::Decrement,
-        };
-        if expr.prefix {
-            self.push_op(op, expr.span);
-        }
-        walk::walk_update_expression(self, expr);
-        if !expr.prefix {
-            self.push_op(op, expr.span);
-        }
-    }
-
-    fn visit_conditional_expression(&mut self, expr: &ConditionalExpression<'a>) {
-        self.visit_expression(&expr.test);
-        self.push_op(OperatorType::Ternary, expr.span);
-        self.visit_expression(&expr.consequent);
-        self.push_punc(PunctuationType::Colon, expr.span);
-        self.visit_expression(&expr.alternate);
-    }
-
-    fn visit_arrow_function_expression(&mut self, expr: &ArrowFunctionExpression<'a>) {
-        if expr.r#async {
-            self.push_keyword(KeywordType::Async, expr.span);
-        }
-        let params_span = expr.params.span;
-        self.push_punc(PunctuationType::OpenParen, point_span(params_span.start));
-        for param in &expr.params.items {
-            self.visit_binding_pattern(&param.pattern);
-            self.push_op(OperatorType::Comma, point_span(param.span.end));
-        }
-        self.push_punc(
-            PunctuationType::CloseParen,
-            point_span(params_span.end.saturating_sub(1)),
-        );
-        self.push_op(OperatorType::Arrow, point_span(params_span.end));
-        walk::walk_arrow_function_expression(self, expr);
-    }
-
-    fn visit_yield_expression(&mut self, expr: &YieldExpression<'a>) {
-        self.push_keyword(KeywordType::Yield, expr.span);
-        walk::walk_yield_expression(self, expr);
-    }
-
-    fn visit_await_expression(&mut self, expr: &AwaitExpression<'a>) {
-        self.push_keyword(KeywordType::Await, expr.span);
-        walk::walk_await_expression(self, expr);
-    }
-
-    fn visit_spread_element(&mut self, elem: &SpreadElement<'a>) {
-        self.push_op(OperatorType::Spread, elem.span);
-        walk::walk_spread_element(self, elem);
-    }
-
-    fn visit_sequence_expression(&mut self, expr: &SequenceExpression<'a>) {
-        for (i, sub_expr) in expr.expressions.iter().enumerate() {
-            if i > 0 {
-                self.push_op(OperatorType::Comma, expr.span);
-            }
-            self.visit_expression(sub_expr);
-        }
-    }
-
-    // ── Functions ──────────────────────────────────────────
-
-    fn visit_function(&mut self, func: &Function<'a>, flags: ScopeFlags) {
-        if func.r#async {
-            self.push_keyword(KeywordType::Async, func.span);
-        }
-        self.push_keyword(KeywordType::Function, func.span);
-        if let Some(id) = &func.id {
-            self.push(TokenKind::Identifier(id.name.to_string()), id.span);
-        }
-        let params_span = func.params.span;
-        self.push_punc(PunctuationType::OpenParen, point_span(params_span.start));
-        for param in &func.params.items {
-            self.visit_binding_pattern(&param.pattern);
-            self.push_op(OperatorType::Comma, point_span(param.span.end));
-        }
-        self.push_punc(
-            PunctuationType::CloseParen,
-            point_span(params_span.end.saturating_sub(1)),
-        );
-        walk::walk_function(self, func, flags);
-    }
-
-    // ── Classes ─────────────────────────────────────────────
-
-    fn visit_class(&mut self, class: &Class<'a>) {
-        self.push_keyword(KeywordType::Class, class.span);
-        if let Some(id) = &class.id {
-            self.push(TokenKind::Identifier(id.name.to_string()), id.span);
-        }
-        if class.super_class.is_some() {
-            self.push_keyword(KeywordType::Extends, class.span);
-        }
-        walk::walk_class(self, class);
-    }
-
-    // ── Import/Export ───────────────────────────────────────
-
-    fn visit_import_declaration(&mut self, decl: &ImportDeclaration<'a>) {
-        // Skip `import type { ... } from '...'` when stripping types
-        if self.strip_types && decl.import_kind.is_type() {
-            return;
-        }
-        self.push_keyword(KeywordType::Import, decl.span);
-        walk::walk_import_declaration(self, decl);
-        self.push_keyword(KeywordType::From, decl.span);
-        self.push(
-            TokenKind::StringLiteral(decl.source.value.to_string()),
-            decl.source.span,
-        );
-    }
-
-    fn visit_export_named_declaration(&mut self, decl: &ExportNamedDeclaration<'a>) {
-        // Skip `export type { ... }` when stripping types
-        if self.strip_types && decl.export_kind.is_type() {
-            return;
-        }
-        self.push_keyword(KeywordType::Export, decl.span);
-        walk::walk_export_named_declaration(self, decl);
-    }
-
-    fn visit_export_default_declaration(&mut self, decl: &ExportDefaultDeclaration<'a>) {
-        self.push_keyword(KeywordType::Export, decl.span);
-        self.push_keyword(KeywordType::Default, decl.span);
-        walk::walk_export_default_declaration(self, decl);
-    }
-
-    fn visit_export_all_declaration(&mut self, decl: &ExportAllDeclaration<'a>) {
-        self.push_keyword(KeywordType::Export, decl.span);
-        self.push_keyword(KeywordType::From, decl.span);
-        self.push(
-            TokenKind::StringLiteral(decl.source.value.to_string()),
-            decl.source.span,
-        );
-    }
-
-    // ── TypeScript declarations ────────────────────────────
-
-    fn visit_ts_interface_declaration(&mut self, decl: &TSInterfaceDeclaration<'a>) {
-        if self.strip_types {
-            return; // Skip entire interface when stripping types
-        }
-        self.push_keyword(KeywordType::Interface, decl.span);
-        walk::walk_ts_interface_declaration(self, decl);
-    }
-
-    fn visit_ts_interface_body(&mut self, body: &TSInterfaceBody<'a>) {
-        self.push_punc(PunctuationType::OpenBrace, body.span);
-        walk::walk_ts_interface_body(self, body);
-        self.push_punc(PunctuationType::CloseBrace, body.span);
-    }
-
-    fn visit_ts_type_alias_declaration(&mut self, decl: &TSTypeAliasDeclaration<'a>) {
-        if self.strip_types {
-            return; // Skip entire type alias when stripping types
-        }
-        self.push_keyword(KeywordType::Type, decl.span);
-        walk::walk_ts_type_alias_declaration(self, decl);
-    }
-
-    fn visit_ts_module_declaration(&mut self, decl: &TSModuleDeclaration<'a>) {
-        if self.strip_types && decl.declare {
-            return; // Skip `declare module` / `declare namespace` when stripping types
-        }
-        walk::walk_ts_module_declaration(self, decl);
-    }
-
-    fn visit_ts_enum_declaration(&mut self, decl: &TSEnumDeclaration<'a>) {
-        self.push_keyword(KeywordType::Enum, decl.span);
-        walk::walk_ts_enum_declaration(self, decl);
-    }
-
-    fn visit_ts_enum_body(&mut self, body: &TSEnumBody<'a>) {
-        self.push_punc(PunctuationType::OpenBrace, body.span);
-        walk::walk_ts_enum_body(self, body);
-        self.push_punc(PunctuationType::CloseBrace, body.span);
-    }
-
-    fn visit_ts_property_signature(&mut self, sig: &TSPropertySignature<'a>) {
-        walk::walk_ts_property_signature(self, sig);
-        self.push_punc(PunctuationType::Semicolon, sig.span);
-    }
-
-    fn visit_ts_type_annotation(&mut self, ann: &TSTypeAnnotation<'a>) {
-        if self.strip_types {
-            return; // Skip parameter/return type annotations when stripping types
-        }
-        self.push_punc(PunctuationType::Colon, ann.span);
-        walk::walk_ts_type_annotation(self, ann);
-    }
-
-    fn visit_ts_type_parameter_declaration(&mut self, decl: &TSTypeParameterDeclaration<'a>) {
-        if self.strip_types {
-            return; // Skip generic type parameters when stripping types
-        }
-        walk::walk_ts_type_parameter_declaration(self, decl);
-    }
-
-    fn visit_ts_type_parameter_instantiation(&mut self, inst: &TSTypeParameterInstantiation<'a>) {
-        if self.strip_types {
-            return; // Skip generic type arguments when stripping types
-        }
-        walk::walk_ts_type_parameter_instantiation(self, inst);
-    }
-
-    fn visit_ts_as_expression(&mut self, expr: &TSAsExpression<'a>) {
-        self.visit_expression(&expr.expression);
-        if !self.strip_types {
-            self.push_keyword(KeywordType::As, expr.span);
-            self.visit_ts_type(&expr.type_annotation);
-        }
-    }
-
-    fn visit_ts_satisfies_expression(&mut self, expr: &TSSatisfiesExpression<'a>) {
-        self.visit_expression(&expr.expression);
-        if !self.strip_types {
-            self.push_keyword(KeywordType::Satisfies, expr.span);
-            self.visit_ts_type(&expr.type_annotation);
-        }
-    }
-
-    fn visit_ts_non_null_expression(&mut self, expr: &TSNonNullExpression<'a>) {
-        self.visit_expression(&expr.expression);
-        // The `!` postfix is stripped when stripping types (it's a type assertion)
-    }
-
-    fn visit_identifier_name(&mut self, ident: &IdentifierName<'a>) {
-        self.push(TokenKind::Identifier(ident.name.to_string()), ident.span);
-    }
-
-    fn visit_ts_string_keyword(&mut self, it: &TSStringKeyword) {
-        self.push(TokenKind::Identifier("string".to_string()), it.span);
-    }
-
-    fn visit_ts_number_keyword(&mut self, it: &TSNumberKeyword) {
-        self.push(TokenKind::Identifier("number".to_string()), it.span);
-    }
-
-    fn visit_ts_boolean_keyword(&mut self, it: &TSBooleanKeyword) {
-        self.push(TokenKind::Identifier("boolean".to_string()), it.span);
-    }
-
-    fn visit_ts_any_keyword(&mut self, it: &TSAnyKeyword) {
-        self.push(TokenKind::Identifier("any".to_string()), it.span);
-    }
-
-    fn visit_ts_void_keyword(&mut self, it: &TSVoidKeyword) {
-        self.push(TokenKind::Identifier("void".to_string()), it.span);
-    }
-
-    fn visit_ts_null_keyword(&mut self, it: &TSNullKeyword) {
-        self.push(TokenKind::NullLiteral, it.span);
-    }
-
-    fn visit_ts_undefined_keyword(&mut self, it: &TSUndefinedKeyword) {
-        self.push(TokenKind::Identifier("undefined".to_string()), it.span);
-    }
-
-    fn visit_ts_never_keyword(&mut self, it: &TSNeverKeyword) {
-        self.push(TokenKind::Identifier("never".to_string()), it.span);
-    }
-
-    fn visit_ts_unknown_keyword(&mut self, it: &TSUnknownKeyword) {
-        self.push(TokenKind::Identifier("unknown".to_string()), it.span);
-    }
-
-    // ── JSX ─────────────────────────────────────────────────
-
-    fn visit_jsx_opening_element(&mut self, elem: &JSXOpeningElement<'a>) {
-        self.push_punc(PunctuationType::OpenBracket, elem.span);
-        walk::walk_jsx_opening_element(self, elem);
-        self.push_punc(PunctuationType::CloseBracket, elem.span);
-    }
-
-    fn visit_jsx_closing_element(&mut self, elem: &JSXClosingElement<'a>) {
-        self.push_punc(PunctuationType::OpenBracket, elem.span);
-        walk::walk_jsx_closing_element(self, elem);
-        self.push_punc(PunctuationType::CloseBracket, elem.span);
-    }
-
-    fn visit_jsx_identifier(&mut self, ident: &JSXIdentifier<'a>) {
-        self.push(TokenKind::Identifier(ident.name.to_string()), ident.span);
-    }
-
-    fn visit_jsx_spread_attribute(&mut self, attr: &JSXSpreadAttribute<'a>) {
-        self.push_op(OperatorType::Spread, attr.span);
-        walk::walk_jsx_spread_attribute(self, attr);
-    }
-
-    // ── Misc ────────────────────────────────────────────────
-
-    fn visit_variable_declarator(&mut self, decl: &VariableDeclarator<'a>) {
-        self.visit_binding_pattern(&decl.id);
-        if let Some(init) = &decl.init {
-            self.push_op(OperatorType::Assign, decl.span);
-            self.visit_expression(init);
-        }
-        self.push_punc(PunctuationType::Semicolon, decl.span);
-    }
-
-    fn visit_expression_statement(&mut self, stmt: &ExpressionStatement<'a>) {
-        walk::walk_expression_statement(self, stmt);
-        self.push_punc(PunctuationType::Semicolon, stmt.span);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::duplicates::token_types::point_span;
     use std::path::PathBuf;
 
     fn tokenize(code: &str) -> Vec<SourceToken> {
@@ -2912,6 +2083,532 @@ const count: Ref<number> = ref(0);
         assert!(
             !has_as,
             "'as const' should be stripped in cross-language mode"
+        );
+    }
+
+    // ── token_types: point_span edge cases ───────────────────────
+
+    #[test]
+    fn point_span_at_zero() {
+        let span = point_span(0);
+        assert_eq!(span.start, 0);
+        assert_eq!(span.end, 1);
+    }
+
+    #[test]
+    fn point_span_at_large_offset() {
+        let span = point_span(1_000_000);
+        assert_eq!(span.start, 1_000_000);
+        assert_eq!(span.end, 1_000_001);
+        assert_eq!(span.end - span.start, 1);
+    }
+
+    #[test]
+    fn point_span_near_u32_max() {
+        let span = point_span(u32::MAX - 1);
+        assert_eq!(span.start, u32::MAX - 1);
+        assert_eq!(span.end, u32::MAX);
+    }
+
+    // ── token_types: SourceToken construction ────────────────────
+
+    #[test]
+    fn source_token_construction_and_field_access() {
+        let token = SourceToken {
+            kind: TokenKind::Keyword(KeywordType::Const),
+            span: Span::new(10, 15),
+        };
+        assert!(matches!(
+            token.kind,
+            TokenKind::Keyword(KeywordType::Const)
+        ));
+        assert_eq!(token.span.start, 10);
+        assert_eq!(token.span.end, 15);
+    }
+
+    #[test]
+    fn source_token_clone() {
+        let token = SourceToken {
+            kind: TokenKind::Identifier("foo".to_string()),
+            span: Span::new(0, 3),
+        };
+        let cloned = token.clone();
+        assert_eq!(cloned.span.start, token.span.start);
+        assert_eq!(cloned.span.end, token.span.end);
+        assert!(matches!(&cloned.kind, TokenKind::Identifier(n) if n == "foo"));
+    }
+
+    // ── token_types: FileTokens construction ─────────────────────
+
+    #[test]
+    fn file_tokens_direct_construction() {
+        let tokens = vec![
+            SourceToken {
+                kind: TokenKind::Keyword(KeywordType::Const),
+                span: Span::new(0, 5),
+            },
+            SourceToken {
+                kind: TokenKind::Identifier("x".to_string()),
+                span: Span::new(6, 7),
+            },
+        ];
+        let ft = FileTokens {
+            tokens,
+            source: "const x".to_string(),
+            line_count: 1,
+        };
+        assert_eq!(ft.tokens.len(), 2);
+        assert_eq!(ft.source, "const x");
+        assert_eq!(ft.line_count, 1);
+    }
+
+    #[test]
+    fn file_tokens_empty_construction() {
+        let ft = FileTokens {
+            tokens: Vec::new(),
+            source: String::new(),
+            line_count: 0,
+        };
+        assert!(ft.tokens.is_empty());
+        assert!(ft.source.is_empty());
+        assert_eq!(ft.line_count, 0);
+    }
+
+    #[test]
+    fn file_tokens_clone() {
+        let ft = FileTokens {
+            tokens: vec![SourceToken {
+                kind: TokenKind::NullLiteral,
+                span: Span::new(0, 4),
+            }],
+            source: "null".to_string(),
+            line_count: 1,
+        };
+        let cloned = ft.clone();
+        assert_eq!(cloned.tokens.len(), 1);
+        assert_eq!(cloned.source, "null");
+        assert_eq!(cloned.line_count, 1);
+    }
+
+    // ── token_types: TokenKind variants ──────────────────────────
+
+    #[test]
+    fn token_kind_equality_and_hash() {
+        use std::collections::HashSet;
+
+        let mut set = HashSet::new();
+        set.insert(TokenKind::Keyword(KeywordType::Const));
+        set.insert(TokenKind::Keyword(KeywordType::Let));
+        set.insert(TokenKind::Keyword(KeywordType::Const)); // duplicate
+
+        assert_eq!(set.len(), 2, "HashSet should deduplicate identical TokenKinds");
+
+        assert_eq!(
+            TokenKind::NullLiteral,
+            TokenKind::NullLiteral,
+            "Same variants should be equal"
+        );
+        assert_ne!(
+            TokenKind::BooleanLiteral(true),
+            TokenKind::BooleanLiteral(false),
+            "Different boolean values should not be equal"
+        );
+        assert_eq!(
+            TokenKind::StringLiteral("hello".to_string()),
+            TokenKind::StringLiteral("hello".to_string()),
+            "Same string values should be equal"
+        );
+        assert_ne!(
+            TokenKind::StringLiteral("a".to_string()),
+            TokenKind::StringLiteral("b".to_string()),
+            "Different string values should not be equal"
+        );
+    }
+
+    // ── token_visitor: var declaration ────────────────────────────
+
+    #[test]
+    fn tokenize_var_declaration() {
+        let tokens = tokenize("var x = 1;");
+        assert!(matches!(
+            tokens[0].kind,
+            TokenKind::Keyword(KeywordType::Var)
+        ));
+    }
+
+    // ── token_visitor: empty function body ───────────────────────
+
+    #[test]
+    fn tokenize_empty_function_body() {
+        let tokens = tokenize("function noop() {}");
+        let has_function = tokens
+            .iter()
+            .any(|t| matches!(t.kind, TokenKind::Keyword(KeywordType::Function)));
+        let has_noop = tokens
+            .iter()
+            .any(|t| matches!(&t.kind, TokenKind::Identifier(n) if n == "noop"));
+        assert!(has_function, "Should have function keyword");
+        assert!(has_noop, "Should have identifier 'noop'");
+        // FunctionBody is not a BlockStatement, so no braces are emitted for
+        // the empty body. The visitor emits: function, noop, (, )
+        let open_parens = tokens
+            .iter()
+            .filter(|t| matches!(t.kind, TokenKind::Punctuation(PunctuationType::OpenParen)))
+            .count();
+        let close_parens = tokens
+            .iter()
+            .filter(|t| matches!(t.kind, TokenKind::Punctuation(PunctuationType::CloseParen)))
+            .count();
+        assert!(open_parens >= 1, "Should have open paren for params");
+        assert_eq!(open_parens, close_parens, "Parens should be balanced");
+    }
+
+    #[test]
+    fn tokenize_empty_arrow_function_body() {
+        let tokens = tokenize("const noop = () => {};");
+        let has_arrow = tokens
+            .iter()
+            .any(|t| matches!(t.kind, TokenKind::Operator(OperatorType::Arrow)));
+        let open_braces = tokens
+            .iter()
+            .filter(|t| matches!(t.kind, TokenKind::Punctuation(PunctuationType::OpenBrace)))
+            .count();
+        let close_braces = tokens
+            .iter()
+            .filter(|t| matches!(t.kind, TokenKind::Punctuation(PunctuationType::CloseBrace)))
+            .count();
+        assert!(has_arrow, "Should have arrow operator");
+        assert_eq!(open_braces, close_braces, "Braces should be balanced");
+    }
+
+    // ── token_visitor: exact token ordering ──────────────────────
+
+    #[test]
+    fn tokenize_binary_expression_preserves_left_op_right_order() {
+        let tokens = tokenize("const r = a + b;");
+        // Expected sequence: const, r, =, a, +, b, ;
+        let kinds: Vec<&TokenKind> = tokens.iter().map(|t| &t.kind).collect();
+
+        // Find the assign, then check: identifier before +, + before second identifier
+        let assign_idx = kinds
+            .iter()
+            .position(|k| matches!(k, TokenKind::Operator(OperatorType::Assign)))
+            .unwrap();
+        let add_idx = kinds
+            .iter()
+            .position(|k| matches!(k, TokenKind::Operator(OperatorType::Add)))
+            .unwrap();
+
+        // 'a' should appear between assign and add
+        let a_idx = kinds
+            .iter()
+            .position(|k| matches!(k, TokenKind::Identifier(n) if n == "a"))
+            .unwrap();
+        // 'b' should appear after add
+        let b_idx = kinds
+            .iter()
+            .position(|k| matches!(k, TokenKind::Identifier(n) if n == "b"))
+            .unwrap();
+
+        assert!(assign_idx < a_idx, "assign should come before 'a'");
+        assert!(a_idx < add_idx, "'a' should come before '+'");
+        assert!(add_idx < b_idx, "'+' should come before 'b'");
+    }
+
+    #[test]
+    fn tokenize_nested_binary_expressions_maintain_order() {
+        // (a + b) * c  => a, +, b, *, c (infix traversal)
+        let tokens = tokenize("const r = (a + b) * c;");
+        let ops: Vec<&OperatorType> = tokens
+            .iter()
+            .filter_map(|t| match &t.kind {
+                TokenKind::Operator(op) => Some(op),
+                _ => None,
+            })
+            .collect();
+        // Should see Assign, Add, Mul (and the semicolon-related tokens)
+        let assign_pos = ops.iter().position(|o| **o == OperatorType::Assign).unwrap();
+        let add_pos = ops.iter().position(|o| **o == OperatorType::Add).unwrap();
+        let mul_pos = ops.iter().position(|o| **o == OperatorType::Mul).unwrap();
+        assert!(assign_pos < add_pos, "Assign before Add");
+        assert!(add_pos < mul_pos, "Add before Mul (left-to-right, depth-first)");
+    }
+
+    // ── token_visitor: deeply nested expressions ─────────────────
+
+    #[test]
+    fn tokenize_deeply_nested_call_chain_ordering() {
+        let tokens = tokenize("a.b().c().d();");
+        let idents: Vec<&String> = tokens
+            .iter()
+            .filter_map(|t| match &t.kind {
+                TokenKind::Identifier(n) => Some(n),
+                _ => None,
+            })
+            .collect();
+        // The identifiers should appear in order: a, b, c, d
+        assert_eq!(
+            idents,
+            vec!["a", "b", "c", "d"],
+            "Chained member calls should produce identifiers in source order"
+        );
+    }
+
+    #[test]
+    fn tokenize_nested_function_calls() {
+        let tokens = tokenize("foo(bar(baz(1)));");
+        let idents: Vec<&String> = tokens
+            .iter()
+            .filter_map(|t| match &t.kind {
+                TokenKind::Identifier(n) => Some(n),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            idents,
+            vec!["foo", "bar", "baz"],
+            "Nested calls should produce identifiers in outer-to-inner order"
+        );
+    }
+
+    // ── token_visitor: export named with value declaration ────────
+
+    #[test]
+    fn tokenize_export_named_value_declaration() {
+        let tokens = tokenize("export const x = 1;");
+        let has_export = tokens
+            .iter()
+            .any(|t| matches!(t.kind, TokenKind::Keyword(KeywordType::Export)));
+        let has_const = tokens
+            .iter()
+            .any(|t| matches!(t.kind, TokenKind::Keyword(KeywordType::Const)));
+        assert!(has_export, "Should have export keyword");
+        assert!(has_const, "Should have const keyword");
+        // Export should come before const
+        let export_idx = tokens
+            .iter()
+            .position(|t| matches!(t.kind, TokenKind::Keyword(KeywordType::Export)))
+            .unwrap();
+        let const_idx = tokens
+            .iter()
+            .position(|t| matches!(t.kind, TokenKind::Keyword(KeywordType::Const)))
+            .unwrap();
+        assert!(export_idx < const_idx, "export should precede const");
+    }
+
+    // ── token_visitor: call expressions use point spans ──────────
+
+    #[test]
+    fn tokenize_call_expression_parens_use_point_spans() {
+        let tokens = tokenize("foo(x);");
+        let open_parens: Vec<&SourceToken> = tokens
+            .iter()
+            .filter(|t| matches!(t.kind, TokenKind::Punctuation(PunctuationType::OpenParen)))
+            .collect();
+        let close_parens: Vec<&SourceToken> = tokens
+            .iter()
+            .filter(|t| matches!(t.kind, TokenKind::Punctuation(PunctuationType::CloseParen)))
+            .collect();
+        for p in &open_parens {
+            assert_eq!(
+                p.span.end - p.span.start,
+                1,
+                "Call open paren should use point span"
+            );
+        }
+        for p in &close_parens {
+            assert_eq!(
+                p.span.end - p.span.start,
+                1,
+                "Call close paren should use point span"
+            );
+        }
+    }
+
+    // ── token_visitor: multiple expression statements ────────────
+
+    #[test]
+    fn tokenize_multiple_expression_statements_all_have_semicolons() {
+        let tokens = tokenize("foo();\nbar();\nbaz();");
+        let semicolons = tokens
+            .iter()
+            .filter(|t| matches!(t.kind, TokenKind::Punctuation(PunctuationType::Semicolon)))
+            .count();
+        assert_eq!(
+            semicolons, 3,
+            "Three expression statements should produce 3 semicolons, got {semicolons}"
+        );
+    }
+
+    // ── token_visitor: self-closing JSX element ──────────────────
+
+    #[test]
+    fn tokenize_jsx_self_closing_element() {
+        let tokens = tokenize_tsx("const x = <Input type=\"text\" />;");
+        let has_input = tokens
+            .iter()
+            .any(|t| matches!(&t.kind, TokenKind::Identifier(n) if n == "Input"));
+        let has_type = tokens
+            .iter()
+            .any(|t| matches!(&t.kind, TokenKind::Identifier(n) if n == "type"));
+        assert!(has_input, "Should contain JSX element name 'Input'");
+        assert!(has_type, "Should contain JSX attribute name 'type'");
+    }
+
+    // ── token_visitor: logical expression produces correct ops ───
+
+    #[test]
+    fn tokenize_logical_expression_order() {
+        let tokens = tokenize("const x = a && b;");
+        let kinds: Vec<&TokenKind> = tokens.iter().map(|t| &t.kind).collect();
+        let a_idx = kinds
+            .iter()
+            .position(|k| matches!(k, TokenKind::Identifier(n) if n == "a"))
+            .unwrap();
+        let and_idx = kinds
+            .iter()
+            .position(|k| matches!(k, TokenKind::Operator(OperatorType::And)))
+            .unwrap();
+        let b_idx = kinds
+            .iter()
+            .position(|k| matches!(k, TokenKind::Identifier(n) if n == "b"))
+            .unwrap();
+        assert!(a_idx < and_idx, "'a' should come before '&&'");
+        assert!(and_idx < b_idx, "'&&' should come before 'b'");
+    }
+
+    // ── token_visitor: conditional expression token order ────────
+
+    #[test]
+    fn tokenize_conditional_expression_ordering() {
+        let tokens = tokenize("const x = cond ? yes : no;");
+        let kinds: Vec<&TokenKind> = tokens.iter().map(|t| &t.kind).collect();
+        let cond_idx = kinds
+            .iter()
+            .position(|k| matches!(k, TokenKind::Identifier(n) if n == "cond"))
+            .unwrap();
+        let ternary_idx = kinds
+            .iter()
+            .position(|k| matches!(k, TokenKind::Operator(OperatorType::Ternary)))
+            .unwrap();
+        let yes_idx = kinds
+            .iter()
+            .position(|k| matches!(k, TokenKind::Identifier(n) if n == "yes"))
+            .unwrap();
+        let colon_idx = kinds
+            .iter()
+            .position(|k| matches!(k, TokenKind::Punctuation(PunctuationType::Colon)))
+            .unwrap();
+        let no_idx = kinds
+            .iter()
+            .position(|k| matches!(k, TokenKind::Identifier(n) if n == "no"))
+            .unwrap();
+        assert!(cond_idx < ternary_idx, "condition before ?");
+        assert!(ternary_idx < yes_idx, "? before consequent");
+        assert!(yes_idx < colon_idx, "consequent before :");
+        assert!(colon_idx < no_idx, ": before alternate");
+    }
+
+    // ── token_visitor: assignment expression token order ─────────
+
+    #[test]
+    fn tokenize_assignment_expression_ordering() {
+        let tokens = tokenize("x += 5;");
+        let kinds: Vec<&TokenKind> = tokens.iter().map(|t| &t.kind).collect();
+        let x_idx = kinds
+            .iter()
+            .position(|k| matches!(k, TokenKind::Identifier(n) if n == "x"))
+            .unwrap();
+        let add_assign_idx = kinds
+            .iter()
+            .position(|k| matches!(k, TokenKind::Operator(OperatorType::AddAssign)))
+            .unwrap();
+        let five_idx = kinds
+            .iter()
+            .position(|k| matches!(k, TokenKind::NumericLiteral(n) if n == "5"))
+            .unwrap();
+        assert!(x_idx < add_assign_idx, "lhs before operator");
+        assert!(add_assign_idx < five_idx, "operator before rhs");
+    }
+
+    // ── token_visitor: if without else ───────────────────────────
+
+    #[test]
+    fn tokenize_if_without_else() {
+        let tokens = tokenize("if (x) { y; }");
+        assert!(matches!(
+            tokens[0].kind,
+            TokenKind::Keyword(KeywordType::If)
+        ));
+        let has_else = tokens
+            .iter()
+            .any(|t| matches!(t.kind, TokenKind::Keyword(KeywordType::Else)));
+        assert!(!has_else, "if without else should not have else keyword");
+    }
+
+    // ── token_visitor: postfix update operator order ─────────────
+
+    #[test]
+    fn tokenize_postfix_decrement_order() {
+        let tokens = tokenize("x--;");
+        // For postfix x--, the identifier should come before the operator
+        let x_idx = tokens
+            .iter()
+            .position(|t| matches!(&t.kind, TokenKind::Identifier(n) if n == "x"))
+            .unwrap();
+        let dec_idx = tokens
+            .iter()
+            .position(|t| matches!(t.kind, TokenKind::Operator(OperatorType::Decrement)))
+            .unwrap();
+        assert!(
+            x_idx < dec_idx,
+            "Postfix x-- should have identifier before operator"
+        );
+    }
+
+    // ── token_visitor: deeply nested if-else chain ───────────────
+
+    #[test]
+    fn tokenize_deeply_nested_if_else_chain() {
+        let tokens = tokenize("if (a) { x; } else if (b) { y; } else if (c) { z; } else { w; }");
+        let if_count = tokens
+            .iter()
+            .filter(|t| matches!(t.kind, TokenKind::Keyword(KeywordType::If)))
+            .count();
+        let else_count = tokens
+            .iter()
+            .filter(|t| matches!(t.kind, TokenKind::Keyword(KeywordType::Else)))
+            .count();
+        assert_eq!(if_count, 3, "Should have 3 if keywords, got {if_count}");
+        assert_eq!(
+            else_count, 3,
+            "Should have 3 else keywords, got {else_count}"
+        );
+    }
+
+    // ── token_visitor: object with computed member in value ───────
+
+    #[test]
+    fn tokenize_object_with_nested_member_access() {
+        let tokens = tokenize("const x = { a: obj.b, c: arr[0] };");
+        let has_dot = tokens
+            .iter()
+            .any(|t| matches!(t.kind, TokenKind::Punctuation(PunctuationType::Dot)));
+        // arr[0] should produce brackets
+        let bracket_count = tokens
+            .iter()
+            .filter(|t| {
+                matches!(
+                    t.kind,
+                    TokenKind::Punctuation(PunctuationType::OpenBracket)
+                        | TokenKind::Punctuation(PunctuationType::CloseBracket)
+                )
+            })
+            .count();
+        assert!(has_dot, "Should have dot for obj.b");
+        assert!(
+            bracket_count >= 2,
+            "Should have brackets for arr[0], got {bracket_count}"
         );
     }
 }
