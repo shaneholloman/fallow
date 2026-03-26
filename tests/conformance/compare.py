@@ -87,11 +87,12 @@ def extract_fallow_issues(data, project_root):
         pkg = item["package_name"]
         issues.add(("package.json", pkg, "unlisted_dependencies"))
 
-    # duplicate_exports: [{export_name: "...", locations: [...]}]
+    # duplicate_exports: [{export_name: "...", locations: [{path, line, col}]}]
     for item in data.get("duplicate_exports", []):
         name = item["export_name"]
         for loc in item["locations"]:
-            path = normalize_path(loc, project_root)
+            loc_path = loc["path"] if isinstance(loc, dict) else loc
+            path = normalize_path(loc_path, project_root)
             issues.add((path, name, "duplicate_exports"))
 
     # unused_enum_members: [{path, parent_name, member_name}]
