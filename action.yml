@@ -528,9 +528,10 @@ runs:
         # Production mode
         [ "$INPUT_PRODUCTION" = "true" ] && ARGS+=(--production)
 
-        # Auto-detect changed-since in PR context
+        # Auto-detect changed-since in PR context (supports both pull_request and pull_request_target)
         if [ -z "$INPUT_CHANGED_SINCE" ] && [ "$INPUT_AUTO_CHANGED_SINCE" = "true" ] && \
-           [ "$EVENT_NAME" = "pull_request" ] && [ -n "$PR_BASE_SHA" ]; then
+           { [ "$EVENT_NAME" = "pull_request" ] || [ "$EVENT_NAME" = "pull_request_target" ]; } && \
+           [ -n "$PR_BASE_SHA" ]; then
           INPUT_CHANGED_SINCE="$PR_BASE_SHA"
           echo "::notice::Auto-scoping analysis to files changed since PR base (${PR_BASE_SHA:0:7})"
         fi
