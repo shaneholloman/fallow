@@ -999,18 +999,23 @@ runs:
         JQEOF
 
         # Collect all review comments from the results
+        export PREFIX MAX
         COMMENTS="[]"
         case "$FALLOW_COMMAND" in
           dead-code|check)
-            COMMENTS=$(PREFIX="$PREFIX" MAX="$MAX" jq -f "$FALLOW_TMP/review-comments.jq" fallow-results.json 2>/dev/null || echo "[]") ;;
+            COMMENTS=$(jq -f "$FALLOW_TMP/review-comments.jq" fallow-results.json 2>&1) || { echo "jq check error: $COMMENTS"; COMMENTS="[]"; } ;;
           dupes)
-            COMMENTS=$(PREFIX="$PREFIX" MAX="$MAX" jq -f "$FALLOW_TMP/review-comments-dupes.jq" fallow-results.json 2>/dev/null || echo "[]") ;;
+            COMMENTS=$(jq -f "$FALLOW_TMP/review-comments-dupes.jq" fallow-results.json 2>&1) || { echo "jq dupes error: $COMMENTS"; COMMENTS="[]"; } ;;
           health)
-            COMMENTS=$(PREFIX="$PREFIX" MAX="$MAX" jq -f "$FALLOW_TMP/review-comments-health.jq" fallow-results.json 2>/dev/null || echo "[]") ;;
+            COMMENTS=$(jq -f "$FALLOW_TMP/review-comments-health.jq" fallow-results.json 2>&1) || { echo "jq health error: $COMMENTS"; COMMENTS="[]"; } ;;
           "")
-            CHECK=$(PREFIX="$PREFIX" MAX="$MAX" jq '.check // empty' fallow-results.json 2>/dev/null | jq -f "$FALLOW_TMP/review-comments.jq" 2>/dev/null || echo "[]")
-            DUPES=$(PREFIX="$PREFIX" MAX="$MAX" jq '.dupes // empty' fallow-results.json 2>/dev/null | jq -f "$FALLOW_TMP/review-comments-dupes.jq" 2>/dev/null || echo "[]")
-            HEALTH=$(PREFIX="$PREFIX" MAX="$MAX" jq '.health // empty' fallow-results.json 2>/dev/null | jq -f "$FALLOW_TMP/review-comments-health.jq" 2>/dev/null || echo "[]")
+            # Combined: extract each section and run through its jq script
+            jq '.check // {}' fallow-results.json > "$FALLOW_TMP/check.json" 2>/dev/null
+            jq '.dupes // {}' fallow-results.json > "$FALLOW_TMP/dupes.json" 2>/dev/null
+            jq '.health // {}' fallow-results.json > "$FALLOW_TMP/health.json" 2>/dev/null
+            CHECK=$(jq -f "$FALLOW_TMP/review-comments.jq" "$FALLOW_TMP/check.json" 2>/dev/null || echo "[]")
+            DUPES=$(jq -f "$FALLOW_TMP/review-comments-dupes.jq" "$FALLOW_TMP/dupes.json" 2>/dev/null || echo "[]")
+            HEALTH=$(jq -f "$FALLOW_TMP/review-comments-health.jq" "$FALLOW_TMP/health.json" 2>/dev/null || echo "[]")
             COMMENTS=$(echo "$CHECK" "$DUPES" "$HEALTH" | jq -s 'add | .[:'"$MAX"']') ;;
         esac
 
