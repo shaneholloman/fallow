@@ -391,7 +391,7 @@ runs:
           (.duplicate_exports[]? | (.export_name | san) as $name | .locations[]? |
             "::warning file=\(.path | san),line=\(.line),col=\(.col + 1),title=Duplicate export::Export '\($name)' appears in multiple modules"),
           (.circular_dependencies[]? |
-            "::warning file=\(.files[0] | san)\(if .line > 0 then ",line=\(.line),col=\(.col + 1)" else "" end),title=Circular dependency::Circular dependency: \(.files | join(" \u2192 "))"),
+            "::warning file=\(.files[0] | san)\(if .line > 0 then ",line=\(.line),col=\(.col + 1)" else "" end),title=Circular dependency::Circular dependency: \(.files | map(san) | join(" \u2192 "))"),
           (.type_only_dependencies[]? |
             "::warning file=\(.path | san)\(if .line > 0 then ",line=\(.line)" else "" end),title=Type-only dependency::Package '\(.package_name | san)' is only used via type imports")
         ] | .[]

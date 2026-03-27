@@ -253,7 +253,9 @@ pub fn build_codeclimate(
     // Circular dependencies
     let level = severity_to_codeclimate(rules.circular_dependencies);
     for cycle in &results.circular_dependencies {
-        let first = &cycle.files[0];
+        let Some(first) = cycle.files.first() else {
+            continue;
+        };
         let path = relative_path(first, root).display().to_string();
         let chain: Vec<String> = cycle
             .files
