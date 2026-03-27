@@ -1,7 +1,7 @@
 use crate::params::*;
 use crate::tools::{
-    build_analyze_args, build_check_changed_args, build_find_dupes_args, build_fix_apply_args,
-    build_fix_preview_args, build_health_args, build_project_info_args,
+    VALID_DUPES_MODES, build_analyze_args, build_check_changed_args, build_find_dupes_args,
+    build_fix_apply_args, build_fix_preview_args, build_health_args, build_project_info_args,
 };
 
 // ── Edge cases: special characters in arguments ───────────────────
@@ -327,4 +327,714 @@ fn health_args_baseline_and_save_baseline() {
     assert!(args.contains(&"old.json".to_string()));
     assert!(args.contains(&"--save-baseline".to_string()));
     assert!(args.contains(&"new.json".to_string()));
+}
+
+// ── Health: targets flag ──────────────────────────────────────────
+
+#[test]
+fn health_args_targets_flag_only() {
+    let params = HealthParams {
+        targets: Some(true),
+        ..Default::default()
+    };
+    let args = build_health_args(&params);
+    assert!(args.contains(&"--targets".to_string()));
+    assert!(!args.contains(&"--complexity".to_string()));
+    assert!(!args.contains(&"--file-scores".to_string()));
+    assert!(!args.contains(&"--hotspots".to_string()));
+}
+
+#[test]
+fn health_args_targets_false_is_omitted() {
+    let params = HealthParams {
+        targets: Some(false),
+        ..Default::default()
+    };
+    let args = build_health_args(&params);
+    assert!(!args.contains(&"--targets".to_string()));
+}
+
+// ── Health: save_snapshot special handling ─────────────────────────
+
+#[test]
+fn health_args_save_snapshot_with_path() {
+    let params = HealthParams {
+        save_snapshot: Some("snapshots/v1.json".to_string()),
+        ..Default::default()
+    };
+    let args = build_health_args(&params);
+    assert!(args.contains(&"--save-snapshot".to_string()));
+    assert!(args.contains(&"snapshots/v1.json".to_string()));
+}
+
+#[test]
+fn health_args_save_snapshot_empty_string_produces_valueless_flag() {
+    let params = HealthParams {
+        save_snapshot: Some(String::new()),
+        ..Default::default()
+    };
+    let args = build_health_args(&params);
+    assert!(args.contains(&"--save-snapshot".to_string()));
+    // Empty string means no value argument — only the flag itself
+    let snap_idx = args.iter().position(|a| a == "--save-snapshot").unwrap();
+    // The next arg (if any) should be another flag, not an empty string
+    if let Some(next) = args.get(snap_idx + 1) {
+        assert!(
+            next.starts_with("--"),
+            "expected no value after --save-snapshot for empty path, got '{next}'"
+        );
+    }
+}
+
+#[test]
+fn health_args_save_snapshot_none_is_omitted() {
+    let params = HealthParams {
+        save_snapshot: None,
+        ..Default::default()
+    };
+    let args = build_health_args(&params);
+    assert!(!args.contains(&"--save-snapshot".to_string()));
+}
+
+// ── Health: all section flags together ────────────────────────────
+
+#[test]
+fn health_args_all_section_flags_together() {
+    let params = HealthParams {
+        complexity: Some(true),
+        file_scores: Some(true),
+        hotspots: Some(true),
+        targets: Some(true),
+        ..Default::default()
+    };
+    let args = build_health_args(&params);
+    assert!(args.contains(&"--complexity".to_string()));
+    assert!(args.contains(&"--file-scores".to_string()));
+    assert!(args.contains(&"--hotspots".to_string()));
+    assert!(args.contains(&"--targets".to_string()));
+}
+
+// ── find_dupes: cross_language true ───────────────────────────────
+
+#[test]
+fn find_dupes_args_cross_language_true() {
+    let params = FindDupesParams {
+        cross_language: Some(true),
+        ..Default::default()
+    };
+    let args = build_find_dupes_args(&params).unwrap();
+    assert!(args.contains(&"--cross-language".to_string()));
+}
+
+// ── VALID_DUPES_MODES constant ────────────────────────────────────
+
+#[test]
+fn valid_dupes_modes_count_and_contents() {
+    assert_eq!(VALID_DUPES_MODES.len(), 4);
+    assert!(VALID_DUPES_MODES.contains(&"strict"));
+    assert!(VALID_DUPES_MODES.contains(&"mild"));
+    assert!(VALID_DUPES_MODES.contains(&"weak"));
+    assert!(VALID_DUPES_MODES.contains(&"semantic"));
+}
+
+// ── Unicode in paths and values ───────────────────────────────────
+
+#[test]
+fn analyze_args_unicode_in_paths() {
+    let params = AnalyzeParams {
+        root: Some("/home/ユーザー/プロジェクト".to_string()),
+        workspace: Some("パッケージ".to_string()),
+        ..Default::default()
+    };
+    let args = build_analyze_args(&params).unwrap();
+    assert!(args.contains(&"/home/ユーザー/プロジェクト".to_string()));
+    assert!(args.contains(&"パッケージ".to_string()));
+}
+
+// ── Empty strings in optional string params ───────────────────────
+
+#[test]
+fn analyze_args_empty_root_still_passes_flag() {
+    let params = AnalyzeParams {
+        root: Some(String::new()),
+        ..Default::default()
+    };
+    let args = build_analyze_args(&params).unwrap();
+    // Even an empty string is passed through — the CLI will handle validation
+    assert!(args.contains(&"--root".to_string()));
+    assert!(args.contains(&String::new()));
+}
+
+#[test]
+fn health_args_empty_sort_still_passes_flag() {
+    let params = HealthParams {
+        sort: Some(String::new()),
+        ..Default::default()
+    };
+    let args = build_health_args(&params);
+    assert!(args.contains(&"--sort".to_string()));
+}
+
+// ── find_dupes: min_lines in isolation ────────────────────────────
+
+#[test]
+fn find_dupes_args_min_lines_only() {
+    let params = FindDupesParams {
+        min_lines: Some(20),
+        ..Default::default()
+    };
+    let args = build_find_dupes_args(&params).unwrap();
+    assert!(args.contains(&"--min-lines".to_string()));
+    assert!(args.contains(&"20".to_string()));
+    assert!(!args.contains(&"--min-tokens".to_string()));
+}
+
+// ── find_dupes: baseline flags ────────────────────────────────────
+
+#[test]
+fn find_dupes_args_baseline_and_save_baseline() {
+    let params = FindDupesParams {
+        baseline: Some("old.json".to_string()),
+        save_baseline: Some("new.json".to_string()),
+        ..Default::default()
+    };
+    let args = build_find_dupes_args(&params).unwrap();
+    assert!(args.contains(&"--baseline".to_string()));
+    assert!(args.contains(&"old.json".to_string()));
+    assert!(args.contains(&"--save-baseline".to_string()));
+    assert!(args.contains(&"new.json".to_string()));
+}
+
+// ── check_changed: baseline flags ─────────────────────────────────
+
+#[test]
+fn check_changed_args_baseline_only() {
+    let params = CheckChangedParams {
+        since: "main".to_string(),
+        baseline: Some("baseline.json".to_string()),
+        root: None,
+        config: None,
+        production: None,
+        workspace: None,
+        save_baseline: None,
+        no_cache: None,
+        threads: None,
+    };
+    let args = build_check_changed_args(params);
+    assert!(args.contains(&"--baseline".to_string()));
+    assert!(args.contains(&"baseline.json".to_string()));
+    assert!(!args.contains(&"--save-baseline".to_string()));
+}
+
+#[test]
+fn check_changed_args_save_baseline_only() {
+    let params = CheckChangedParams {
+        since: "main".to_string(),
+        save_baseline: Some("new.json".to_string()),
+        root: None,
+        config: None,
+        production: None,
+        workspace: None,
+        baseline: None,
+        no_cache: None,
+        threads: None,
+    };
+    let args = build_check_changed_args(params);
+    assert!(!args.contains(&"--baseline".to_string()));
+    assert!(args.contains(&"--save-baseline".to_string()));
+    assert!(args.contains(&"new.json".to_string()));
+}
+
+// ── Threads boundary values ───────────────────────────────────────
+
+#[test]
+fn analyze_args_threads_zero() {
+    let params = AnalyzeParams {
+        threads: Some(0),
+        ..Default::default()
+    };
+    let args = build_analyze_args(&params).unwrap();
+    assert!(args.contains(&"--threads".to_string()));
+    assert!(args.contains(&"0".to_string()));
+}
+
+#[test]
+fn health_args_threads_large() {
+    let params = HealthParams {
+        threads: Some(1024),
+        ..Default::default()
+    };
+    let args = build_health_args(&params);
+    assert!(args.contains(&"--threads".to_string()));
+    assert!(args.contains(&"1024".to_string()));
+}
+
+// ── health: changed_since in isolation ────────────────────────────
+
+#[test]
+fn health_args_changed_since_only() {
+    let params = HealthParams {
+        changed_since: Some("HEAD~10".to_string()),
+        ..Default::default()
+    };
+    let args = build_health_args(&params);
+    assert!(args.contains(&"--changed-since".to_string()));
+    assert!(args.contains(&"HEAD~10".to_string()));
+    assert!(!args.contains(&"--since".to_string()));
+}
+
+// ── health: max_cognitive in isolation ─────────────────────────────
+
+#[test]
+fn health_args_max_cognitive_only() {
+    let params = HealthParams {
+        max_cognitive: Some(20),
+        ..Default::default()
+    };
+    let args = build_health_args(&params);
+    assert!(args.contains(&"--max-cognitive".to_string()));
+    assert!(args.contains(&"20".to_string()));
+    assert!(!args.contains(&"--max-cyclomatic".to_string()));
+}
+
+// ── health: save_snapshot whitespace-only path ────────────────────
+
+#[test]
+fn health_args_save_snapshot_whitespace_only_passes_value() {
+    let params = HealthParams {
+        save_snapshot: Some("   ".to_string()),
+        ..Default::default()
+    };
+    let args = build_health_args(&params);
+    assert!(args.contains(&"--save-snapshot".to_string()));
+    // Whitespace-only is not empty — it should be passed as a value
+    assert!(args.contains(&"   ".to_string()));
+}
+
+// ── health: complete args including targets and save_snapshot ──────
+
+#[test]
+fn health_args_with_all_options_including_targets_and_snapshot() {
+    let params = HealthParams {
+        root: Some("/project".to_string()),
+        config: Some("fallow.toml".to_string()),
+        max_cyclomatic: Some(25),
+        max_cognitive: Some(15),
+        top: Some(20),
+        sort: Some("cognitive".to_string()),
+        changed_since: Some("develop".to_string()),
+        complexity: Some(true),
+        file_scores: Some(true),
+        hotspots: Some(true),
+        targets: Some(true),
+        since: Some("6m".to_string()),
+        min_commits: Some(5),
+        workspace: Some("packages/ui".to_string()),
+        production: Some(true),
+        save_snapshot: Some("snap.json".to_string()),
+        baseline: Some("base.json".to_string()),
+        save_baseline: Some("new.json".to_string()),
+        no_cache: Some(true),
+        threads: Some(4),
+    };
+    let args = build_health_args(&params);
+    // Every single flag should be present
+    assert!(args.contains(&"--targets".to_string()));
+    assert!(args.contains(&"--save-snapshot".to_string()));
+    assert!(args.contains(&"snap.json".to_string()));
+    assert!(args.contains(&"--complexity".to_string()));
+    assert!(args.contains(&"--file-scores".to_string()));
+    assert!(args.contains(&"--hotspots".to_string()));
+    assert!(args.contains(&"--production".to_string()));
+    assert!(args.contains(&"--no-cache".to_string()));
+}
+
+// ── Unicode in paths for all arg builders ─────────────────────────
+
+#[test]
+fn check_changed_args_unicode_in_paths() {
+    let params = CheckChangedParams {
+        since: "main".to_string(),
+        root: Some("/home/用户/项目".to_string()),
+        config: Some("配置.json".to_string()),
+        workspace: Some("包裹".to_string()),
+        production: None,
+        baseline: None,
+        save_baseline: None,
+        no_cache: None,
+        threads: None,
+    };
+    let args = build_check_changed_args(params);
+    assert!(args.contains(&"/home/用户/项目".to_string()));
+    assert!(args.contains(&"配置.json".to_string()));
+    assert!(args.contains(&"包裹".to_string()));
+}
+
+#[test]
+fn find_dupes_args_unicode_in_paths() {
+    let params = FindDupesParams {
+        root: Some("/home/ユーザー/プロジェクト".to_string()),
+        config: Some("設定.toml".to_string()),
+        workspace: Some("パッケージ".to_string()),
+        ..Default::default()
+    };
+    let args = build_find_dupes_args(&params).unwrap();
+    assert!(args.contains(&"/home/ユーザー/プロジェクト".to_string()));
+    assert!(args.contains(&"設定.toml".to_string()));
+    assert!(args.contains(&"パッケージ".to_string()));
+}
+
+#[test]
+fn fix_args_unicode_in_paths() {
+    let params = FixParams {
+        root: Some("/home/사용자/프로젝트".to_string()),
+        config: Some("설정.json".to_string()),
+        workspace: Some("패키지".to_string()),
+        ..Default::default()
+    };
+    let preview = build_fix_preview_args(&params);
+    assert!(preview.contains(&"/home/사용자/프로젝트".to_string()));
+    assert!(preview.contains(&"설정.json".to_string()));
+    assert!(preview.contains(&"패키지".to_string()));
+
+    let apply = build_fix_apply_args(&params);
+    assert!(apply.contains(&"/home/사용자/프로젝트".to_string()));
+    assert!(apply.contains(&"설정.json".to_string()));
+    assert!(apply.contains(&"패키지".to_string()));
+}
+
+#[test]
+fn health_args_unicode_in_paths() {
+    let params = HealthParams {
+        root: Some("/home/Benutzer/Projekt".to_string()),
+        config: Some("Konfiguration.toml".to_string()),
+        workspace: Some("Paket".to_string()),
+        save_snapshot: Some("/Schnappschüsse/v1.json".to_string()),
+        ..Default::default()
+    };
+    let args = build_health_args(&params);
+    assert!(args.contains(&"/home/Benutzer/Projekt".to_string()));
+    assert!(args.contains(&"Konfiguration.toml".to_string()));
+    assert!(args.contains(&"Paket".to_string()));
+    assert!(args.contains(&"/Schnappschüsse/v1.json".to_string()));
+}
+
+#[test]
+fn project_info_args_unicode_in_paths() {
+    let params = ProjectInfoParams {
+        root: Some("/домой/пользователь/проект".to_string()),
+        config: Some("конфиг.toml".to_string()),
+        ..Default::default()
+    };
+    let args = build_project_info_args(&params);
+    assert!(args.contains(&"/домой/пользователь/проект".to_string()));
+    assert!(args.contains(&"конфиг.toml".to_string()));
+}
+
+// ── Empty strings in optional params across tools ─────────────────
+
+#[test]
+fn check_changed_args_empty_config_still_passes_flag() {
+    let params = CheckChangedParams {
+        since: "main".to_string(),
+        config: Some(String::new()),
+        root: None,
+        production: None,
+        workspace: None,
+        baseline: None,
+        save_baseline: None,
+        no_cache: None,
+        threads: None,
+    };
+    let args = build_check_changed_args(params);
+    assert!(args.contains(&"--config".to_string()));
+}
+
+#[test]
+fn find_dupes_args_empty_root_still_passes_flag() {
+    let params = FindDupesParams {
+        root: Some(String::new()),
+        ..Default::default()
+    };
+    let args = build_find_dupes_args(&params).unwrap();
+    assert!(args.contains(&"--root".to_string()));
+    assert!(args.contains(&String::new()));
+}
+
+#[test]
+fn fix_args_empty_config_still_passes_flag() {
+    let params = FixParams {
+        config: Some(String::new()),
+        ..Default::default()
+    };
+    let preview = build_fix_preview_args(&params);
+    assert!(preview.contains(&"--config".to_string()));
+
+    let apply = build_fix_apply_args(&params);
+    assert!(apply.contains(&"--config".to_string()));
+}
+
+// ── Threads boundary values across tools ──────────────────────────
+
+#[test]
+fn check_changed_args_threads_boundary() {
+    let params = CheckChangedParams {
+        since: "main".to_string(),
+        threads: Some(1),
+        root: None,
+        config: None,
+        production: None,
+        workspace: None,
+        baseline: None,
+        save_baseline: None,
+        no_cache: None,
+    };
+    let args = build_check_changed_args(params);
+    assert!(args.contains(&"--threads".to_string()));
+    assert!(args.contains(&"1".to_string()));
+}
+
+#[test]
+fn find_dupes_args_threads_zero() {
+    let params = FindDupesParams {
+        threads: Some(0),
+        ..Default::default()
+    };
+    let args = build_find_dupes_args(&params).unwrap();
+    assert!(args.contains(&"--threads".to_string()));
+    assert!(args.contains(&"0".to_string()));
+}
+
+#[test]
+fn fix_args_threads_large() {
+    let params = FixParams {
+        threads: Some(256),
+        ..Default::default()
+    };
+    let preview = build_fix_preview_args(&params);
+    assert!(preview.contains(&"--threads".to_string()));
+    assert!(preview.contains(&"256".to_string()));
+
+    let apply = build_fix_apply_args(&params);
+    assert!(apply.contains(&"--threads".to_string()));
+    assert!(apply.contains(&"256".to_string()));
+}
+
+#[test]
+fn project_info_args_threads_zero() {
+    let params = ProjectInfoParams {
+        threads: Some(0),
+        ..Default::default()
+    };
+    let args = build_project_info_args(&params);
+    assert!(args.contains(&"--threads".to_string()));
+    assert!(args.contains(&"0".to_string()));
+}
+
+// ── find_dupes: cross_language None is omitted ────────────────────
+
+#[test]
+fn find_dupes_args_cross_language_none_is_omitted() {
+    let params = FindDupesParams {
+        cross_language: None,
+        ..Default::default()
+    };
+    let args = build_find_dupes_args(&params).unwrap();
+    assert!(!args.contains(&"--cross-language".to_string()));
+}
+
+// ── find_dupes: skip_local true ───────────────────────────────────
+
+#[test]
+fn find_dupes_args_skip_local_true() {
+    let params = FindDupesParams {
+        skip_local: Some(true),
+        ..Default::default()
+    };
+    let args = build_find_dupes_args(&params).unwrap();
+    assert!(args.contains(&"--skip-local".to_string()));
+}
+
+// ── find_dupes: boundary numeric values ───────────────────────────
+
+#[test]
+fn find_dupes_args_min_tokens_zero() {
+    let params = FindDupesParams {
+        min_tokens: Some(0),
+        ..Default::default()
+    };
+    let args = build_find_dupes_args(&params).unwrap();
+    assert!(args.contains(&"--min-tokens".to_string()));
+    assert!(args.contains(&"0".to_string()));
+}
+
+#[test]
+fn find_dupes_args_min_lines_zero() {
+    let params = FindDupesParams {
+        min_lines: Some(0),
+        ..Default::default()
+    };
+    let args = build_find_dupes_args(&params).unwrap();
+    assert!(args.contains(&"--min-lines".to_string()));
+    assert!(args.contains(&"0".to_string()));
+}
+
+#[test]
+fn find_dupes_args_threshold_negative() {
+    let params = FindDupesParams {
+        threshold: Some(-1.0),
+        ..Default::default()
+    };
+    let args = build_find_dupes_args(&params).unwrap();
+    assert!(args.contains(&"--threshold".to_string()));
+    assert!(args.contains(&"-1".to_string()));
+}
+
+// ── check_changed: no_cache true ──────────────────────────────────
+
+#[test]
+fn check_changed_args_no_cache_true() {
+    let params = CheckChangedParams {
+        since: "main".to_string(),
+        no_cache: Some(true),
+        root: None,
+        config: None,
+        production: None,
+        workspace: None,
+        baseline: None,
+        save_baseline: None,
+        threads: None,
+    };
+    let args = build_check_changed_args(params);
+    assert!(args.contains(&"--no-cache".to_string()));
+}
+
+// ── fix: config and root in isolation ─────────────────────────────
+
+#[test]
+fn fix_preview_args_config_only() {
+    let params = FixParams {
+        config: Some("custom.toml".to_string()),
+        ..Default::default()
+    };
+    let args = build_fix_preview_args(&params);
+    assert!(args.contains(&"--config".to_string()));
+    assert!(args.contains(&"custom.toml".to_string()));
+    assert!(!args.contains(&"--root".to_string()));
+}
+
+#[test]
+fn fix_apply_args_root_only() {
+    let params = FixParams {
+        root: Some("/project".to_string()),
+        ..Default::default()
+    };
+    let args = build_fix_apply_args(&params);
+    assert!(args.contains(&"--root".to_string()));
+    assert!(args.contains(&"/project".to_string()));
+    assert!(!args.contains(&"--config".to_string()));
+}
+
+// ── project_info: no_cache true in isolation ──────────────────────
+
+#[test]
+fn project_info_args_no_cache_true() {
+    let params = ProjectInfoParams {
+        no_cache: Some(true),
+        ..Default::default()
+    };
+    let args = build_project_info_args(&params);
+    assert!(args.contains(&"--no-cache".to_string()));
+    assert!(!args.contains(&"--root".to_string()));
+    assert!(!args.contains(&"--config".to_string()));
+}
+
+// ── health: save_snapshot arg ordering ─────────────────────────────
+
+#[test]
+fn health_args_save_snapshot_with_value_has_correct_order() {
+    let params = HealthParams {
+        save_snapshot: Some("output/snap.json".to_string()),
+        ..Default::default()
+    };
+    let args = build_health_args(&params);
+    let snap_idx = args.iter().position(|a| a == "--save-snapshot").unwrap();
+    assert_eq!(args[snap_idx + 1], "output/snap.json");
+}
+
+// ── health: min_commits boundary ──────────────────────────────────
+
+#[test]
+fn health_args_min_commits_zero() {
+    let params = HealthParams {
+        min_commits: Some(0),
+        ..Default::default()
+    };
+    let args = build_health_args(&params);
+    assert!(args.contains(&"--min-commits".to_string()));
+    assert!(args.contains(&"0".to_string()));
+}
+
+// ── health: max_cyclomatic 1 (minimum meaningful value) ───────────
+
+#[test]
+fn health_args_max_cyclomatic_one() {
+    let params = HealthParams {
+        max_cyclomatic: Some(1),
+        ..Default::default()
+    };
+    let args = build_health_args(&params);
+    assert!(args.contains(&"--max-cyclomatic".to_string()));
+    assert!(args.contains(&"1".to_string()));
+}
+
+// ── analyze: save_baseline in isolation ────────────────────────────
+
+#[test]
+fn analyze_args_save_baseline_only() {
+    let params = AnalyzeParams {
+        save_baseline: Some("new.json".to_string()),
+        ..Default::default()
+    };
+    let args = build_analyze_args(&params).unwrap();
+    assert!(args.contains(&"--save-baseline".to_string()));
+    assert!(args.contains(&"new.json".to_string()));
+    assert!(!args.contains(&"--baseline".to_string()));
+}
+
+// ── analyze: single issue type ────────────────────────────────────
+
+#[test]
+fn analyze_args_single_issue_type() {
+    let params = AnalyzeParams {
+        issue_types: Some(vec!["circular-deps".to_string()]),
+        ..Default::default()
+    };
+    let args = build_analyze_args(&params).unwrap();
+    assert!(args.contains(&"--circular-deps".to_string()));
+    // Should not contain any other issue type flags
+    assert!(!args.contains(&"--unused-files".to_string()));
+    assert!(!args.contains(&"--unused-exports".to_string()));
+}
+
+// ── find_dupes: case-sensitive mode validation ────────────────────
+
+#[test]
+fn find_dupes_args_uppercase_mode_returns_error() {
+    let params = FindDupesParams {
+        mode: Some("Strict".to_string()),
+        ..Default::default()
+    };
+    let err = build_find_dupes_args(&params).unwrap_err();
+    assert!(err.contains("Invalid mode 'Strict'"));
+}
+
+#[test]
+fn find_dupes_args_empty_mode_returns_error() {
+    let params = FindDupesParams {
+        mode: Some(String::new()),
+        ..Default::default()
+    };
+    let err = build_find_dupes_args(&params).unwrap_err();
+    assert!(err.contains("Invalid mode ''"));
 }

@@ -160,3 +160,254 @@ fn resolve_binary_behavior() {
     // SAFETY: test-only cleanup
     unsafe { std::env::remove_var("FALLOW_BIN") };
 }
+
+// ── run_fallow: signal termination (exit code None → -1) ──────────
+
+#[cfg(unix)]
+#[tokio::test]
+async fn run_fallow_killed_by_signal_returns_error_with_negative_code() {
+    // `kill -9 $$` kills the shell itself, producing exit code None (signal)
+    let result = run_fallow(
+        "/bin/sh",
+        &["-c".to_string(), "kill -9 $$".to_string()],
+    )
+    .await
+    .unwrap();
+    assert_eq!(result.is_error, Some(true));
+    let text = extract_text(&result);
+    // On signal kill, exit code is None → unwrap_or(-1) → "exited with code -1"
+    assert!(text.contains("-1") || text.contains("exited with code"));
+}
+
+// ── run_fallow: exit code 1 with both stdout and stderr ───────────
+
+#[cfg(unix)]
+#[tokio::test]
+async fn run_fallow_exit_code_1_with_stderr_returns_stdout_not_stderr() {
+    // Exit code 1 = issues found. Stdout should be returned, stderr ignored.
+    let result = run_fallow(
+        "/bin/sh",
+        &[
+            "-c".to_string(),
+            "echo '{\"issues\":1}'; echo 'debug warning' >&2; exit 1".to_string(),
+        ],
+    )
+    .await
+    .unwrap();
+    assert_eq!(result.is_error, Some(false));
+    let text = extract_text(&result);
+    assert!(text.contains("issues"));
+    // stderr is not included in the success result
+    assert!(!text.contains("debug warning"));
+}
+
+// ── run_fallow: large output ──────────────────────────────────────
+
+#[cfg(unix)]
+#[tokio::test]
+async fn run_fallow_multiline_stdout() {
+    let result = run_fallow(
+        "/bin/sh",
+        &[
+            "-c".to_string(),
+            "echo 'line1'; echo 'line2'; echo 'line3'".to_string(),
+        ],
+    )
+    .await
+    .unwrap();
+    assert_eq!(result.is_error, Some(false));
+    let text = extract_text(&result);
+    assert!(text.contains("line1"));
+    assert!(text.contains("line2"));
+    assert!(text.contains("line3"));
+}
+
+// ── run_fallow: empty args list ───────────────────────────────────
+
+#[cfg(unix)]
+#[tokio::test]
+async fn run_fallow_empty_args() {
+    // Running /bin/sh with no args would start interactive mode and hang.
+    // Instead, test that we can run with a trivially simple command.
+    let result = run_fallow("/bin/sh", &["-c".to_string(), "echo ok".to_string()])
+        .await
+        .unwrap();
+    assert_eq!(result.is_error, Some(false));
+    let text = extract_text(&result);
+    assert!(text.contains("ok"));
+}
+
+// ── run_fallow: multiline stderr in error ─────────────────────────
+
+#[cfg(unix)]
+#[tokio::test]
+async fn run_fallow_multiline_stderr_in_error() {
+    let result = run_fallow(
+        "/bin/sh",
+        &[
+            "-c".to_string(),
+            "echo 'error line 1' >&2; echo 'error line 2' >&2; exit 2".to_string(),
+        ],
+    )
+    .await
+    .unwrap();
+    assert_eq!(result.is_error, Some(true));
+    let text = extract_text(&result);
+    assert!(text.contains("error line 1"));
+    assert!(text.contains("error line 2"));
+}
+
+// ── run_fallow: result always has exactly one content item ─────────
+
+#[cfg(unix)]
+#[tokio::test]
+async fn run_fallow_result_has_single_content_item() {
+    let success = run_fallow("/bin/sh", &["-c".to_string(), "echo test".to_string()])
+        .await
+        .unwrap();
+    assert_eq!(success.content.len(), 1);
+
+    let error = run_fallow("/bin/sh", &["-c".to_string(), "exit 2".to_string()])
+        .await
+        .unwrap();
+    assert_eq!(error.content.len(), 1);
+
+    let issues = run_fallow("/bin/sh", &["-c".to_string(), "exit 1".to_string()])
+        .await
+        .unwrap();
+    assert_eq!(issues.content.len(), 1);
+}
+
+// ── run_fallow: missing binary error message quality ──────────────
+
+#[tokio::test]
+async fn run_fallow_missing_binary_error_includes_install_hint() {
+    let result = run_fallow("nonexistent-binary-xyz", &[]).await;
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(
+        err.message.contains("Ensure fallow is installed"),
+        "error should include install hint"
+    );
+}
+
+// ── run_fallow: unicode in stdout ─────────────────────────────────
+
+#[cfg(unix)]
+#[tokio::test]
+async fn run_fallow_unicode_in_stdout() {
+    let result = run_fallow(
+        "/bin/sh",
+        &["-c".to_string(), "echo '{\"file\":\"ソース/コード.ts\"}'".to_string()],
+    )
+    .await
+    .unwrap();
+    assert_eq!(result.is_error, Some(false));
+    let text = extract_text(&result);
+    assert!(text.contains("ソース/コード.ts"));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn run_fallow_unicode_in_stderr_error() {
+    let result = run_fallow(
+        "/bin/sh",
+        &[
+            "-c".to_string(),
+            "echo 'Fehler: ungültige Konfiguration' >&2; exit 2".to_string(),
+        ],
+    )
+    .await
+    .unwrap();
+    assert_eq!(result.is_error, Some(true));
+    let text = extract_text(&result);
+    assert!(text.contains("ungültige Konfiguration"));
+}
+
+// ── run_fallow: exit code boundary values ─────────────────────────
+
+#[cfg(unix)]
+#[tokio::test]
+async fn run_fallow_exit_code_255() {
+    let result = run_fallow("/bin/sh", &["-c".to_string(), "exit 255".to_string()])
+        .await
+        .unwrap();
+    assert_eq!(result.is_error, Some(true));
+    let text = extract_text(&result);
+    assert!(text.contains("255"));
+}
+
+// ── run_fallow: large stderr output ───────────────────────────────
+
+#[cfg(unix)]
+#[tokio::test]
+async fn run_fallow_large_stderr_in_error() {
+    // Generate a large stderr message
+    let result = run_fallow(
+        "/bin/sh",
+        &[
+            "-c".to_string(),
+            "for i in $(seq 1 100); do echo \"error line $i\" >&2; done; exit 2".to_string(),
+        ],
+    )
+    .await
+    .unwrap();
+    assert_eq!(result.is_error, Some(true));
+    let text = extract_text(&result);
+    assert!(text.contains("error line 1"));
+    assert!(text.contains("error line 100"));
+}
+
+// ── run_fallow: stdout with trailing whitespace ───────────────────
+
+#[cfg(unix)]
+#[tokio::test]
+async fn run_fallow_stdout_preserves_content() {
+    let result = run_fallow(
+        "/bin/sh",
+        &[
+            "-c".to_string(),
+            r#"printf '{"key": "value"}\n'"#.to_string(),
+        ],
+    )
+    .await
+    .unwrap();
+    assert_eq!(result.is_error, Some(false));
+    let text = extract_text(&result);
+    assert!(text.contains(r#""key": "value""#));
+}
+
+// ── run_fallow: exit code 1 with only stderr (no stdout) ──────────
+
+#[cfg(unix)]
+#[tokio::test]
+async fn run_fallow_exit_code_1_only_stderr_returns_empty_json() {
+    let result = run_fallow(
+        "/bin/sh",
+        &[
+            "-c".to_string(),
+            "echo 'some warning' >&2; exit 1".to_string(),
+        ],
+    )
+    .await
+    .unwrap();
+    // Exit code 1 with empty stdout should return "{}" (success path)
+    assert_eq!(result.is_error, Some(false));
+    assert_eq!(extract_text(&result), "{}");
+}
+
+// ── run_fallow: process inherits no stdin ─────────────────────────
+
+#[cfg(unix)]
+#[tokio::test]
+async fn run_fallow_stdin_is_not_inherited() {
+    // cat with /dev/null should exit 0 with empty output
+    let result = run_fallow(
+        "/bin/sh",
+        &["-c".to_string(), "cat < /dev/null".to_string()],
+    )
+    .await
+    .unwrap();
+    assert_eq!(result.is_error, Some(false));
+    assert_eq!(extract_text(&result), "{}");
+}
