@@ -202,7 +202,8 @@ pub fn run_combined(opts: &CombinedOptions<'_>) -> ExitCode {
                     eprintln!();
                     eprintln!("── Complexity ─────────────────────────────────────");
                 }
-                let code = crate::health::print_health_result(result, opts.quiet, opts.explain);
+                let code =
+                    crate::health::print_health_result(result, opts.quiet, opts.explain, None);
                 max_exit = max_exit.max(exit_code_to_u8(code));
             }
         }
@@ -434,6 +435,8 @@ fn build_health_opts<'a>(opts: &'a CombinedOptions<'a>) -> HealthOptions<'a> {
         file_scores: true,
         hotspots: true,
         targets: true,
+        score: false,
+        min_score: None,
         since: None,
         min_commits: None,
         explain: opts.explain,

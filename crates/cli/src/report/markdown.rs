@@ -362,6 +362,11 @@ pub fn build_health_markdown(report: &crate::health_types::HealthReport, root: &
 
     let mut out = String::new();
 
+    // Health score
+    if let Some(ref hs) = report.health_score {
+        let _ = writeln!(out, "## Health Score: {:.0} ({})\n", hs.score, hs.grade);
+    }
+
     // Vital signs summary table
     if let Some(ref vs) = report.vital_signs {
         out.push_str("## Vital Signs\n\n");
@@ -900,6 +905,7 @@ mod tests {
                 average_maintainability: None,
             },
             vital_signs: None,
+            health_score: None,
             file_scores: vec![],
             hotspots: vec![],
             hotspot_summary: None,
@@ -935,6 +941,7 @@ mod tests {
                 average_maintainability: None,
             },
             vital_signs: None,
+            health_score: None,
             file_scores: vec![],
             hotspots: vec![],
             hotspot_summary: None,
@@ -975,6 +982,7 @@ mod tests {
                 average_maintainability: None,
             },
             vital_signs: None,
+            health_score: None,
             file_scores: vec![],
             hotspots: vec![],
             hotspot_summary: None,
@@ -1005,6 +1013,7 @@ mod tests {
                 average_maintainability: None,
             },
             vital_signs: None,
+            health_score: None,
             file_scores: vec![],
             hotspots: vec![],
             hotspot_summary: None,
@@ -1216,6 +1225,7 @@ mod tests {
                 circular_dep_count: Some(1),
                 unused_dep_count: Some(2),
             }),
+            health_score: None,
             file_scores: vec![],
             hotspots: vec![],
             hotspot_summary: None,
@@ -1261,6 +1271,7 @@ mod tests {
                 average_maintainability: Some(65.0),
             },
             vital_signs: None,
+            health_score: None,
             file_scores: vec![crate::health_types::FileHealthScore {
                 path: root.join("src/utils.ts"),
                 fan_in: 5,
@@ -1311,6 +1322,7 @@ mod tests {
                 average_maintainability: None,
             },
             vital_signs: None,
+            health_score: None,
             file_scores: vec![],
             hotspots: vec![crate::health_types::HotspotEntry {
                 path: root.join("src/hot.ts"),
@@ -1365,6 +1377,7 @@ mod tests {
                 average_maintainability: Some(70.0),
             },
             vital_signs: None,
+            health_score: None,
             file_scores: vec![crate::health_types::FileHealthScore {
                 path: root.join("src/x.ts"),
                 fan_in: 1,
@@ -1415,6 +1428,7 @@ mod tests {
                 average_maintainability: None,
             },
             vital_signs: None,
+            health_score: None,
             file_scores: vec![],
             hotspots: vec![],
             hotspot_summary: None,
@@ -1499,6 +1513,7 @@ mod tests {
                 average_maintainability: None,
             },
             vital_signs: None,
+            health_score: None,
             file_scores: vec![],
             hotspots: vec![crate::health_types::HotspotEntry {
                 path: root.join("src/hot.ts"),

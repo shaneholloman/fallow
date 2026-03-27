@@ -7,8 +7,8 @@
 use std::path::{Path, PathBuf};
 
 use crate::health_types::{
-    FileHealthScore, HOTSPOT_SCORE_THRESHOLD, HotspotEntry, SNAPSHOT_SCHEMA_VERSION, VitalSigns,
-    VitalSignsCounts, VitalSignsSnapshot,
+    FileHealthScore, HOTSPOT_SCORE_THRESHOLD, HealthScore, HealthScorePenalties, HotspotEntry,
+    SNAPSHOT_SCHEMA_VERSION, VitalSigns, VitalSignsCounts, VitalSignsSnapshot, letter_grade,
 };
 
 /// Data sources for computing vital signs.
@@ -118,6 +118,94 @@ pub fn compute_vital_signs(input: &VitalSignsInput<'_>) -> VitalSigns {
     }
 }
 
+/// Compute a project-level health score from vital signs.
+///
+/// The score starts at 100 and subtracts penalties for each metric.
+/// Missing metrics (from pipelines that didn't run) don't penalize.
+/// `total_files` is used to normalize the hotspot count penalty.
+pub fn compute_health_score(vs: &VitalSigns, total_files: usize) -> HealthScore {
+    // Round each penalty to 1dp BEFORE subtracting so that JSON consumers
+    // can reproduce the score as `100 - sum(penalties)`.
+    let round1 = |v: f64| -> f64 { (v * 10.0).round() / 10.0 };
+
+    let mut score = 100.0_f64;
+
+    // Dead file penalty: 0.2 points per percent, max 15
+    let dead_files_penalty = vs.dead_file_pct.map(|dfp| round1((dfp * 0.2).min(15.0)));
+    if let Some(p) = dead_files_penalty {
+        score -= p;
+    }
+
+    // Dead export penalty: 0.2 points per percent, max 15
+    let dead_exports_penalty = vs.dead_export_pct.map(|dep| round1((dep * 0.2).min(15.0)));
+    if let Some(p) = dead_exports_penalty {
+        score -= p;
+    }
+
+    // Complexity penalty: 5 points per unit above 1.5, max 20
+    let complexity_penalty = round1(((vs.avg_cyclomatic - 1.5).max(0.0) * 5.0).min(20.0));
+    score -= complexity_penalty;
+
+    // P90 penalty: 1 point per unit above 10, max 10
+    let p90_penalty = round1((f64::from(vs.p90_cyclomatic) - 10.0).clamp(0.0, 10.0));
+    score -= p90_penalty;
+
+    // Maintainability penalty: 0.5 points per unit below 70, max 15
+    let maintainability_penalty = vs
+        .maintainability_avg
+        .map(|mi| round1(((70.0 - mi).max(0.0) * 0.5).min(15.0)));
+    if let Some(p) = maintainability_penalty {
+        score -= p;
+    }
+
+    // Hotspot penalty: normalized by total files, max 10
+    let hotspot_penalty = vs.hotspot_count.map(|hc| {
+        if total_files > 0 {
+            round1((f64::from(hc) / total_files as f64 * 200.0).min(10.0))
+        } else {
+            0.0
+        }
+    });
+    if let Some(p) = hotspot_penalty {
+        score -= p;
+    }
+
+    // Unused dep penalty: 1 point per dep, max 10
+    let unused_deps_penalty = vs
+        .unused_dep_count
+        .map(|ud| round1(f64::from(ud).min(10.0)));
+    if let Some(p) = unused_deps_penalty {
+        score -= p;
+    }
+
+    // Circular dep penalty: 1 point per chain, max 10
+    let circular_deps_penalty = vs
+        .circular_dep_count
+        .map(|cd| round1(f64::from(cd).min(10.0)));
+    if let Some(p) = circular_deps_penalty {
+        score -= p;
+    }
+
+    let score = (score * 10.0).round() / 10.0;
+    let score = score.clamp(0.0, 100.0);
+    let grade = letter_grade(score);
+
+    HealthScore {
+        score,
+        grade,
+        penalties: HealthScorePenalties {
+            dead_files: dead_files_penalty,
+            dead_exports: dead_exports_penalty,
+            complexity: complexity_penalty,
+            p90_complexity: p90_penalty,
+            maintainability: maintainability_penalty,
+            hotspots: hotspot_penalty,
+            unused_deps: unused_deps_penalty,
+            circular_deps: circular_deps_penalty,
+        },
+    }
+}
+
 /// Build the raw counts for a snapshot.
 pub fn build_counts(input: &VitalSignsInput<'_>) -> VitalSignsCounts {
     let (total_exports, dead_files, dead_exports, total_deps) =
@@ -176,6 +264,7 @@ pub fn build_snapshot(
     counts: VitalSignsCounts,
     root: &Path,
     shallow_clone: bool,
+    health_score: Option<&HealthScore>,
 ) -> VitalSignsSnapshot {
     let now = chrono_timestamp();
 
@@ -188,6 +277,8 @@ pub fn build_snapshot(
         shallow_clone,
         vital_signs,
         counts,
+        score: health_score.map(|s| s.score),
+        grade: health_score.map(|s| s.grade.to_string()),
     }
 }
 
@@ -426,7 +517,8 @@ mod tests {
             files_scored: Some(1150),
             total_deps: 42,
         };
-        let snapshot = build_snapshot(vs, counts, root, false);
+        let health_score = compute_health_score(&vs, 1200);
+        let snapshot = build_snapshot(vs, counts, root, false, Some(&health_score));
         let saved_path = save_snapshot(&snapshot, root, None).unwrap();
 
         assert!(saved_path.exists());
@@ -438,6 +530,8 @@ mod tests {
         assert_eq!(loaded.snapshot_schema_version, SNAPSHOT_SCHEMA_VERSION);
         assert!((loaded.vital_signs.avg_cyclomatic - 4.7).abs() < f64::EPSILON);
         assert_eq!(loaded.counts.total_files, 1200);
+        assert!(loaded.score.is_some());
+        assert!(loaded.grade.is_some());
     }
 
     #[test]
@@ -466,7 +560,7 @@ mod tests {
             files_scored: None,
             total_deps: 0,
         };
-        let snapshot = build_snapshot(vs, counts, root, false);
+        let snapshot = build_snapshot(vs, counts, root, false, None);
         let saved = save_snapshot(&snapshot, root, Some(&explicit)).unwrap();
         assert_eq!(saved, explicit);
         assert!(explicit.exists());
@@ -498,7 +592,7 @@ mod tests {
             files_scored: None,
             total_deps: 0,
         };
-        let snapshot = build_snapshot(vs, counts, root, false);
+        let snapshot = build_snapshot(vs, counts, root, false, None);
         let saved = save_snapshot(&snapshot, root, Some(&nested)).unwrap();
         assert_eq!(saved, nested);
         assert!(nested.exists());
@@ -513,5 +607,127 @@ mod tests {
     fn days_to_ymd_known_date() {
         // 2026-03-25 is 20,537 days since epoch
         assert_eq!(days_to_ymd(20_537), (2026, 3, 25));
+    }
+
+    // --- compute_health_score ---
+
+    #[test]
+    fn health_score_perfect() {
+        let vs = VitalSigns {
+            dead_file_pct: Some(0.0),
+            dead_export_pct: Some(0.0),
+            avg_cyclomatic: 1.0,
+            p90_cyclomatic: 2,
+            duplication_pct: None,
+            hotspot_count: Some(0),
+            maintainability_avg: Some(90.0),
+            unused_dep_count: Some(0),
+            circular_dep_count: Some(0),
+        };
+        let score = compute_health_score(&vs, 100);
+        assert!((score.score - 100.0).abs() < f64::EPSILON);
+        assert_eq!(score.grade, "A");
+    }
+
+    #[test]
+    fn health_score_no_optional_metrics() {
+        // Only avg_cyclomatic and p90_cyclomatic are always present
+        let vs = VitalSigns {
+            dead_file_pct: None,
+            dead_export_pct: None,
+            avg_cyclomatic: 1.0,
+            p90_cyclomatic: 2,
+            duplication_pct: None,
+            hotspot_count: None,
+            maintainability_avg: None,
+            unused_dep_count: None,
+            circular_dep_count: None,
+        };
+        let score = compute_health_score(&vs, 0);
+        // Only complexity penalties apply (both 0 since below thresholds)
+        assert!((score.score - 100.0).abs() < f64::EPSILON);
+        assert_eq!(score.grade, "A");
+        assert!(score.penalties.dead_files.is_none());
+        assert!(score.penalties.unused_deps.is_none());
+    }
+
+    #[test]
+    fn health_score_dead_code_penalty() {
+        let vs = VitalSigns {
+            dead_file_pct: Some(50.0),
+            dead_export_pct: Some(30.0),
+            avg_cyclomatic: 1.0,
+            p90_cyclomatic: 2,
+            duplication_pct: None,
+            hotspot_count: None,
+            maintainability_avg: None,
+            unused_dep_count: None,
+            circular_dep_count: None,
+        };
+        let score = compute_health_score(&vs, 100);
+        // dead_file: min(50*0.2, 15) = 10
+        // dead_export: min(30*0.2, 15) = 6
+        // total penalty: 16
+        assert!((score.score - 84.0).abs() < 0.1);
+        assert_eq!(score.grade, "B");
+    }
+
+    #[test]
+    fn health_score_complexity_penalty() {
+        let vs = VitalSigns {
+            dead_file_pct: None,
+            dead_export_pct: None,
+            avg_cyclomatic: 5.5,
+            p90_cyclomatic: 15,
+            duplication_pct: None,
+            hotspot_count: None,
+            maintainability_avg: None,
+            unused_dep_count: None,
+            circular_dep_count: None,
+        };
+        let score = compute_health_score(&vs, 100);
+        // complexity: min((5.5-1.5)*5, 20) = 20
+        // p90: min(15-10, 10) = 5
+        // total penalty: 25
+        assert!((score.score - 75.0).abs() < 0.1);
+        assert_eq!(score.grade, "B");
+    }
+
+    #[test]
+    fn health_score_clamped_at_zero() {
+        let vs = VitalSigns {
+            dead_file_pct: Some(100.0),
+            dead_export_pct: Some(100.0),
+            avg_cyclomatic: 10.0,
+            p90_cyclomatic: 30,
+            duplication_pct: None,
+            hotspot_count: Some(50),
+            maintainability_avg: Some(20.0),
+            unused_dep_count: Some(100),
+            circular_dep_count: Some(50),
+        };
+        let score = compute_health_score(&vs, 100);
+        assert!((score.score).abs() < f64::EPSILON);
+        assert_eq!(score.grade, "F");
+    }
+
+    #[test]
+    fn health_score_hotspot_normalized_by_files() {
+        let vs = VitalSigns {
+            dead_file_pct: None,
+            dead_export_pct: None,
+            avg_cyclomatic: 1.0,
+            p90_cyclomatic: 2,
+            duplication_pct: None,
+            hotspot_count: Some(5),
+            maintainability_avg: None,
+            unused_dep_count: None,
+            circular_dep_count: None,
+        };
+        // 5 hotspots in 100 files = 5% = 10 points
+        let score_100 = compute_health_score(&vs, 100);
+        // 5 hotspots in 1000 files = 0.5% = 1 point
+        let score_1000 = compute_health_score(&vs, 1000);
+        assert!(score_1000.score > score_100.score);
     }
 }

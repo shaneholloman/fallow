@@ -312,6 +312,16 @@ enum Command {
         #[arg(long)]
         targets: bool,
 
+        /// Show only the project health score (0–100) with letter grade (A/B/C/D/F).
+        /// Forces full pipeline (file-scores + hotspots) for maximum accuracy.
+        #[arg(long)]
+        score: bool,
+
+        /// Fail if the health score is below this threshold (0–100).
+        /// Implies --score. Useful as a CI quality gate.
+        #[arg(long, value_name = "N")]
+        min_score: Option<f64>,
+
         /// Git history window for hotspot analysis (default: 6m).
         /// Accepts durations (6m, 90d, 1y, 2w) or ISO dates (2025-06-01).
         #[arg(long, value_name = "DURATION")]
@@ -862,6 +872,8 @@ fn main() -> ExitCode {
                 file_scores,
                 hotspots,
                 targets,
+                score,
+                min_score,
                 since,
                 min_commits,
                 save_snapshot,
@@ -873,14 +885,16 @@ fn main() -> ExitCode {
                     quiet,
                     cli_format_was_explicit,
                 );
-                // --save-snapshot forces file_scores + hotspots for complete vital signs
+                // --min-score implies --score
+                let score = score || min_score.is_some();
+                // --save-snapshot and --score force file_scores + hotspots for accuracy
                 let snapshot_requested = save_snapshot.is_some();
+                let force_full = snapshot_requested || score;
                 // No section flags = show all. Any flag set = show only those.
                 // --save-snapshot is orthogonal (not a section flag).
-                let any_section = complexity || file_scores || hotspots || targets;
-                let eff_file_scores =
-                    if any_section { file_scores } else { true } || snapshot_requested;
-                let eff_hotspots = if any_section { hotspots } else { true } || snapshot_requested;
+                let any_section = complexity || file_scores || hotspots || targets || score;
+                let eff_file_scores = if any_section { file_scores } else { true } || force_full;
+                let eff_hotspots = if any_section { hotspots } else { true } || force_full;
                 let eff_complexity = if any_section { complexity } else { true };
                 let eff_targets = if any_section { targets } else { true };
                 health::run_health(&HealthOptions {
@@ -903,6 +917,8 @@ fn main() -> ExitCode {
                     file_scores: eff_file_scores,
                     hotspots: eff_hotspots,
                     targets: eff_targets,
+                    score,
+                    min_score,
                     since: since.as_deref(),
                     min_commits,
                     explain: cli.explain,

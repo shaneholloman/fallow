@@ -298,6 +298,12 @@ pub fn health_meta() -> Value {
                 "description": "Reliability of the recommendation based on data source. High: deterministic graph/AST analysis (dead code, circular deps, complexity). Medium: heuristic thresholds (fan-in/fan-out coupling). Low: depends on git history quality (churn-based recommendations).",
                 "values": ["high", "medium", "low"],
                 "interpretation": "high = act on it, medium = verify context, low = treat as a signal, not a directive"
+            },
+            "health_score": {
+                "name": "Health Score",
+                "description": "Project-level aggregate score computed from vital signs: dead code, complexity, maintainability, hotspots, unused deps, and circular deps. Penalties subtracted from 100. Missing metrics (from pipelines that didn't run) don't penalize. Use --score to force full pipeline for maximum accuracy.",
+                "range": "[0, 100]",
+                "interpretation": "higher is better; A (85\u{2013}100), B (70\u{2013}84), C (55\u{2013}69), D (40\u{2013}54), F (0\u{2013}39)"
             }
         }
     })

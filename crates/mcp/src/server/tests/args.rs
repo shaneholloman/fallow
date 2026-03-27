@@ -466,6 +466,8 @@ fn health_args_with_all_options() {
         file_scores: Some(true),
         hotspots: Some(true),
         targets: None,
+        score: None,
+        min_score: None,
         since: Some("6m".to_string()),
         min_commits: Some(5),
         workspace: Some("packages/ui".to_string()),

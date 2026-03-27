@@ -18,10 +18,12 @@ pub(in crate::report) fn print_health_human(
         eprintln!();
     }
 
+    let has_score = report.health_score.is_some();
     if report.findings.is_empty()
         && report.file_scores.is_empty()
         && report.hotspots.is_empty()
         && report.targets.is_empty()
+        && !has_score
     {
         if !quiet {
             eprintln!(
@@ -78,6 +80,98 @@ pub(in crate::report) fn build_health_human_lines(
     root: &Path,
 ) -> Vec<String> {
     let mut lines = Vec::new();
+
+    // Health score (shown first when available)
+    if let Some(ref hs) = report.health_score {
+        let score_str = format!("{:.0}", hs.score);
+        let grade_str = hs.grade;
+        let score_colored = if hs.score >= 85.0 {
+            format!("{score_str} {grade_str}")
+                .green()
+                .bold()
+                .to_string()
+        } else if hs.score >= 70.0 {
+            format!("{score_str} {grade_str}")
+                .yellow()
+                .bold()
+                .to_string()
+        } else if hs.score >= 55.0 {
+            format!("{score_str} {grade_str}").yellow().to_string()
+        } else {
+            format!("{score_str} {grade_str}").red().bold().to_string()
+        };
+        lines.push(format!(
+            "{} {} {}",
+            "\u{25cf}".cyan(),
+            "Health score:".cyan().bold(),
+            score_colored,
+        ));
+
+        // Penalty breakdown (dimmed, one line)
+        let p = &hs.penalties;
+        let mut parts = Vec::new();
+        if let Some(df) = p.dead_files
+            && df > 0.0
+        {
+            parts.push(format!("dead files -{df:.1}"));
+        }
+        if let Some(de) = p.dead_exports
+            && de > 0.0
+        {
+            parts.push(format!("dead exports -{de:.1}"));
+        }
+        if p.complexity > 0.0 {
+            parts.push(format!("complexity -{:.1}", p.complexity));
+        }
+        if p.p90_complexity > 0.0 {
+            parts.push(format!("p90 -{:.1}", p.p90_complexity));
+        }
+        if let Some(mi) = p.maintainability
+            && mi > 0.0
+        {
+            parts.push(format!("MI -{mi:.1}"));
+        }
+        if let Some(hp) = p.hotspots
+            && hp > 0.0
+        {
+            parts.push(format!("hotspots -{hp:.1}"));
+        }
+        if let Some(ud) = p.unused_deps
+            && ud > 0.0
+        {
+            parts.push(format!("unused deps -{ud:.1}"));
+        }
+        if let Some(cd) = p.circular_deps
+            && cd > 0.0
+        {
+            parts.push(format!("circular deps -{cd:.1}"));
+        }
+        if !parts.is_empty() {
+            lines.push(format!("  {}", parts.join(" \u{00b7} ").dimmed()));
+        }
+        // Check for N/A components
+        let mut na_parts = Vec::new();
+        if p.dead_files.is_none() {
+            na_parts.push("dead code");
+        }
+        if p.maintainability.is_none() {
+            na_parts.push("MI");
+        }
+        if p.hotspots.is_none() {
+            na_parts.push("hotspots");
+        }
+        if !na_parts.is_empty() {
+            lines.push(format!(
+                "  {}",
+                format!(
+                    "N/A: {} (run --score for full pipeline)",
+                    na_parts.join(", ")
+                )
+                .dimmed()
+            ));
+        }
+        lines.push(String::new());
+    }
 
     // Vital signs summary line (always shown when available)
     if let Some(ref vs) = report.vital_signs {
@@ -499,6 +593,7 @@ mod tests {
                 average_maintainability: None,
             },
             vital_signs: None,
+            health_score: None,
             file_scores: vec![],
             hotspots: vec![],
             hotspot_summary: None,
@@ -535,6 +630,7 @@ mod tests {
                 average_maintainability: None,
             },
             vital_signs: None,
+            health_score: None,
             file_scores: vec![],
             hotspots: vec![],
             hotspot_summary: None,
@@ -576,6 +672,7 @@ mod tests {
                 average_maintainability: None,
             },
             vital_signs: None,
+            health_score: None,
             file_scores: vec![],
             hotspots: vec![],
             hotspot_summary: None,
@@ -624,6 +721,7 @@ mod tests {
                 average_maintainability: None,
             },
             vital_signs: None,
+            health_score: None,
             file_scores: vec![],
             hotspots: vec![],
             hotspot_summary: None,

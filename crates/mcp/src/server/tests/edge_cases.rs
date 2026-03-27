@@ -627,6 +627,8 @@ fn health_args_with_all_options_including_targets_and_snapshot() {
         file_scores: Some(true),
         hotspots: Some(true),
         targets: Some(true),
+        score: Some(true),
+        min_score: Some(70.0),
         since: Some("6m".to_string()),
         min_commits: Some(5),
         workspace: Some("packages/ui".to_string()),
@@ -640,6 +642,9 @@ fn health_args_with_all_options_including_targets_and_snapshot() {
     let args = build_health_args(&params);
     // Every single flag should be present
     assert!(args.contains(&"--targets".to_string()));
+    assert!(args.contains(&"--score".to_string()));
+    assert!(args.contains(&"--min-score".to_string()));
+    assert!(args.contains(&"70".to_string()));
     assert!(args.contains(&"--save-snapshot".to_string()));
     assert!(args.contains(&"snap.json".to_string()));
     assert!(args.contains(&"--complexity".to_string()));

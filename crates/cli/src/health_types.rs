@@ -14,6 +14,9 @@ pub struct HealthReport {
     /// Project-wide vital signs (always computed from available data).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub vital_signs: Option<VitalSigns>,
+    /// Project-wide health score (only populated with `--score`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub health_score: Option<HealthScore>,
     /// Per-file health scores (only populated with `--file-scores` or `--hotspots`).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub file_scores: Vec<FileHealthScore>,
@@ -29,6 +32,86 @@ pub struct HealthReport {
     /// Adaptive thresholds used for target scoring (only set with `--targets`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target_thresholds: Option<TargetThresholds>,
+}
+
+/// Project-level health score: a single 0–100 number with letter grade.
+///
+/// ## Score Formula
+///
+/// ```text
+/// score = 100
+///   - min(dead_file_pct × 0.2, 15)
+///   - min(dead_export_pct × 0.2, 15)
+///   - min(max(0, avg_cyclomatic − 1.5) × 5, 20)
+///   - min(max(0, p90_cyclomatic − 10), 10)
+///   - min(max(0, 70 − maintainability_avg) × 0.5, 15)
+///   - min(hotspot_count / total_files × 200, 10)
+///   - min(unused_dep_count, 10)
+///   - min(circular_dep_count, 10)
+/// ```
+///
+/// Missing metrics (from pipelines that didn't run) don't penalize — run
+/// `--score` (which forces full pipeline) for the most accurate result.
+///
+/// ## Letter Grades
+///
+/// A: score ≥ 85, B: 70–84, C: 55–69, D: 40–54, F: below 40.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct HealthScore {
+    /// Overall score (0–100, higher is better).
+    pub score: f64,
+    /// Letter grade: A, B, C, D, or F.
+    pub grade: &'static str,
+    /// Per-component penalty breakdown. Shows what drove the score down.
+    pub penalties: HealthScorePenalties,
+}
+
+/// Per-component penalty breakdown for the health score.
+///
+/// Each field shows how many points were subtracted for that component.
+/// `None` means the metric was not available (pipeline didn't run).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct HealthScorePenalties {
+    /// Points lost from dead files (max 15).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dead_files: Option<f64>,
+    /// Points lost from dead exports (max 15).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dead_exports: Option<f64>,
+    /// Points lost from average cyclomatic complexity (max 20).
+    pub complexity: f64,
+    /// Points lost from p90 cyclomatic complexity (max 10).
+    pub p90_complexity: f64,
+    /// Points lost from low maintainability index (max 15).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub maintainability: Option<f64>,
+    /// Points lost from hotspot files (max 10).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hotspots: Option<f64>,
+    /// Points lost from unused dependencies (max 10).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unused_deps: Option<f64>,
+    /// Points lost from circular dependencies (max 10).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub circular_deps: Option<f64>,
+}
+
+/// Map a numeric score (0–100) to a letter grade.
+pub const fn letter_grade(score: f64) -> &'static str {
+    // Truncate to u32 so that 84.9 maps to B and 85.0 maps to A —
+    // fractional digits don't affect the grade bucket.
+    let s = score as u32;
+    if s >= 85 {
+        "A"
+    } else if s >= 70 {
+        "B"
+    } else if s >= 55 {
+        "C"
+    } else if s >= 40 {
+        "D"
+    } else {
+        "F"
+    }
 }
 
 /// Project-wide vital signs — a fixed set of metrics for trend tracking.
@@ -106,10 +189,17 @@ pub struct VitalSignsSnapshot {
     pub vital_signs: VitalSigns,
     /// Raw counts for trend decomposition.
     pub counts: VitalSignsCounts,
+    /// Project health score (0–100). Added in schema v2.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub score: Option<f64>,
+    /// Letter grade (A/B/C/D/F). Added in schema v2.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub grade: Option<String>,
 }
 
 /// Current snapshot schema version. Independent of the report's SCHEMA_VERSION.
-pub const SNAPSHOT_SCHEMA_VERSION: u32 = 1;
+/// v2: Added `score` and `grade` fields.
+pub const SNAPSHOT_SCHEMA_VERSION: u32 = 2;
 
 /// Hotspot score threshold for counting a file as a hotspot in vital signs.
 pub const HOTSPOT_SCORE_THRESHOLD: f64 = 50.0;
@@ -540,6 +630,7 @@ mod tests {
                 average_maintainability: None,
             },
             vital_signs: None,
+            health_score: None,
             file_scores: vec![],
             hotspots: vec![],
             hotspot_summary: None,
@@ -553,6 +644,7 @@ mod tests {
         assert!(!json.contains("hotspot_summary"));
         assert!(!json.contains("targets"));
         assert!(!json.contains("vital_signs"));
+        assert!(!json.contains("health_score"));
     }
 
     #[test]
@@ -608,6 +700,8 @@ mod tests {
                 files_scored: Some(1150),
                 total_deps: 42,
             },
+            score: Some(78.5),
+            grade: Some("B".into()),
         };
         let json = serde_json::to_string_pretty(&snapshot).unwrap();
         let rt: VitalSignsSnapshot = serde_json::from_str(&json).unwrap();
@@ -615,6 +709,8 @@ mod tests {
         assert_eq!(rt.git_sha.as_deref(), Some("abc1234"));
         assert_eq!(rt.counts.total_files, 1200);
         assert_eq!(rt.counts.dead_exports, 437);
+        assert_eq!(rt.score, Some(78.5));
+        assert_eq!(rt.grade.as_deref(), Some("B"));
     }
 
     #[test]
@@ -838,12 +934,107 @@ mod tests {
     // --- VitalSignsSnapshot schema version ---
 
     #[test]
-    fn snapshot_schema_version_is_one() {
-        assert_eq!(SNAPSHOT_SCHEMA_VERSION, 1);
+    fn snapshot_schema_version_is_two() {
+        assert_eq!(SNAPSHOT_SCHEMA_VERSION, 2);
     }
 
     #[test]
     fn hotspot_score_threshold_is_50() {
         assert!((HOTSPOT_SCORE_THRESHOLD - 50.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn snapshot_v1_deserializes_with_default_score_and_grade() {
+        // A v1 snapshot without score/grade fields must still deserialize
+        let json = r#"{
+            "snapshot_schema_version": 1,
+            "version": "1.5.0",
+            "timestamp": "2025-01-01T00:00:00Z",
+            "shallow_clone": false,
+            "vital_signs": {
+                "avg_cyclomatic": 2.0,
+                "p90_cyclomatic": 5
+            },
+            "counts": {
+                "total_files": 100,
+                "total_exports": 500,
+                "dead_files": 0,
+                "dead_exports": 0,
+                "total_deps": 20
+            }
+        }"#;
+        let snap: VitalSignsSnapshot = serde_json::from_str(json).unwrap();
+        assert!(snap.score.is_none());
+        assert!(snap.grade.is_none());
+        assert_eq!(snap.snapshot_schema_version, 1);
+    }
+
+    // --- letter_grade ---
+
+    #[test]
+    fn letter_grade_boundaries() {
+        assert_eq!(letter_grade(100.0), "A");
+        assert_eq!(letter_grade(85.0), "A");
+        assert_eq!(letter_grade(84.9), "B");
+        assert_eq!(letter_grade(70.0), "B");
+        assert_eq!(letter_grade(69.9), "C");
+        assert_eq!(letter_grade(55.0), "C");
+        assert_eq!(letter_grade(54.9), "D");
+        assert_eq!(letter_grade(40.0), "D");
+        assert_eq!(letter_grade(39.9), "F");
+        assert_eq!(letter_grade(0.0), "F");
+    }
+
+    // --- HealthScore ---
+
+    #[test]
+    fn health_score_serializes_correctly() {
+        let score = HealthScore {
+            score: 78.5,
+            grade: "B",
+            penalties: HealthScorePenalties {
+                dead_files: Some(3.1),
+                dead_exports: Some(6.0),
+                complexity: 0.0,
+                p90_complexity: 0.0,
+                maintainability: None,
+                hotspots: None,
+                unused_deps: Some(5.0),
+                circular_deps: Some(4.0),
+            },
+        };
+        let json = serde_json::to_string(&score).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["score"], 78.5);
+        assert_eq!(parsed["grade"], "B");
+        assert_eq!(parsed["penalties"]["dead_files"], 3.1);
+        // None fields should be absent
+        assert!(!json.contains("maintainability"));
+        assert!(!json.contains("hotspots"));
+    }
+
+    #[test]
+    fn health_score_none_skipped_in_report() {
+        let report = HealthReport {
+            findings: vec![],
+            summary: HealthSummary {
+                files_analyzed: 0,
+                functions_analyzed: 0,
+                functions_above_threshold: 0,
+                max_cyclomatic_threshold: 20,
+                max_cognitive_threshold: 15,
+                files_scored: None,
+                average_maintainability: None,
+            },
+            vital_signs: None,
+            health_score: None,
+            file_scores: vec![],
+            hotspots: vec![],
+            hotspot_summary: None,
+            targets: vec![],
+            target_thresholds: None,
+        };
+        let json = serde_json::to_string(&report).unwrap();
+        assert!(!json.contains("health_score"));
     }
 }

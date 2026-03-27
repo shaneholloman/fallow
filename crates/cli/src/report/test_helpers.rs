@@ -98,6 +98,12 @@ pub(super) fn sample_results(root: &Path) -> AnalysisResults {
         path: root.join("package.json"),
         line: 12,
     });
+    r.unused_optional_dependencies.push(UnusedDependency {
+        package_name: "fsevents".to_string(),
+        location: DependencyLocation::OptionalDependencies,
+        path: root.join("package.json"),
+        line: 15,
+    });
     r.circular_dependencies.push(CircularDependency {
         files: vec![root.join("src/a.ts"), root.join("src/b.ts")],
         length: 2,

@@ -46,6 +46,8 @@ pub struct HealthOptions<'a> {
     pub file_scores: bool,
     pub hotspots: bool,
     pub targets: bool,
+    pub score: bool,
+    pub min_score: Option<f64>,
     pub since: Option<&'a str>,
     pub min_commits: Option<u32>,
     pub explain: bool,
@@ -270,11 +272,24 @@ pub fn execute_health(opts: &HealthOptions<'_>) -> Result<HealthResult, ExitCode
     };
     let vital_signs = vital_signs::compute_vital_signs(&vs_input);
 
+    // Compute health score when requested
+    let health_score = if opts.score {
+        Some(vital_signs::compute_health_score(&vital_signs, files.len()))
+    } else {
+        None
+    };
+
     // Save snapshot if requested
     if let Some(ref snapshot_path) = opts.save_snapshot {
         let counts = vital_signs::build_counts(&vs_input);
         let shallow = hotspot_summary.as_ref().is_some_and(|s| s.shallow_clone);
-        let snapshot = vital_signs::build_snapshot(vital_signs.clone(), counts, opts.root, shallow);
+        let snapshot = vital_signs::build_snapshot(
+            vital_signs.clone(),
+            counts,
+            opts.root,
+            shallow,
+            health_score.as_ref(),
+        );
         let explicit = if snapshot_path.as_os_str().is_empty() {
             None
         } else {
@@ -326,6 +341,7 @@ pub fn execute_health(opts: &HealthOptions<'_>) -> Result<HealthResult, ExitCode
             },
         },
         vital_signs: Some(vital_signs),
+        health_score,
         findings: if opts.complexity {
             findings
         } else {
@@ -454,7 +470,7 @@ fn save_health_baseline(
 /// Run health analysis, print results, and return exit code.
 pub fn run_health(opts: &HealthOptions<'_>) -> ExitCode {
     match execute_health(opts) {
-        Ok(result) => print_health_result(&result, opts.quiet, opts.explain),
+        Ok(result) => print_health_result(&result, opts.quiet, opts.explain, opts.min_score),
         Err(code) => code,
     }
 }
@@ -467,7 +483,12 @@ pub struct HealthResult {
 }
 
 /// Print health results and return appropriate exit code.
-pub fn print_health_result(result: &HealthResult, quiet: bool, explain: bool) -> ExitCode {
+pub fn print_health_result(
+    result: &HealthResult,
+    quiet: bool,
+    explain: bool,
+    min_score: Option<f64>,
+) -> ExitCode {
     let ctx = report::ReportContext {
         root: &result.config.root,
         rules: &result.config.rules,
@@ -478,6 +499,20 @@ pub fn print_health_result(result: &HealthResult, quiet: bool, explain: bool) ->
     let report_code = report::print_health_report(&result.report, &ctx, &result.config.output);
     if report_code != ExitCode::SUCCESS {
         return report_code;
+    }
+
+    // Check --min-score threshold
+    if let Some(threshold) = min_score
+        && let Some(ref hs) = result.report.health_score
+        && hs.score < threshold
+    {
+        if !quiet {
+            eprintln!(
+                "Health score {:.1} ({}) is below minimum threshold {:.0}",
+                hs.score, hs.grade, threshold
+            );
+        }
+        return ExitCode::from(1);
     }
 
     if !result.report.findings.is_empty() {
