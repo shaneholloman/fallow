@@ -481,4 +481,147 @@ mod tests {
     fn url_import_bare_specifier_not_skipped() {
         assert!(!is_css_url_import("tailwindcss"));
     }
+
+    // ── normalize_css_import_path ─────────────────────────────────
+
+    #[test]
+    fn normalize_relative_dot_path_unchanged() {
+        assert_eq!(
+            normalize_css_import_path("./reset.css".to_string()),
+            "./reset.css"
+        );
+    }
+
+    #[test]
+    fn normalize_parent_relative_path_unchanged() {
+        assert_eq!(
+            normalize_css_import_path("../shared.scss".to_string()),
+            "../shared.scss"
+        );
+    }
+
+    #[test]
+    fn normalize_absolute_path_unchanged() {
+        assert_eq!(
+            normalize_css_import_path("/styles/main.css".to_string()),
+            "/styles/main.css"
+        );
+    }
+
+    #[test]
+    fn normalize_url_unchanged() {
+        assert_eq!(
+            normalize_css_import_path("https://example.com/style.css".to_string()),
+            "https://example.com/style.css"
+        );
+    }
+
+    #[test]
+    fn normalize_bare_css_gets_dot_slash() {
+        assert_eq!(
+            normalize_css_import_path("app.css".to_string()),
+            "./app.css"
+        );
+    }
+
+    #[test]
+    fn normalize_bare_scss_gets_dot_slash() {
+        assert_eq!(
+            normalize_css_import_path("vars.scss".to_string()),
+            "./vars.scss"
+        );
+    }
+
+    #[test]
+    fn normalize_bare_sass_gets_dot_slash() {
+        assert_eq!(
+            normalize_css_import_path("main.sass".to_string()),
+            "./main.sass"
+        );
+    }
+
+    #[test]
+    fn normalize_bare_less_gets_dot_slash() {
+        assert_eq!(
+            normalize_css_import_path("theme.less".to_string()),
+            "./theme.less"
+        );
+    }
+
+    #[test]
+    fn normalize_bare_extensionless_stays_bare() {
+        assert_eq!(
+            normalize_css_import_path("tailwindcss".to_string()),
+            "tailwindcss"
+        );
+    }
+
+    #[test]
+    fn normalize_bare_js_extension_stays_bare() {
+        assert_eq!(
+            normalize_css_import_path("module.js".to_string()),
+            "module.js"
+        );
+    }
+
+    // ── strip_css_comments edge cases ─────────────────────────────
+
+    #[test]
+    fn strip_css_no_comments() {
+        let source = ".foo { color: red; }";
+        assert_eq!(strip_css_comments(source, false), source);
+    }
+
+    #[test]
+    fn strip_css_multiple_block_comments() {
+        let source = "/* comment-one */ .foo { } /* comment-two */ .bar { }";
+        let result = strip_css_comments(source, false);
+        assert!(!result.contains("comment-one"));
+        assert!(!result.contains("comment-two"));
+        assert!(result.contains(".foo"));
+        assert!(result.contains(".bar"));
+    }
+
+    #[test]
+    fn strip_scss_does_not_affect_non_scss() {
+        // When is_scss=false, line comments should NOT be stripped
+        let source = "// this stays\n.foo { }";
+        let result = strip_css_comments(source, false);
+        assert!(result.contains("// this stays"));
+    }
+
+    // ── parse_css_to_module: suppression integration ──────────────
+
+    #[test]
+    fn css_module_parses_suppressions() {
+        let info = parse_css_to_module(
+            fallow_types::discover::FileId(0),
+            Path::new("Component.module.css"),
+            "/* fallow-ignore-file */\n.btn { color: red; }",
+            0,
+        );
+        assert!(!info.suppressions.is_empty());
+        assert_eq!(info.suppressions[0].line, 0);
+    }
+
+    // ── CSS class name edge cases ─────────────────────────────────
+
+    #[test]
+    fn extracts_class_starting_with_underscore() {
+        let names = export_names("._private { } .__dunder { }");
+        assert!(names.contains(&"_private".to_string()));
+        assert!(names.contains(&"__dunder".to_string()));
+    }
+
+    #[test]
+    fn ignores_id_selectors() {
+        let names = export_names("#myId { color: red; }");
+        assert!(!names.contains(&"myId".to_string()));
+    }
+
+    #[test]
+    fn ignores_element_selectors() {
+        let names = export_names("div { color: red; } span { }");
+        assert!(names.is_empty());
+    }
 }

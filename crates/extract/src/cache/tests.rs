@@ -846,3 +846,365 @@ fn module_to_cached_roundtrip_line_offsets() {
     let restored = cached_to_module(&cached, FileId(0));
     assert_eq!(restored.line_offsets, vec![0, 15, 30, 45]);
 }
+
+// ── Additional coverage ─────────────────────────────────────
+
+#[test]
+fn module_to_cached_roundtrip_suppressions_with_kinds() {
+    use crate::suppress::{IssueKind, Suppression};
+
+    let module = ModuleInfo {
+        file_id: FileId(0),
+        exports: vec![],
+        imports: vec![],
+        re_exports: vec![],
+        dynamic_imports: vec![],
+        require_calls: vec![],
+        member_accesses: vec![],
+        whole_object_uses: vec![],
+        dynamic_import_patterns: vec![],
+        has_cjs_exports: false,
+        unused_import_bindings: vec![],
+        content_hash: 0,
+        suppressions: vec![
+            Suppression {
+                line: 0,
+                kind: None,
+            },
+            Suppression {
+                line: 5,
+                kind: Some(IssueKind::UnusedExport),
+            },
+            Suppression {
+                line: 10,
+                kind: Some(IssueKind::UnusedFile),
+            },
+        ],
+        line_offsets: vec![],
+        complexity: Vec::new(),
+    };
+
+    let cached = module_to_cached(&module, 0, 0);
+    let restored = cached_to_module(&cached, FileId(0));
+
+    assert_eq!(restored.suppressions.len(), 3);
+    assert_eq!(restored.suppressions[0].line, 0);
+    assert!(restored.suppressions[0].kind.is_none());
+    assert_eq!(restored.suppressions[1].line, 5);
+    assert_eq!(restored.suppressions[1].kind, Some(IssueKind::UnusedExport));
+    assert_eq!(restored.suppressions[2].line, 10);
+    assert_eq!(restored.suppressions[2].kind, Some(IssueKind::UnusedFile));
+}
+
+#[test]
+fn module_to_cached_roundtrip_is_public() {
+    let module = ModuleInfo {
+        file_id: FileId(0),
+        exports: vec![ExportInfo {
+            name: ExportName::Named("publicFoo".to_string()),
+            local_name: Some("publicFoo".to_string()),
+            is_type_only: false,
+            is_public: true,
+            span: Span::new(0, 10),
+            members: vec![],
+        }],
+        imports: vec![],
+        re_exports: vec![],
+        dynamic_imports: vec![],
+        require_calls: vec![],
+        member_accesses: vec![],
+        whole_object_uses: vec![],
+        dynamic_import_patterns: vec![],
+        has_cjs_exports: false,
+        unused_import_bindings: vec![],
+        content_hash: 0,
+        suppressions: vec![],
+        line_offsets: vec![],
+        complexity: Vec::new(),
+    };
+
+    let cached = module_to_cached(&module, 0, 0);
+    let restored = cached_to_module(&cached, FileId(0));
+
+    assert!(restored.exports[0].is_public);
+}
+
+#[test]
+fn module_to_cached_roundtrip_dynamic_import_patterns() {
+    let module = ModuleInfo {
+        file_id: FileId(0),
+        exports: vec![],
+        imports: vec![],
+        re_exports: vec![],
+        dynamic_imports: vec![],
+        require_calls: vec![],
+        member_accesses: vec![],
+        whole_object_uses: vec![],
+        dynamic_import_patterns: vec![
+            crate::DynamicImportPattern {
+                prefix: "./components/".to_string(),
+                suffix: Some(".vue".to_string()),
+                span: Span::new(0, 50),
+            },
+            crate::DynamicImportPattern {
+                prefix: "./pages/**/".to_string(),
+                suffix: None,
+                span: Span::new(60, 100),
+            },
+        ],
+        has_cjs_exports: false,
+        unused_import_bindings: vec![],
+        content_hash: 0,
+        suppressions: vec![],
+        line_offsets: vec![],
+        complexity: Vec::new(),
+    };
+
+    let cached = module_to_cached(&module, 0, 0);
+    let restored = cached_to_module(&cached, FileId(0));
+
+    assert_eq!(restored.dynamic_import_patterns.len(), 2);
+    assert_eq!(restored.dynamic_import_patterns[0].prefix, "./components/");
+    assert_eq!(
+        restored.dynamic_import_patterns[0].suffix,
+        Some(".vue".to_string())
+    );
+    assert_eq!(restored.dynamic_import_patterns[0].span.start, 0);
+    assert_eq!(restored.dynamic_import_patterns[0].span.end, 50);
+    assert_eq!(restored.dynamic_import_patterns[1].prefix, "./pages/**/");
+    assert!(restored.dynamic_import_patterns[1].suffix.is_none());
+}
+
+#[test]
+fn module_to_cached_roundtrip_unused_import_bindings() {
+    let module = ModuleInfo {
+        file_id: FileId(0),
+        exports: vec![],
+        imports: vec![],
+        re_exports: vec![],
+        dynamic_imports: vec![],
+        require_calls: vec![],
+        member_accesses: vec![],
+        whole_object_uses: vec!["Status".to_string()],
+        dynamic_import_patterns: vec![],
+        has_cjs_exports: false,
+        unused_import_bindings: vec!["unusedFoo".to_string(), "unusedBar".to_string()],
+        content_hash: 0,
+        suppressions: vec![],
+        line_offsets: vec![],
+        complexity: Vec::new(),
+    };
+
+    let cached = module_to_cached(&module, 0, 0);
+    let restored = cached_to_module(&cached, FileId(0));
+
+    assert_eq!(restored.unused_import_bindings.len(), 2);
+    assert!(
+        restored
+            .unused_import_bindings
+            .contains(&"unusedFoo".to_string())
+    );
+    assert!(
+        restored
+            .unused_import_bindings
+            .contains(&"unusedBar".to_string())
+    );
+    assert!(restored.whole_object_uses.contains(&"Status".to_string()));
+}
+
+#[test]
+fn module_to_cached_roundtrip_complexity() {
+    use fallow_types::extract::FunctionComplexity;
+
+    let module = ModuleInfo {
+        file_id: FileId(0),
+        exports: vec![],
+        imports: vec![],
+        re_exports: vec![],
+        dynamic_imports: vec![],
+        require_calls: vec![],
+        member_accesses: vec![],
+        whole_object_uses: vec![],
+        dynamic_import_patterns: vec![],
+        has_cjs_exports: false,
+        unused_import_bindings: vec![],
+        content_hash: 0,
+        suppressions: vec![],
+        line_offsets: vec![],
+        complexity: vec![
+            FunctionComplexity {
+                name: "complex".to_string(),
+                line: 5,
+                col: 0,
+                cyclomatic: 8,
+                cognitive: 15,
+                line_count: 20,
+            },
+            FunctionComplexity {
+                name: "simple".to_string(),
+                line: 30,
+                col: 4,
+                cyclomatic: 1,
+                cognitive: 0,
+                line_count: 3,
+            },
+        ],
+    };
+
+    let cached = module_to_cached(&module, 0, 0);
+    let restored = cached_to_module(&cached, FileId(0));
+
+    assert_eq!(restored.complexity.len(), 2);
+    assert_eq!(restored.complexity[0].name, "complex");
+    assert_eq!(restored.complexity[0].cyclomatic, 8);
+    assert_eq!(restored.complexity[0].cognitive, 15);
+    assert_eq!(restored.complexity[0].line_count, 20);
+    assert_eq!(restored.complexity[1].name, "simple");
+    assert_eq!(restored.complexity[1].cyclomatic, 1);
+    assert_eq!(restored.complexity[1].cognitive, 0);
+}
+
+#[test]
+fn module_to_cached_roundtrip_require_with_destructured() {
+    let module = ModuleInfo {
+        file_id: FileId(0),
+        exports: vec![],
+        imports: vec![],
+        re_exports: vec![],
+        dynamic_imports: vec![],
+        require_calls: vec![RequireCallInfo {
+            source: "fs".to_string(),
+            span: Span::new(0, 30),
+            destructured_names: vec!["readFile".to_string(), "writeFile".to_string()],
+            local_name: None,
+        }],
+        member_accesses: vec![],
+        whole_object_uses: vec![],
+        dynamic_import_patterns: vec![],
+        has_cjs_exports: false,
+        unused_import_bindings: vec![],
+        content_hash: 0,
+        suppressions: vec![],
+        line_offsets: vec![],
+        complexity: Vec::new(),
+    };
+
+    let cached = module_to_cached(&module, 0, 0);
+    let restored = cached_to_module(&cached, FileId(0));
+
+    assert_eq!(restored.require_calls.len(), 1);
+    assert_eq!(restored.require_calls[0].source, "fs");
+    assert!(restored.require_calls[0].local_name.is_none());
+    assert_eq!(
+        restored.require_calls[0].destructured_names,
+        vec!["readFile", "writeFile"]
+    );
+}
+
+#[test]
+fn module_to_cached_roundtrip_dynamic_import_with_local() {
+    let module = ModuleInfo {
+        file_id: FileId(0),
+        exports: vec![],
+        imports: vec![],
+        re_exports: vec![],
+        dynamic_imports: vec![DynamicImportInfo {
+            source: "./mod".to_string(),
+            span: Span::new(0, 20),
+            destructured_names: vec![],
+            local_name: Some("mod".to_string()),
+        }],
+        require_calls: vec![],
+        member_accesses: vec![],
+        whole_object_uses: vec![],
+        dynamic_import_patterns: vec![],
+        has_cjs_exports: false,
+        unused_import_bindings: vec![],
+        content_hash: 0,
+        suppressions: vec![],
+        line_offsets: vec![],
+        complexity: Vec::new(),
+    };
+
+    let cached = module_to_cached(&module, 0, 0);
+    let restored = cached_to_module(&cached, FileId(0));
+
+    assert_eq!(
+        restored.dynamic_imports[0].local_name,
+        Some("mod".to_string())
+    );
+}
+
+#[test]
+fn module_to_cached_roundtrip_source_span() {
+    let module = ModuleInfo {
+        file_id: FileId(0),
+        exports: vec![],
+        imports: vec![ImportInfo {
+            source: "./utils".to_string(),
+            imported_name: ImportedName::Named("foo".to_string()),
+            local_name: "foo".to_string(),
+            is_type_only: false,
+            span: Span::new(0, 30),
+            source_span: Span::new(25, 33),
+        }],
+        re_exports: vec![],
+        dynamic_imports: vec![],
+        require_calls: vec![],
+        member_accesses: vec![],
+        whole_object_uses: vec![],
+        dynamic_import_patterns: vec![],
+        has_cjs_exports: false,
+        unused_import_bindings: vec![],
+        content_hash: 0,
+        suppressions: vec![],
+        line_offsets: vec![],
+        complexity: Vec::new(),
+    };
+
+    let cached = module_to_cached(&module, 0, 0);
+    let restored = cached_to_module(&cached, FileId(0));
+
+    assert_eq!(restored.imports[0].source_span.start, 25);
+    assert_eq!(restored.imports[0].source_span.end, 33);
+}
+
+#[test]
+fn module_to_cached_roundtrip_member_decorators() {
+    let module = ModuleInfo {
+        file_id: FileId(0),
+        exports: vec![ExportInfo {
+            name: ExportName::Named("Svc".to_string()),
+            local_name: Some("Svc".to_string()),
+            is_type_only: false,
+            is_public: false,
+            span: Span::new(0, 100),
+            members: vec![MemberInfo {
+                name: "handler".to_string(),
+                kind: MemberKind::ClassMethod,
+                span: Span::new(50, 80),
+                has_decorator: true,
+            }],
+        }],
+        imports: vec![],
+        re_exports: vec![],
+        dynamic_imports: vec![],
+        require_calls: vec![],
+        member_accesses: vec![],
+        whole_object_uses: vec![],
+        dynamic_import_patterns: vec![],
+        has_cjs_exports: false,
+        unused_import_bindings: vec![],
+        content_hash: 0,
+        suppressions: vec![],
+        line_offsets: vec![],
+        complexity: Vec::new(),
+    };
+
+    let cached = module_to_cached(&module, 0, 0);
+    let restored = cached_to_module(&cached, FileId(0));
+
+    assert!(restored.exports[0].members[0].has_decorator);
+    assert_eq!(restored.exports[0].members[0].span.start, 50);
+    assert_eq!(restored.exports[0].members[0].span.end, 80);
+}

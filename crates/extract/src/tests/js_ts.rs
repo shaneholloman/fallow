@@ -2707,6 +2707,220 @@ fn dynamic_import_concat_prefix_and_suffix() {
     );
 }
 
+// ── JSDoc @public tag detection ──────────────────────────────
+
+#[test]
+fn jsdoc_public_tag_marks_export_public() {
+    let info = parse_source(
+        r"/** @public */
+export const foo = 1;",
+    );
+    assert_eq!(info.exports.len(), 1);
+    assert!(
+        info.exports[0].is_public,
+        "Export with @public JSDoc tag should be marked as public"
+    );
+}
+
+#[test]
+fn jsdoc_api_public_tag_marks_export_public() {
+    let info = parse_source(
+        r"/** @api public */
+export const bar = 2;",
+    );
+    assert_eq!(info.exports.len(), 1);
+    assert!(
+        info.exports[0].is_public,
+        "Export with @api public tag should be marked as public"
+    );
+}
+
+#[test]
+fn jsdoc_no_public_tag_not_marked() {
+    let info = parse_source(
+        r"/** Regular comment */
+export const baz = 3;",
+    );
+    assert_eq!(info.exports.len(), 1);
+    assert!(
+        !info.exports[0].is_public,
+        "Export without @public tag should not be marked as public"
+    );
+}
+
+#[test]
+fn jsdoc_public_partial_word_not_matched() {
+    let info = parse_source(
+        r"/** @publicize this */
+export const qux = 4;",
+    );
+    assert_eq!(info.exports.len(), 1);
+    assert!(
+        !info.exports[0].is_public,
+        "@publicize should not match @public (it's followed by an ident char)"
+    );
+}
+
+#[test]
+fn jsdoc_public_on_function_export() {
+    let info = parse_source(
+        r"/** @public */
+export function myFunc() { return 1; }",
+    );
+    let f = info
+        .exports
+        .iter()
+        .find(|e| matches!(&e.name, ExportName::Named(n) if n == "myFunc"));
+    assert!(f.is_some());
+    assert!(
+        f.unwrap().is_public,
+        "Function export with @public should be marked as public"
+    );
+}
+
+#[test]
+fn jsdoc_public_on_class_export() {
+    let info = parse_source(
+        r"/** @public */
+export class MyClass { doWork() {} }",
+    );
+    let c = info
+        .exports
+        .iter()
+        .find(|e| matches!(&e.name, ExportName::Named(n) if n == "MyClass"));
+    assert!(c.is_some());
+    assert!(c.unwrap().is_public);
+}
+
+#[test]
+fn export_without_jsdoc_not_public() {
+    let info = parse_source("export const plain = 42;");
+    assert_eq!(info.exports.len(), 1);
+    assert!(!info.exports[0].is_public);
+}
+
+// ── Unused import bindings: additional coverage ──────────────
+
+#[test]
+fn unused_import_mixed_used_and_unused() {
+    let info = parse_source("import { used, unused } from './mod';\nconsole.log(used);");
+    assert!(
+        info.unused_import_bindings.contains(&"unused".to_string()),
+        "Unused import binding 'unused' should be detected"
+    );
+    assert!(
+        !info.unused_import_bindings.contains(&"used".to_string()),
+        "Used import binding 'used' should not be in unused list"
+    );
+}
+
+#[test]
+fn all_imports_used_empty_unused_list() {
+    let info = parse_source("import { a, b } from './mod';\nconsole.log(a, b);");
+    assert!(
+        info.unused_import_bindings.is_empty(),
+        "All imports used — no unused bindings expected"
+    );
+}
+
+#[test]
+fn side_effect_import_no_unused_bindings() {
+    let info = parse_source("import './styles.css';");
+    assert!(info.unused_import_bindings.is_empty());
+}
+
+#[test]
+fn unused_default_import_in_unused_list() {
+    let info = parse_source("import React from 'react';\nexport const x = 1;");
+    assert!(
+        info.unused_import_bindings.contains(&"React".to_string()),
+        "Unused default import 'React' should be detected"
+    );
+}
+
+// ── JSX retry logic ─────────────────────────────────────────
+
+#[test]
+fn jsx_in_js_file_retry_extracts_imports() {
+    // Parse as .js file (not .jsx) with JSX content — should retry as JSX
+    let info = parse_source_to_module(
+        FileId(0),
+        Path::new("component.js"),
+        r"import React from 'react';
+import { Button } from './Button';
+
+const App = () => <Button>Hello</Button>;
+export default App;",
+        0,
+    );
+    assert!(
+        info.imports.iter().any(|i| i.source == "react"),
+        "JSX retry should extract imports from JSX in .js file"
+    );
+    assert!(
+        info.imports.iter().any(|i| i.source == "./Button"),
+        "JSX retry should extract all imports"
+    );
+}
+
+// ── Line offsets populated ───────────────────────────────────
+
+#[test]
+fn line_offsets_populated_for_ts_file() {
+    let info = parse_source("const a = 1;\nconst b = 2;\nconst c = 3;\n");
+    assert!(
+        !info.line_offsets.is_empty(),
+        "Line offsets should be populated after parsing"
+    );
+    assert_eq!(info.line_offsets[0], 0, "First line starts at byte 0");
+}
+
+// ── Complexity metrics populated ─────────────────────────────
+
+#[test]
+fn complexity_metrics_populated_for_functions() {
+    let info = parse_source(
+        r"export function complex(x: number) {
+            if (x > 0) {
+                for (let i = 0; i < x; i++) {
+                    if (x > 5) { return true; }
+                }
+            }
+            return false;
+        }",
+    );
+    assert!(
+        !info.complexity.is_empty(),
+        "Complexity metrics should be populated"
+    );
+    let f = info.complexity.iter().find(|c| c.name == "complex");
+    assert!(f.is_some());
+    assert!(f.unwrap().cyclomatic > 1);
+}
+
+// ── Function overload deduplication ──────────────────────────
+
+#[test]
+fn function_overload_deduplication() {
+    let info = parse_source(
+        r"export function foo(x: string): string;
+export function foo(x: number): number;
+export function foo(x: string | number): string | number {
+    return x;
+}",
+    );
+    // Should deduplicate to single export
+    let foo_count = info
+        .exports
+        .iter()
+        .filter(|e| matches!(&e.name, ExportName::Named(n) if n == "foo"))
+        .count();
+    assert_eq!(
+        foo_count, 1,
+        "Overloaded function should produce a single export entry"
+    );
+}
+
 // ── Class with mixed accessibility and decorators ───────────
 
 #[test]

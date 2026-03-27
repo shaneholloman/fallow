@@ -201,4 +201,148 @@ mod tests {
         assert_eq!(suppressions[0].line, 0);
         assert!(suppressions[0].kind.is_none());
     }
+
+    // ── Additional coverage ─────────────────────────────────────
+
+    #[test]
+    fn parse_block_comment_next_line_suppression() {
+        let source = "/* fallow-ignore-next-line unused-export */\nexport const foo = 1;\n";
+        let suppressions = parse_suppressions_from_source(source);
+        assert_eq!(suppressions.len(), 1);
+        assert_eq!(suppressions[0].line, 2);
+        assert_eq!(suppressions[0].kind, Some(IssueKind::UnusedExport));
+    }
+
+    #[test]
+    fn parse_multiple_suppressions_on_adjacent_lines() {
+        let source = "// fallow-ignore-next-line unused-export\n// fallow-ignore-next-line unused-type\nexport const foo = 1;\nexport type Bar = string;\n";
+        let suppressions = parse_suppressions_from_source(source);
+        assert_eq!(suppressions.len(), 2);
+        assert_eq!(suppressions[0].line, 2);
+        assert_eq!(suppressions[0].kind, Some(IssueKind::UnusedExport));
+        assert_eq!(suppressions[1].line, 3);
+        assert_eq!(suppressions[1].kind, Some(IssueKind::UnusedType));
+    }
+
+    #[test]
+    fn parse_file_wide_and_next_line_combined() {
+        let source = "// fallow-ignore-file unused-file\n// fallow-ignore-next-line unused-export\nexport const foo = 1;\n";
+        let suppressions = parse_suppressions_from_source(source);
+        assert_eq!(suppressions.len(), 2);
+        assert_eq!(suppressions[0].line, 0);
+        assert_eq!(suppressions[0].kind, Some(IssueKind::UnusedFile));
+        assert_eq!(suppressions[1].line, 3);
+        assert_eq!(suppressions[1].kind, Some(IssueKind::UnusedExport));
+    }
+
+    #[test]
+    fn parse_suppression_all_issue_kinds() {
+        let kinds = [
+            ("unused-file", IssueKind::UnusedFile),
+            ("unused-export", IssueKind::UnusedExport),
+            ("unused-type", IssueKind::UnusedType),
+            ("unused-dependency", IssueKind::UnusedDependency),
+            ("unused-dev-dependency", IssueKind::UnusedDevDependency),
+            ("unused-enum-member", IssueKind::UnusedEnumMember),
+            ("unused-class-member", IssueKind::UnusedClassMember),
+            ("unresolved-import", IssueKind::UnresolvedImport),
+            ("unlisted-dependency", IssueKind::UnlistedDependency),
+            ("duplicate-export", IssueKind::DuplicateExport),
+            ("code-duplication", IssueKind::CodeDuplication),
+            ("circular-dependency", IssueKind::CircularDependency),
+        ];
+        for (token, expected_kind) in &kinds {
+            let source = format!("// fallow-ignore-file {token}\nexport const foo = 1;\n");
+            let suppressions = parse_suppressions_from_source(&source);
+            assert_eq!(suppressions.len(), 1, "Expected 1 suppression for {token}");
+            assert_eq!(suppressions[0].kind, Some(*expected_kind));
+        }
+    }
+
+    #[test]
+    fn parse_block_comment_with_whitespace() {
+        let source = "/*  fallow-ignore-file  */\nexport const foo = 1;\n";
+        let suppressions = parse_suppressions_from_source(source);
+        assert_eq!(suppressions.len(), 1);
+        assert_eq!(suppressions[0].line, 0);
+        assert!(suppressions[0].kind.is_none());
+    }
+
+    #[test]
+    fn parse_empty_source_no_suppressions() {
+        let suppressions = parse_suppressions_from_source("");
+        assert!(suppressions.is_empty());
+    }
+
+    #[test]
+    fn parse_no_suppression_comments() {
+        let source = "// regular comment\nexport const foo = 1;\n";
+        let suppressions = parse_suppressions_from_source(source);
+        assert!(suppressions.is_empty());
+    }
+
+    #[test]
+    fn parse_suppression_not_at_line_start_ignored() {
+        // Inline comments that don't start the line are not parsed
+        let source = "export const foo = 1; // fallow-ignore-file\n";
+        let suppressions = parse_suppressions_from_source(source);
+        assert!(
+            suppressions.is_empty(),
+            "Inline comment after code should not be parsed as suppression"
+        );
+    }
+
+    #[test]
+    fn parse_block_comment_without_closing_ignored() {
+        // A block comment that doesn't end with */ should not be parsed
+        let source = "/* fallow-ignore-file\nexport const foo = 1;\n";
+        let suppressions = parse_suppressions_from_source(source);
+        assert!(suppressions.is_empty());
+    }
+
+    #[test]
+    fn byte_offset_to_line_first_byte() {
+        assert_eq!(byte_offset_to_line("abc\ndef\n", 0), 1);
+    }
+
+    #[test]
+    fn byte_offset_to_line_second_line() {
+        assert_eq!(byte_offset_to_line("abc\ndef\n", 4), 2);
+    }
+
+    #[test]
+    fn byte_offset_to_line_beyond_source() {
+        // Offset beyond source length should be clamped
+        assert_eq!(byte_offset_to_line("abc\n", 100), 2);
+    }
+
+    #[test]
+    fn parse_oxc_block_comment_suppression() {
+        use oxc_allocator::Allocator;
+        use oxc_parser::Parser;
+        use oxc_span::SourceType;
+
+        let source = "/* fallow-ignore-file unused-file */\nexport const foo = 1;\n";
+        let allocator = Allocator::default();
+        let parser_return = Parser::new(&allocator, source, SourceType::mjs()).parse();
+
+        let suppressions = parse_suppressions(&parser_return.program.comments, source);
+        assert_eq!(suppressions.len(), 1);
+        assert_eq!(suppressions[0].line, 0);
+        assert_eq!(suppressions[0].kind, Some(IssueKind::UnusedFile));
+    }
+
+    #[test]
+    fn parse_oxc_unknown_kind_ignored() {
+        use oxc_allocator::Allocator;
+        use oxc_parser::Parser;
+        use oxc_span::SourceType;
+
+        let source = "// fallow-ignore-next-line nonexistent-kind\nexport const foo = 1;\n";
+        let allocator = Allocator::default();
+        let parser_return = Parser::new(&allocator, source, SourceType::mjs()).parse();
+
+        let suppressions = parse_suppressions(&parser_return.program.comments, source);
+        assert!(suppressions.is_empty());
+    }
 }

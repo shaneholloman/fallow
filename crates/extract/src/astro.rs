@@ -192,4 +192,77 @@ mod tests {
         assert!(body.contains("interface Props"));
         assert!(body.contains("Astro.props"));
     }
+
+    // ── Additional coverage ─────────────────────────────────────
+
+    #[test]
+    fn frontmatter_with_multiline_imports() {
+        let source = "---\nimport {\n  Component,\n  Fragment\n} from 'react';\n---\n<Component />";
+        let script = extract_astro_frontmatter(source).unwrap();
+        assert!(script.body.contains("Component"));
+        assert!(script.body.contains("Fragment"));
+    }
+
+    #[test]
+    fn frontmatter_not_at_start_returns_none() {
+        // --- not at the start of the file
+        let source = "<div />\n---\nconst x = 1;\n---\n";
+        assert!(extract_astro_frontmatter(source).is_none());
+    }
+
+    #[test]
+    fn frontmatter_dashes_in_body_not_confused() {
+        // Triple dashes inside the frontmatter body (as part of a comment or string)
+        let source = "---\nconst x = '---';\nconst y = 2;\n---\n<div />";
+        let script = extract_astro_frontmatter(source);
+        assert!(script.is_some());
+        // The body should end at the first --- after the opening, which is inside the string
+        // Actually the regex is non-greedy, so it finds the first `\n---`
+        let body = script.unwrap().body;
+        assert!(body.contains("const x = '---';"));
+    }
+
+    #[test]
+    fn parse_astro_to_module_no_frontmatter() {
+        let info = parse_astro_to_module(FileId(0), "<div>Hello</div>", 42);
+        assert!(info.imports.is_empty());
+        assert!(info.exports.is_empty());
+        assert_eq!(info.content_hash, 42);
+        assert_eq!(info.file_id, FileId(0));
+    }
+
+    #[test]
+    fn parse_astro_to_module_with_imports() {
+        let source = "---\nimport { ref } from 'vue';\nconst x = ref(0);\n---\n<div />";
+        let info = parse_astro_to_module(FileId(1), source, 99);
+        assert_eq!(info.imports.len(), 1);
+        assert_eq!(info.imports[0].source, "vue");
+        assert_eq!(info.file_id, FileId(1));
+        assert_eq!(info.content_hash, 99);
+    }
+
+    #[test]
+    fn parse_astro_to_module_has_line_offsets() {
+        let source = "---\nconst x = 1;\n---\n<div />";
+        let info = parse_astro_to_module(FileId(0), source, 0);
+        assert!(!info.line_offsets.is_empty());
+    }
+
+    #[test]
+    fn parse_astro_to_module_has_suppressions() {
+        let source = "---\n// fallow-ignore-file\nconst x = 1;\n---\n<div />";
+        let info = parse_astro_to_module(FileId(0), source, 0);
+        assert!(!info.suppressions.is_empty());
+        assert_eq!(info.suppressions[0].line, 0);
+    }
+
+    #[test]
+    fn is_astro_file_rejects_svelte() {
+        assert!(!is_astro_file(Path::new("Component.svelte")));
+    }
+
+    #[test]
+    fn is_astro_file_rejects_no_extension() {
+        assert!(!is_astro_file(Path::new("Makefile")));
+    }
 }

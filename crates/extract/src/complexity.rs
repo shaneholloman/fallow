@@ -859,4 +859,187 @@ mod tests {
         let f = find_fn(&results, "myFn");
         assert_eq!(f.cyclomatic, 2);
     }
+
+    // ── Additional coverage ─────────────────────────────────────
+
+    #[test]
+    fn catch_cognitive_with_nesting() {
+        let results = analyze("function foo() { if (true) { try { } catch (e) { } } }");
+        let f = find_fn(&results, "foo");
+        // if: +1 (n=0), catch: +1+1 (n=1) = 3
+        assert_eq!(f.cognitive, 3);
+    }
+
+    #[test]
+    fn do_while_cognitive_with_nesting() {
+        let results = analyze("function foo() { if (true) { do { } while (true); } }");
+        let f = find_fn(&results, "foo");
+        // if: +1 (n=0), do-while: +1+1 (n=1) = 3
+        assert_eq!(f.cognitive, 3);
+    }
+
+    #[test]
+    fn while_cognitive_with_nesting() {
+        let results = analyze("function foo() { if (true) { while (true) { break; } } }");
+        let f = find_fn(&results, "foo");
+        // if: +1 (n=0), while: +1+1 (n=1) = 3
+        assert_eq!(f.cognitive, 3);
+    }
+
+    #[test]
+    fn ternary_cognitive_with_nesting() {
+        let results = analyze("function foo(x) { if (x) { return x ? 1 : 0; } }");
+        let f = find_fn(&results, "foo");
+        // if: +1 (n=0), ternary: +1+1 (n=1) = 3
+        assert_eq!(f.cognitive, 3);
+    }
+
+    #[test]
+    fn continue_with_label_cognitive() {
+        let results =
+            analyze("function foo() { outer: for (let i = 0; i < 10; i++) { continue outer; } }");
+        let f = find_fn(&results, "foo");
+        // for: +1 cognitive, continue label: +1 flat = at least 2
+        assert!(f.cognitive >= 2);
+    }
+
+    #[test]
+    fn class_property_arrow_named() {
+        let results = analyze("class Foo { bar = (x: number) => x > 0 ? 1 : 0; }");
+        let f = find_fn(&results, "bar");
+        assert_eq!(f.cyclomatic, 2); // 1 + ternary
+    }
+
+    #[test]
+    fn nested_arrow_functions_independent_complexity() {
+        let results = analyze(
+            r"const outer = (x) => {
+                if (x) {
+                    const inner = (y) => {
+                        if (y) { return 1; }
+                        return 0;
+                    };
+                    return inner(x);
+                }
+                return 0;
+            };",
+        );
+        let outer = find_fn(&results, "outer");
+        let inner = find_fn(&results, "inner");
+        // outer: 1 base + 1 if = 2
+        assert_eq!(outer.cyclomatic, 2);
+        // inner: 1 base + 1 if = 2
+        assert_eq!(inner.cyclomatic, 2);
+    }
+
+    #[test]
+    fn method_definition_named() {
+        let results = analyze("class Foo { doWork(x) { if (x) { return 1; } return 0; } }");
+        let f = find_fn(&results, "doWork");
+        assert_eq!(f.cyclomatic, 2);
+    }
+
+    #[test]
+    fn logical_nullish_cognitive() {
+        let results = analyze("function foo(a, b) { return a ?? b; }");
+        let f = find_fn(&results, "foo");
+        // ?? is a logical operator: +1 cognitive
+        assert_eq!(f.cognitive, 1);
+    }
+
+    #[test]
+    fn mixed_logical_operators_cognitive() {
+        let results = analyze("function foo(a, b, c, d) { return a && b || c ?? d; }");
+        let f = find_fn(&results, "foo");
+        // && -> +1, || -> +1 (change), ?? -> +1 (change) = 3
+        assert_eq!(f.cognitive, 3);
+    }
+
+    #[test]
+    fn saturating_add_prevents_overflow() {
+        // This tests that the saturating_add calls don't panic.
+        // Just a very deeply nested structure that would be extreme.
+        let mut source = "function foo() {".to_string();
+        for _ in 0..20 {
+            source.push_str("if (true) {");
+        }
+        for _ in 0..20 {
+            source.push('}');
+        }
+        source.push('}');
+        let results = analyze(&source);
+        assert!(!results.is_empty());
+    }
+
+    #[test]
+    fn empty_source_no_functions() {
+        let results = analyze("");
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn top_level_code_not_reported() {
+        // Top-level if statements should not produce function-level results
+        let results = analyze("if (true) { console.log('hello'); }");
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn for_in_cognitive_with_nesting() {
+        let results = analyze("function foo(obj) { for (const k in obj) { if (k) {} } }");
+        let f = find_fn(&results, "foo");
+        // for-in: +1 (n=0), if: +1+1 (n=1) = 3
+        assert_eq!(f.cognitive, 3);
+    }
+
+    #[test]
+    fn for_of_cognitive_with_nesting() {
+        let results = analyze("function foo(arr) { for (const x of arr) { if (x) {} } }");
+        let f = find_fn(&results, "foo");
+        // for-of: +1 (n=0), if: +1+1 (n=1) = 3
+        assert_eq!(f.cognitive, 3);
+    }
+
+    #[test]
+    fn optional_call_expression_cyclomatic() {
+        // obj?.method() — the ?. is on the member access, not the call
+        // The chain expression wraps a CallExpression whose inner member is optional
+        let results = analyze("function foo(obj) { return obj?.method(); }");
+        let f = find_fn(&results, "foo");
+        assert!(f.cyclomatic >= 1); // at least base complexity
+        assert_eq!(f.cognitive, 0); // optional chaining not cognitive
+    }
+
+    #[test]
+    fn logical_assignment_not_cognitive() {
+        // Logical assignments increment cyclomatic but not cognitive
+        let results = analyze("function foo(a) { a &&= true; }");
+        let f = find_fn(&results, "foo");
+        assert_eq!(f.cyclomatic, 2); // 1 + &&=
+    }
+
+    #[test]
+    fn multiple_switch_cases_cyclomatic() {
+        let results = analyze(
+            "function foo(x) { switch (x) { case 1: break; case 2: break; case 3: break; default: break; } }",
+        );
+        let f = find_fn(&results, "foo");
+        // 1 + 3 cases (default doesn't count)
+        assert_eq!(f.cyclomatic, 4);
+    }
+
+    #[test]
+    fn switch_nested_in_if_cognitive() {
+        let results = analyze("function foo(x, y) { if (x) { switch (y) { case 1: break; } } }");
+        let f = find_fn(&results, "foo");
+        // if: +1 (n=0), switch: +1+1 (n=1) = 3
+        assert_eq!(f.cognitive, 3);
+    }
+
+    #[test]
+    fn line_and_col_computed_correctly() {
+        let results = analyze("\n\nfunction foo() {\n  if (true) {}\n}\n");
+        let f = find_fn(&results, "foo");
+        assert_eq!(f.line, 3); // function starts on line 3
+    }
 }

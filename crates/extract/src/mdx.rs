@@ -284,4 +284,67 @@ mod tests {
         // Only 2 lines total
         assert_eq!(result.lines().count(), 2);
     }
+
+    // ── Additional multi-line termination patterns ────────────────
+
+    #[test]
+    fn multiline_import_terminated_by_semicolon() {
+        let source = "import {\n  Foo,\n  Bar\n};\n\n# Content\n";
+        let result = extract_mdx_statements(source);
+        assert!(result.contains("Foo"));
+        assert!(result.contains("Bar"));
+    }
+
+    #[test]
+    fn multiline_import_terminated_by_from_no_space_single_quote() {
+        let source = "import {\n  Foo\n} from'./module'\n\n# Content\n";
+        let result = extract_mdx_statements(source);
+        assert!(result.contains("Foo"));
+        assert!(result.contains("from'./module'"));
+    }
+
+    #[test]
+    fn multiline_import_terminated_by_from_no_space_double_quote() {
+        let source = "import {\n  Foo\n} from\"./module\"\n\n# Content\n";
+        let result = extract_mdx_statements(source);
+        assert!(result.contains("Foo"));
+        assert!(result.contains("from\"./module\""));
+    }
+
+    #[test]
+    fn multiline_export_with_braces() {
+        let source = "export {\n  Foo,\n  Bar\n} from './module'\n\n# Content\n";
+        let result = extract_mdx_statements(source);
+        assert!(result.contains("Foo"));
+        assert!(result.contains("Bar"));
+        assert!(result.contains("from './module'"));
+    }
+
+    #[test]
+    fn import_with_from_on_same_line_not_multiline() {
+        // When 'from' is on the same line, braces don't trigger multiline mode
+        let source = "import { A } from './a'\nimport { B } from './b'\n";
+        let result = extract_mdx_statements(source);
+        assert_eq!(result.lines().count(), 2);
+    }
+
+    // ── parse_mdx_to_module edge cases ───────────────────────────
+
+    #[test]
+    fn mdx_empty_source_returns_empty_module() {
+        let info = parse_mdx_to_module(fallow_types::discover::FileId(0), "", 0);
+        assert!(info.imports.is_empty());
+        assert!(info.exports.is_empty());
+    }
+
+    #[test]
+    fn mdx_only_prose_returns_empty_module() {
+        let info = parse_mdx_to_module(
+            fallow_types::discover::FileId(0),
+            "# Title\n\nSome text.\n",
+            0,
+        );
+        assert!(info.imports.is_empty());
+        assert!(info.exports.is_empty());
+    }
 }

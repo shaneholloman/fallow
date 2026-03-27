@@ -463,4 +463,94 @@ const count = ref(0);
             "script src should generate a side-effect import"
         );
     }
+
+    // ── Additional coverage ─────────────────────────────────────
+
+    #[test]
+    fn parse_sfc_no_script_returns_empty_module() {
+        let info = parse_sfc_to_module(FileId(0), "<template><div>Hello</div></template>", 42);
+        assert!(info.imports.is_empty());
+        assert!(info.exports.is_empty());
+        assert_eq!(info.content_hash, 42);
+        assert_eq!(info.file_id, FileId(0));
+    }
+
+    #[test]
+    fn parse_sfc_has_line_offsets() {
+        let info = parse_sfc_to_module(FileId(0), r#"<script lang="ts">const x = 1;</script>"#, 0);
+        assert!(!info.line_offsets.is_empty());
+    }
+
+    #[test]
+    fn parse_sfc_has_suppressions() {
+        let info = parse_sfc_to_module(
+            FileId(0),
+            r#"<script lang="ts">
+// fallow-ignore-file
+export const foo = 1;
+</script>"#,
+            0,
+        );
+        assert!(!info.suppressions.is_empty());
+    }
+
+    #[test]
+    fn source_type_jsx_detection() {
+        let scripts = extract_sfc_scripts(r#"<script lang="jsx">const el = <div />;</script>"#);
+        assert_eq!(scripts.len(), 1);
+        assert!(!scripts[0].is_typescript);
+        assert!(scripts[0].is_jsx);
+    }
+
+    #[test]
+    fn source_type_plain_js_detection() {
+        let scripts = extract_sfc_scripts("<script>const x = 1;</script>");
+        assert_eq!(scripts.len(), 1);
+        assert!(!scripts[0].is_typescript);
+        assert!(!scripts[0].is_jsx);
+    }
+
+    #[test]
+    fn is_sfc_file_rejects_no_extension() {
+        assert!(!is_sfc_file(Path::new("Makefile")));
+    }
+
+    #[test]
+    fn is_sfc_file_rejects_mdx() {
+        assert!(!is_sfc_file(Path::new("post.mdx")));
+    }
+
+    #[test]
+    fn is_sfc_file_rejects_css() {
+        assert!(!is_sfc_file(Path::new("styles.css")));
+    }
+
+    #[test]
+    fn multiple_script_blocks_both_have_offsets() {
+        let source = r#"<script lang="ts">const a = 1;</script>
+<script setup lang="ts">const b = 2;</script>"#;
+        let scripts = extract_sfc_scripts(source);
+        assert_eq!(scripts.len(), 2);
+        // Both scripts should have valid byte offsets
+        let offset0 = scripts[0].byte_offset;
+        let offset1 = scripts[1].byte_offset;
+        assert_eq!(
+            &source[offset0..offset0 + "const a = 1;".len()],
+            "const a = 1;"
+        );
+        assert_eq!(
+            &source[offset1..offset1 + "const b = 2;".len()],
+            "const b = 2;"
+        );
+    }
+
+    #[test]
+    fn script_with_src_and_lang() {
+        // src + lang should both be detected
+        let scripts = extract_sfc_scripts(r#"<script src="./logic.ts" lang="tsx"></script>"#);
+        assert_eq!(scripts.len(), 1);
+        assert_eq!(scripts[0].src.as_deref(), Some("./logic.ts"));
+        assert!(scripts[0].is_typescript);
+        assert!(scripts[0].is_jsx);
+    }
 }
