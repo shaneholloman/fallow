@@ -628,13 +628,15 @@ mod tests {
         source_a.unused_files.push(UnusedFile {
             path: "/a.ts".into(),
         });
-        source_a.unresolved_imports.push(fallow_core::results::UnresolvedImport {
-            path: "/a.ts".into(),
-            specifier: "./missing".to_string(),
-            line: 1,
-            col: 0,
-            specifier_col: 10,
-        });
+        source_a
+            .unresolved_imports
+            .push(fallow_core::results::UnresolvedImport {
+                path: "/a.ts".into(),
+                specifier: "./missing".to_string(),
+                line: 1,
+                col: 0,
+                specifier_col: 10,
+            });
 
         let mut source_b = AnalysisResults::default();
         source_b.unused_files.push(UnusedFile {
@@ -663,7 +665,9 @@ mod tests {
         let mut target = AnalysisResults::default();
         let mut source = AnalysisResults::default();
 
-        source.unused_files.push(UnusedFile { path: "/f.ts".into() });
+        source.unused_files.push(UnusedFile {
+            path: "/f.ts".into(),
+        });
         source.unused_exports.push(UnusedExport {
             path: "/f.ts".into(),
             export_name: "e".to_string(),
@@ -716,26 +720,32 @@ mod tests {
             line: 7,
             col: 0,
         });
-        source.unresolved_imports.push(fallow_core::results::UnresolvedImport {
-            path: "/f.ts".into(),
-            specifier: "./gone".to_string(),
-            line: 8,
-            col: 0,
-            specifier_col: 10,
-        });
+        source
+            .unresolved_imports
+            .push(fallow_core::results::UnresolvedImport {
+                path: "/f.ts".into(),
+                specifier: "./gone".to_string(),
+                line: 8,
+                col: 0,
+                specifier_col: 10,
+            });
         source.unlisted_dependencies.push(UnlistedDependency {
             package_name: "unlisted".to_string(),
             imported_from: vec![],
         });
-        source.duplicate_exports.push(fallow_core::results::DuplicateExport {
-            export_name: "dup".to_string(),
-            locations: vec![],
-        });
-        source.type_only_dependencies.push(fallow_core::results::TypeOnlyDependency {
-            package_name: "type-only".to_string(),
-            path: "/pkg.json".into(),
-            line: 9,
-        });
+        source
+            .duplicate_exports
+            .push(fallow_core::results::DuplicateExport {
+                export_name: "dup".to_string(),
+                locations: vec![],
+            });
+        source
+            .type_only_dependencies
+            .push(fallow_core::results::TypeOnlyDependency {
+                package_name: "type-only".to_string(),
+                path: "/pkg.json".into(),
+                line: 9,
+            });
         source.circular_dependencies.push(CircularDependency {
             files: vec!["/a.ts".into(), "/b.ts".into()],
             length: 2,
@@ -763,7 +773,9 @@ mod tests {
     #[test]
     fn merge_results_with_empty_source() {
         let mut target = AnalysisResults::default();
-        target.unused_files.push(UnusedFile { path: "/a.ts".into() });
+        target.unused_files.push(UnusedFile {
+            path: "/a.ts".into(),
+        });
 
         let source = AnalysisResults::default();
         merge_results(&mut target, source);

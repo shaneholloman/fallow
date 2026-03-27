@@ -433,7 +433,10 @@ mod tests {
 
         let uri = Url::from_file_path(&path).unwrap();
         let lenses = build_code_lenses(&results, &path, &uri);
-        assert!(lenses[0].data.is_none(), "Code lens data should be None since resolve_provider is false");
+        assert!(
+            lenses[0].data.is_none(),
+            "Code lens data should be None since resolve_provider is false"
+        );
     }
 
     #[test]

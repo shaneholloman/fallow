@@ -24,8 +24,6 @@ const GENERAL_TOOLING_PREFIXES: &[&str] = &[
     "@playwright/",
     "@storybook/",
     "storybook",
-    "@babel/",
-    "babel-",
     "@react-native-community/cli",
     "@react-native/",
     "secretlint",
@@ -37,7 +35,6 @@ const GENERAL_TOOLING_PREFIXES: &[&str] = &[
     "@lerna-lite/",
     "@changesets/",
     "@graphql-codegen/",
-    "@rollup/",
     "@biomejs/",
     "@electron-forge/",
     "@electron/",
@@ -174,10 +171,12 @@ mod tests {
     }
 
     #[test]
-    fn babel_prefix_matches() {
-        assert!(is_known_tooling_dependency("@babel/core"));
-        assert!(is_known_tooling_dependency("babel-loader"));
-        assert!(is_known_tooling_dependency("babel-jest"));
+    fn babel_not_blanket_matched() {
+        // @babel/ and babel- prefixes removed — handled by BabelPlugin config parsing
+        assert!(!is_known_tooling_dependency("@babel/core"));
+        assert!(!is_known_tooling_dependency("@babel/preset-env"));
+        assert!(!is_known_tooling_dependency("babel-loader"));
+        assert!(!is_known_tooling_dependency("babel-jest"));
     }
 
     #[test]
@@ -306,9 +305,11 @@ mod tests {
     }
 
     #[test]
-    fn rollup_prefix_matches() {
-        assert!(is_known_tooling_dependency("@rollup/plugin-commonjs"));
-        assert!(is_known_tooling_dependency("@rollup/plugin-node-resolve"));
+    fn rollup_not_blanket_matched() {
+        // @rollup/ prefix removed — handled by RollupPlugin config parsing
+        assert!(!is_known_tooling_dependency("@rollup/plugin-commonjs"));
+        assert!(!is_known_tooling_dependency("@rollup/plugin-node-resolve"));
+        assert!(!is_known_tooling_dependency("@rollup/plugin-typescript"));
     }
 
     #[test]

@@ -1071,14 +1071,12 @@ mod tests {
         let file_c = root.join("src/c.ts");
 
         let mut results = AnalysisResults::default();
-        results
-            .circular_dependencies
-            .push(CircularDependency {
-                files: vec![file_a.clone(), file_b.clone(), file_c.clone()],
-                length: 3,
-                line: 2,
-                col: 20,
-            });
+        results.circular_dependencies.push(CircularDependency {
+            files: vec![file_a.clone(), file_b.clone(), file_c.clone()],
+            length: 3,
+            line: 2,
+            col: 20,
+        });
 
         let duplication = empty_duplication();
         let diags = build_diagnostics(&results, &duplication, &root);
@@ -1123,14 +1121,12 @@ mod tests {
         let file_a = root.join("src/self.ts");
 
         let mut results = AnalysisResults::default();
-        results
-            .circular_dependencies
-            .push(CircularDependency {
-                files: vec![file_a.clone()],
-                length: 1,
-                line: 1,
-                col: 0,
-            });
+        results.circular_dependencies.push(CircularDependency {
+            files: vec![file_a.clone()],
+            length: 1,
+            line: 1,
+            col: 0,
+        });
 
         let duplication = empty_duplication();
         let diags = build_diagnostics(&results, &duplication, &root);
@@ -1145,14 +1141,12 @@ mod tests {
     fn circular_dependency_with_empty_files_produces_no_diagnostic() {
         let root = test_root();
         let mut results = AnalysisResults::default();
-        results
-            .circular_dependencies
-            .push(CircularDependency {
-                files: vec![],
-                length: 0,
-                line: 0,
-                col: 0,
-            });
+        results.circular_dependencies.push(CircularDependency {
+            files: vec![],
+            length: 0,
+            line: 0,
+            col: 0,
+        });
 
         let duplication = empty_duplication();
         let diags = build_diagnostics(&results, &duplication, &root);
@@ -1234,9 +1228,7 @@ mod tests {
             span_start: 0,
             is_re_export: false,
         });
-        results.unused_files.push(UnusedFile {
-            path: path.clone(),
-        });
+        results.unused_files.push(UnusedFile { path: path.clone() });
         results.unused_enum_members.push(UnusedMember {
             path: path.clone(),
             parent_name: "E".to_string(),

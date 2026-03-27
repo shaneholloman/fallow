@@ -607,11 +607,7 @@ fn lcp_multiple_sentinels_between_files() {
 
     // Between consecutive ranks, min LCP should be 2.
     for w in ranks.windows(2) {
-        let min_lcp = lcp_arr[(w[0] + 1)..=w[1]]
-            .iter()
-            .copied()
-            .min()
-            .unwrap();
+        let min_lcp = lcp_arr[(w[0] + 1)..=w[1]].iter().copied().min().unwrap();
         assert_eq!(
             min_lcp, 2,
             "LCP between identical sequences across sentinels should be 2"
@@ -683,7 +679,11 @@ fn concat_sentinels_are_unique() {
 
     // All sentinels must be unique.
     let unique: rustc_hash::FxHashSet<i64> = sentinels.iter().copied().collect();
-    assert_eq!(unique.len(), sentinels.len(), "All sentinels must be unique");
+    assert_eq!(
+        unique.len(),
+        sentinels.len(),
+        "All sentinels must be unique"
+    );
 }
 
 #[test]
@@ -693,7 +693,11 @@ fn concat_file_of_maps_correctly() {
 
     for (pos, &fid) in file_of.iter().enumerate() {
         if text[pos] < 0 {
-            assert_eq!(fid, usize::MAX, "Sentinel positions should map to usize::MAX");
+            assert_eq!(
+                fid,
+                usize::MAX,
+                "Sentinel positions should map to usize::MAX"
+            );
         } else if pos < 3 {
             assert_eq!(fid, 0, "Position {pos} should belong to file 0");
         } else {
@@ -708,7 +712,10 @@ fn concat_file_offsets_are_correct() {
     let (_text, _file_of, file_offsets) = concatenation::concatenate_with_sentinels(&files);
 
     assert_eq!(file_offsets[0], 0, "First file starts at 0");
-    assert_eq!(file_offsets[1], 4, "Second file starts after 3 tokens + 1 sentinel");
+    assert_eq!(
+        file_offsets[1], 4,
+        "Second file starts after 3 tokens + 1 sentinel"
+    );
     assert_eq!(file_offsets[2], 9, "Third file starts after 3+1+4+1 = 9");
 }
 
@@ -722,7 +729,10 @@ fn concat_empty_file_in_middle() {
     // text: [1, 2, -1, -2, 3, 4]
     assert_eq!(text.len(), 6);
     // The empty file's offset points to the position right after its sentinel.
-    assert_eq!(file_offsets[1], 3, "Empty file offset is after first sentinel");
+    assert_eq!(
+        file_offsets[1], 3,
+        "Empty file offset is after first sentinel"
+    );
 
     // Verify sentinels.
     assert_eq!(text[2], -1);
@@ -795,7 +805,11 @@ fn extraction_skips_sentinel_positions() {
 
     for group in &groups {
         for &(fid, _offset) in &group.instances {
-            assert_ne!(fid, usize::MAX, "Sentinel positions must not appear in instances");
+            assert_ne!(
+                fid,
+                usize::MAX,
+                "Sentinel positions must not appear in instances"
+            );
         }
     }
 }
@@ -964,7 +978,11 @@ fn rank_reduce_distinct_hashes_get_distinct_ranks() {
     let mut ranks = ranked[0].clone();
     ranks.sort_unstable();
     ranks.dedup();
-    assert_eq!(ranks.len(), 4, "4 distinct hashes should produce 4 distinct ranks");
+    assert_eq!(
+        ranks.len(),
+        4,
+        "4 distinct hashes should produce 4 distinct ranks"
+    );
 }
 
 // ── statistics module tests ─────────────────────────────
@@ -1052,7 +1070,10 @@ fn stats_duplicated_tokens_capped() {
     // 3 instances, token_count=100 -> duplicated = 100 * (3-1) = 200.
     // But total_tokens = 50 -> capped to 50.
     let stats = statistics::compute_stats(&groups, 3, 30, 50);
-    assert_eq!(stats.duplicated_tokens, 50, "duplicated_tokens must be capped to total_tokens");
+    assert_eq!(
+        stats.duplicated_tokens, 50,
+        "duplicated_tokens must be capped to total_tokens"
+    );
 }
 
 #[test]

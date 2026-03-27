@@ -565,7 +565,11 @@ mod tests {
 
     #[test]
     fn default_resolve_config_returns_empty() {
-        let r = MinimalPlugin.resolve_config(Path::new("config.js"), "export default {}", Path::new("/"));
+        let r = MinimalPlugin.resolve_config(
+            Path::new("config.js"),
+            "export default {}",
+            Path::new("/"),
+        );
         assert!(r.is_empty());
     }
 
@@ -596,7 +600,11 @@ mod tests {
     fn all_builtin_plugins_have_enablers() {
         let plugins = registry::builtin::create_builtin_plugins();
         for p in &plugins {
-            assert!(!p.enablers().is_empty(), "plugin '{}' has no enablers", p.name());
+            assert!(
+                !p.enablers().is_empty(),
+                "plugin '{}' has no enablers",
+                p.name()
+            );
         }
     }
 
@@ -628,7 +636,12 @@ mod tests {
         for (plugin, expected_enablers) in cases {
             let enablers = plugin.enablers();
             for expected in expected_enablers {
-                assert!(enablers.contains(expected), "plugin '{}' should have '{}'", plugin.name(), expected);
+                assert!(
+                    enablers.contains(expected),
+                    "plugin '{}' should have '{}'",
+                    plugin.name(),
+                    expected
+                );
             }
         }
     }
@@ -643,7 +656,12 @@ mod tests {
             (&mocha::MochaPlugin, "mocha"),
         ];
         for (plugin, enabler) in cases {
-            assert!(plugin.enablers().contains(&enabler), "plugin '{}' should have '{}'", plugin.name(), enabler);
+            assert!(
+                plugin.enablers().contains(&enabler),
+                "plugin '{}' should have '{}'",
+                plugin.name(),
+                enabler
+            );
         }
     }
 
@@ -655,18 +673,33 @@ mod tests {
             (&rollup::RollupPlugin, "rollup"),
         ];
         for (plugin, enabler) in cases {
-            assert!(plugin.enablers().contains(&enabler), "plugin '{}' should have '{}'", plugin.name(), enabler);
+            assert!(
+                plugin.enablers().contains(&enabler),
+                "plugin '{}' should have '{}'",
+                plugin.name(),
+                enabler
+            );
         }
     }
 
     #[test]
     fn test_plugins_have_test_entry_patterns() {
-        let test_plugins: Vec<&dyn Plugin> = vec![&jest::JestPlugin, &vitest::VitestPlugin, &mocha::MochaPlugin];
+        let test_plugins: Vec<&dyn Plugin> = vec![
+            &jest::JestPlugin,
+            &vitest::VitestPlugin,
+            &mocha::MochaPlugin,
+        ];
         for plugin in test_plugins {
             let patterns = plugin.entry_patterns();
-            assert!(!patterns.is_empty(), "test plugin '{}' should have entry patterns", plugin.name());
             assert!(
-                patterns.iter().any(|p| p.contains("test") || p.contains("spec") || p.contains("__tests__")),
+                !patterns.is_empty(),
+                "test plugin '{}' should have entry patterns",
+                plugin.name()
+            );
+            assert!(
+                patterns
+                    .iter()
+                    .any(|p| p.contains("test") || p.contains("spec") || p.contains("__tests__")),
                 "test plugin '{}' should have test/spec patterns",
                 plugin.name()
             );
@@ -675,36 +708,65 @@ mod tests {
 
     #[test]
     fn framework_plugins_have_entry_patterns() {
-        let plugins: Vec<&dyn Plugin> = vec![&nextjs::NextJsPlugin, &nuxt::NuxtPlugin, &angular::AngularPlugin, &sveltekit::SvelteKitPlugin];
+        let plugins: Vec<&dyn Plugin> = vec![
+            &nextjs::NextJsPlugin,
+            &nuxt::NuxtPlugin,
+            &angular::AngularPlugin,
+            &sveltekit::SvelteKitPlugin,
+        ];
         for plugin in plugins {
-            assert!(!plugin.entry_patterns().is_empty(), "framework plugin '{}' should have entry patterns", plugin.name());
+            assert!(
+                !plugin.entry_patterns().is_empty(),
+                "framework plugin '{}' should have entry patterns",
+                plugin.name()
+            );
         }
     }
 
     #[test]
     fn plugins_with_resolve_config_have_config_patterns() {
         let plugins: Vec<&dyn Plugin> = vec![
-            &jest::JestPlugin, &vitest::VitestPlugin, &babel::BabelPlugin, &eslint::EslintPlugin,
-            &webpack::WebpackPlugin, &storybook::StorybookPlugin, &typescript::TypeScriptPlugin,
-            &postcss::PostCssPlugin, &nextjs::NextJsPlugin, &nuxt::NuxtPlugin, &angular::AngularPlugin,
-            &nx::NxPlugin, &rollup::RollupPlugin, &sveltekit::SvelteKitPlugin,
+            &jest::JestPlugin,
+            &vitest::VitestPlugin,
+            &babel::BabelPlugin,
+            &eslint::EslintPlugin,
+            &webpack::WebpackPlugin,
+            &storybook::StorybookPlugin,
+            &typescript::TypeScriptPlugin,
+            &postcss::PostCssPlugin,
+            &nextjs::NextJsPlugin,
+            &nuxt::NuxtPlugin,
+            &angular::AngularPlugin,
+            &nx::NxPlugin,
+            &rollup::RollupPlugin,
+            &sveltekit::SvelteKitPlugin,
         ];
         for plugin in plugins {
-            assert!(!plugin.config_patterns().is_empty(), "plugin '{}' with resolve_config should have config_patterns", plugin.name());
+            assert!(
+                !plugin.config_patterns().is_empty(),
+                "plugin '{}' with resolve_config should have config_patterns",
+                plugin.name()
+            );
         }
     }
 
     #[test]
     fn plugin_tooling_deps_include_enabler_package() {
         let plugins: Vec<&dyn Plugin> = vec![
-            &jest::JestPlugin, &vitest::VitestPlugin, &webpack::WebpackPlugin,
-            &typescript::TypeScriptPlugin, &eslint::EslintPlugin, &prettier::PrettierPlugin,
+            &jest::JestPlugin,
+            &vitest::VitestPlugin,
+            &webpack::WebpackPlugin,
+            &typescript::TypeScriptPlugin,
+            &eslint::EslintPlugin,
+            &prettier::PrettierPlugin,
         ];
         for plugin in plugins {
             let tooling = plugin.tooling_dependencies();
             let enablers = plugin.enablers();
             assert!(
-                enablers.iter().any(|e| !e.ends_with('/') && tooling.contains(e)),
+                enablers
+                    .iter()
+                    .any(|e| !e.ends_with('/') && tooling.contains(e)),
                 "plugin '{}': at least one non-prefix enabler should be in tooling_dependencies",
                 plugin.name()
             );
@@ -772,6 +834,11 @@ mod tests {
     }
 
     #[test]
+    fn babel_has_package_json_config_key() {
+        assert_eq!(babel::BabelPlugin.package_json_config_key(), Some("babel"));
+    }
+
+    #[test]
     fn macro_generated_plugin_basic_properties() {
         let plugin = msw::MswPlugin;
         assert_eq!(plugin.name(), "msw");
@@ -797,14 +864,30 @@ mod tests {
             import coveragePlugin from '@cypress/code-coverage';
             export default defineConfig({});
         ";
-        let result = plugin.resolve_config(Path::new("cypress.config.ts"), source, Path::new("/project"));
-        assert!(result.referenced_dependencies.contains(&"cypress".to_string()));
-        assert!(result.referenced_dependencies.contains(&"@cypress/code-coverage".to_string()));
+        let result = plugin.resolve_config(
+            Path::new("cypress.config.ts"),
+            source,
+            Path::new("/project"),
+        );
+        assert!(
+            result
+                .referenced_dependencies
+                .contains(&"cypress".to_string())
+        );
+        assert!(
+            result
+                .referenced_dependencies
+                .contains(&"@cypress/code-coverage".to_string())
+        );
     }
 
     #[test]
     fn builtin_plugin_count_is_expected() {
         let plugins = registry::builtin::create_builtin_plugins();
-        assert!(plugins.len() >= 80, "expected at least 80 built-in plugins, got {}", plugins.len());
+        assert!(
+            plugins.len() >= 80,
+            "expected at least 80 built-in plugins, got {}",
+            plugins.len()
+        );
     }
 }

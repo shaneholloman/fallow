@@ -170,7 +170,17 @@ fn analyze_schema_contains_expected_properties() {
     let tools = server.tool_router.list_all();
     let tool = tools.iter().find(|t| t.name == "analyze").unwrap();
     let schema = serde_json::to_string(&tool.input_schema).unwrap();
-    for prop in ["root", "config", "production", "workspace", "issue_types", "baseline", "save_baseline", "no_cache", "threads"] {
+    for prop in [
+        "root",
+        "config",
+        "production",
+        "workspace",
+        "issue_types",
+        "baseline",
+        "save_baseline",
+        "no_cache",
+        "threads",
+    ] {
         assert!(
             schema.contains(prop),
             "analyze schema should contain property '{prop}'"
@@ -184,7 +194,17 @@ fn check_changed_schema_contains_expected_properties() {
     let tools = server.tool_router.list_all();
     let tool = tools.iter().find(|t| t.name == "check_changed").unwrap();
     let schema = serde_json::to_string(&tool.input_schema).unwrap();
-    for prop in ["root", "since", "config", "production", "workspace", "baseline", "save_baseline", "no_cache", "threads"] {
+    for prop in [
+        "root",
+        "since",
+        "config",
+        "production",
+        "workspace",
+        "baseline",
+        "save_baseline",
+        "no_cache",
+        "threads",
+    ] {
         assert!(
             schema.contains(prop),
             "check_changed schema should contain property '{prop}'"
@@ -219,7 +239,22 @@ fn find_dupes_schema_contains_expected_properties() {
     let tools = server.tool_router.list_all();
     let tool = tools.iter().find(|t| t.name == "find_dupes").unwrap();
     let schema = serde_json::to_string(&tool.input_schema).unwrap();
-    for prop in ["root", "config", "workspace", "mode", "min_tokens", "min_lines", "threshold", "skip_local", "cross_language", "top", "baseline", "save_baseline", "no_cache", "threads"] {
+    for prop in [
+        "root",
+        "config",
+        "workspace",
+        "mode",
+        "min_tokens",
+        "min_lines",
+        "threshold",
+        "skip_local",
+        "cross_language",
+        "top",
+        "baseline",
+        "save_baseline",
+        "no_cache",
+        "threads",
+    ] {
         assert!(
             schema.contains(prop),
             "find_dupes schema should contain property '{prop}'"
@@ -233,7 +268,14 @@ fn fix_preview_schema_contains_expected_properties() {
     let tools = server.tool_router.list_all();
     let tool = tools.iter().find(|t| t.name == "fix_preview").unwrap();
     let schema = serde_json::to_string(&tool.input_schema).unwrap();
-    for prop in ["root", "config", "production", "workspace", "no_cache", "threads"] {
+    for prop in [
+        "root",
+        "config",
+        "production",
+        "workspace",
+        "no_cache",
+        "threads",
+    ] {
         assert!(
             schema.contains(prop),
             "fix_preview schema should contain property '{prop}'"
@@ -247,7 +289,14 @@ fn fix_apply_schema_contains_expected_properties() {
     let tools = server.tool_router.list_all();
     let tool = tools.iter().find(|t| t.name == "fix_apply").unwrap();
     let schema = serde_json::to_string(&tool.input_schema).unwrap();
-    for prop in ["root", "config", "production", "workspace", "no_cache", "threads"] {
+    for prop in [
+        "root",
+        "config",
+        "production",
+        "workspace",
+        "no_cache",
+        "threads",
+    ] {
         assert!(
             schema.contains(prop),
             "fix_apply schema should contain property '{prop}'"
@@ -276,10 +325,26 @@ fn check_health_schema_contains_expected_properties() {
     let tool = tools.iter().find(|t| t.name == "check_health").unwrap();
     let schema = serde_json::to_string(&tool.input_schema).unwrap();
     for prop in [
-        "root", "config", "max_cyclomatic", "max_cognitive", "top", "sort",
-        "changed_since", "complexity", "file_scores", "hotspots", "targets",
-        "since", "min_commits", "workspace", "production", "save_snapshot",
-        "baseline", "save_baseline", "no_cache", "threads",
+        "root",
+        "config",
+        "max_cyclomatic",
+        "max_cognitive",
+        "top",
+        "sort",
+        "changed_since",
+        "complexity",
+        "file_scores",
+        "hotspots",
+        "targets",
+        "since",
+        "min_commits",
+        "workspace",
+        "production",
+        "save_snapshot",
+        "baseline",
+        "save_baseline",
+        "no_cache",
+        "threads",
     ] {
         assert!(
             schema.contains(prop),
@@ -312,7 +377,10 @@ fn analyze_description_mentions_unused_code() {
     let tools = server.tool_router.list_all();
     let tool = tools.iter().find(|t| t.name == "analyze").unwrap();
     let desc = tool.description.as_deref().unwrap();
-    assert!(desc.contains("unused"), "analyze description should mention 'unused'");
+    assert!(
+        desc.contains("unused"),
+        "analyze description should mention 'unused'"
+    );
 }
 
 #[test]
@@ -321,7 +389,10 @@ fn find_dupes_description_mentions_duplication() {
     let tools = server.tool_router.list_all();
     let tool = tools.iter().find(|t| t.name == "find_dupes").unwrap();
     let desc = tool.description.as_deref().unwrap();
-    assert!(desc.contains("duplic"), "find_dupes description should mention duplication");
+    assert!(
+        desc.contains("duplic"),
+        "find_dupes description should mention duplication"
+    );
 }
 
 #[test]
@@ -330,7 +401,10 @@ fn check_health_description_mentions_complexity() {
     let tools = server.tool_router.list_all();
     let tool = tools.iter().find(|t| t.name == "check_health").unwrap();
     let desc = tool.description.as_deref().unwrap();
-    assert!(desc.contains("complexity"), "check_health description should mention 'complexity'");
+    assert!(
+        desc.contains("complexity"),
+        "check_health description should mention 'complexity'"
+    );
 }
 
 #[test]

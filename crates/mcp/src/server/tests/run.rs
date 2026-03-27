@@ -167,12 +167,9 @@ fn resolve_binary_behavior() {
 #[tokio::test]
 async fn run_fallow_killed_by_signal_returns_error_with_negative_code() {
     // `kill -9 $$` kills the shell itself, producing exit code None (signal)
-    let result = run_fallow(
-        "/bin/sh",
-        &["-c".to_string(), "kill -9 $$".to_string()],
-    )
-    .await
-    .unwrap();
+    let result = run_fallow("/bin/sh", &["-c".to_string(), "kill -9 $$".to_string()])
+        .await
+        .unwrap();
     assert_eq!(result.is_error, Some(true));
     let text = extract_text(&result);
     // On signal kill, exit code is None → unwrap_or(-1) → "exited with code -1"
@@ -298,7 +295,10 @@ async fn run_fallow_missing_binary_error_includes_install_hint() {
 async fn run_fallow_unicode_in_stdout() {
     let result = run_fallow(
         "/bin/sh",
-        &["-c".to_string(), "echo '{\"file\":\"ソース/コード.ts\"}'".to_string()],
+        &[
+            "-c".to_string(),
+            "echo '{\"file\":\"ソース/コード.ts\"}'".to_string(),
+        ],
     )
     .await
     .unwrap();

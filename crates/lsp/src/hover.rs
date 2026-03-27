@@ -988,7 +988,11 @@ mod tests {
         match &hover.contents {
             HoverContents::Markup(m) => {
                 // Should end with "." when no locations are listed
-                assert!(m.value.ends_with('.'), "Expected message to end with period, got: {}", m.value);
+                assert!(
+                    m.value.ends_with('.'),
+                    "Expected message to end with period, got: {}",
+                    m.value
+                );
                 assert!(m.value.contains("3 files"));
                 assert!(!m.value.contains('\n'));
             }

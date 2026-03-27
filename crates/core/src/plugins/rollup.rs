@@ -16,16 +16,7 @@ const CONFIG_PATTERNS: &[&str] = &["rollup.config.{js,ts,mjs,cjs}"];
 
 const ALWAYS_USED: &[&str] = &["rollup.config.{js,ts,mjs,cjs}"];
 
-const TOOLING_DEPENDENCIES: &[&str] = &[
-    "rollup",
-    "@rollup/plugin-node-resolve",
-    "@rollup/plugin-commonjs",
-    "@rollup/plugin-typescript",
-    "@rollup/plugin-babel",
-    "@rollup/plugin-terser",
-    "@rollup/plugin-json",
-    "rollup-plugin-dts",
-];
+const TOOLING_DEPENDENCIES: &[&str] = &["rollup"];
 
 impl Plugin for RollupPlugin {
     fn name(&self) -> &'static str {

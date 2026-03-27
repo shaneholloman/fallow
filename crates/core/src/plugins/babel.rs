@@ -25,17 +25,7 @@ const ALWAYS_USED: &[&str] = &[
     ".babelrc.{js,cjs,mjs,json}",
 ];
 
-const TOOLING_DEPENDENCIES: &[&str] = &[
-    "@babel/core",
-    "@babel/cli",
-    "@babel/preset-env",
-    "@babel/preset-react",
-    "@babel/preset-typescript",
-    "@babel/plugin-transform-runtime",
-    "@babel/runtime",
-    "babel-loader",
-    "babel-jest",
-];
+const TOOLING_DEPENDENCIES: &[&str] = &["@babel/core", "@babel/cli", "@babel/runtime"];
 
 impl Plugin for BabelPlugin {
     fn name(&self) -> &'static str {
@@ -56,6 +46,10 @@ impl Plugin for BabelPlugin {
 
     fn tooling_dependencies(&self) -> &'static [&'static str] {
         TOOLING_DEPENDENCIES
+    }
+
+    fn package_json_config_key(&self) -> Option<&'static str> {
+        Some("babel")
     }
 
     fn resolve_config(&self, config_path: &Path, source: &str, _root: &Path) -> PluginResult {
