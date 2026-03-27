@@ -23,7 +23,11 @@
 #
 # Features:
 #   - Inline MR annotations via GitLab Code Quality reports (CodeClimate format)
-#   - Optional MR comments with summary table (set FALLOW_COMMENT: "true")
+#   - Rich MR summary comments with collapsible sections (set FALLOW_COMMENT: "true")
+#   - Inline MR review discussions with suggestion blocks (set FALLOW_REVIEW: "true")
+#   - Comment merging: groups unused exports per file, deduplicates clones
+#   - Automatic cleanup of previous fallow comments on re-runs
+#   - Auto --changed-since in MR context (scopes to changed files)
 #   - Incremental caching of parse results
 #   - All fallow commands: dead-code, dupes, health, fix
 #   - Configurable failure thresholds
@@ -43,11 +47,12 @@
 #       FALLOW_COMMAND: "dupes"
 #       FALLOW_FAIL_ON_ISSUES: "false"
 #
-#   # Full analysis with MR comment
+#   # Full analysis with rich MR comments and inline review
 #   fallow:
 #     extends: .fallow
 #     variables:
 #       FALLOW_COMMENT: "true"
+#       FALLOW_REVIEW: "true"
 #
 #   # Incremental: only report issues in changed files
 #   fallow:
@@ -68,11 +73,20 @@ variables:
   FALLOW_PRODUCTION: "false"
   FALLOW_FAIL_ON_ISSUES: "true"
   FALLOW_ARGS: ""               # Extra CLI arguments (space-separated)
-  FALLOW_COMMENT: "false"       # Post results as MR comment (needs GITLAB_TOKEN or CI_JOB_TOKEN with api scope)
+  FALLOW_COMMENT: "false"       # Post results as MR summary comment
+  FALLOW_REVIEW: "false"        # Post inline MR discussions with rich comments and suggestions
   FALLOW_CODEQUALITY: "true"    # Generate GitLab Code Quality report (inline MR annotations)
+  FALLOW_MAX_COMMENTS: "50"     # Maximum number of inline review comments
+
+  # MR integration auth — uses GITLAB_TOKEN (PAT) or CI_JOB_TOKEN
+  # GITLAB_TOKEN (PAT with api scope) is recommended for full features:
+  #   - Inline MR discussions with suggestion blocks
+  #   - Cleanup of previous fallow comments on re-runs
+  # CI_JOB_TOKEN works for posting comments but cannot delete comments from
+  # previous pipeline runs (each run has a different identity).
 
   # Diff-based filtering
-  FALLOW_CHANGED_SINCE: ""      # Git ref for incremental analysis
+  FALLOW_CHANGED_SINCE: ""      # Git ref for incremental analysis (auto-set in MR context)
   FALLOW_BASELINE: ""
   FALLOW_SAVE_BASELINE: ""
 
@@ -114,6 +128,9 @@ variables:
   FALLOW_ONLY: ""               # Comma-separated: check,dupes,health
   FALLOW_SKIP: ""
 
+  # Advanced: pin scripts to a specific ref (branch, tag, or commit)
+  FALLOW_SCRIPTS_REF: "main"
+
 # ---------------------------------------------------------------------------
 # Template job — extend this in your pipeline
 # ---------------------------------------------------------------------------
@@ -149,6 +166,54 @@ variables:
         npm install -g "fallow@${FALLOW_VERSION}" || { echo "ERROR: Failed to install fallow@${FALLOW_VERSION}"; exit 2; }
       fi
       echo "Installed fallow $(fallow --version 2>/dev/null || echo 'unknown')"
+    # Download jq scripts and bash scripts for MR integration
+    - |
+      if ! echo "$FALLOW_SCRIPTS_REF" | grep -qE '^[a-zA-Z0-9._/-]+$'; then
+        echo "ERROR: Invalid FALLOW_SCRIPTS_REF: ${FALLOW_SCRIPTS_REF}"; exit 2
+      fi
+      FALLOW_SCRIPTS_BASE="https://raw.githubusercontent.com/fallow-rs/fallow/${FALLOW_SCRIPTS_REF}"
+      export FALLOW_JQ_DIR="/tmp/fallow-jq"
+      export FALLOW_SHARED_JQ_DIR="/tmp/fallow-shared-jq"
+      FALLOW_SCRIPTS_DIR="/tmp/fallow-scripts"
+      mkdir -p "$FALLOW_JQ_DIR" "$FALLOW_SHARED_JQ_DIR" "$FALLOW_SCRIPTS_DIR"
+
+      if [ "$FALLOW_COMMENT" = "true" ] || [ "$FALLOW_REVIEW" = "true" ]; then
+        echo "Downloading MR integration scripts..."
+
+        DOWNLOAD_FAILURES=0
+
+        # GitLab-specific jq scripts
+        for f in summary-check.jq summary-health.jq summary-combined.jq review-comments-dupes.jq; do
+          curl -sf "${FALLOW_SCRIPTS_BASE}/ci/jq/${f}" -o "${FALLOW_JQ_DIR}/${f}" 2>/dev/null || {
+            echo "  WARNING: Failed to download ci/jq/${f}"
+            DOWNLOAD_FAILURES=$((DOWNLOAD_FAILURES + 1))
+          }
+        done
+
+        # Shared (platform-agnostic) jq scripts from action/jq/
+        for f in summary-dupes.jq summary-fix.jq review-comments-check.jq review-comments-health.jq review-body.jq merge-comments.jq; do
+          curl -sf "${FALLOW_SCRIPTS_BASE}/action/jq/${f}" -o "${FALLOW_SHARED_JQ_DIR}/${f}" 2>/dev/null || {
+            echo "  WARNING: Failed to download action/jq/${f}"
+            DOWNLOAD_FAILURES=$((DOWNLOAD_FAILURES + 1))
+          }
+        done
+
+        # GitLab bash scripts
+        for f in comment.sh review.sh; do
+          if curl -sf "${FALLOW_SCRIPTS_BASE}/ci/scripts/${f}" -o "${FALLOW_SCRIPTS_DIR}/${f}" 2>/dev/null; then
+            chmod +x "${FALLOW_SCRIPTS_DIR}/${f}"
+          else
+            echo "  WARNING: Failed to download ci/scripts/${f}"
+            DOWNLOAD_FAILURES=$((DOWNLOAD_FAILURES + 1))
+          fi
+        done
+
+        if [ "$DOWNLOAD_FAILURES" -gt 0 ]; then
+          echo "WARNING: ${DOWNLOAD_FAILURES} script(s) failed to download — MR comments/review may be limited"
+        else
+          echo "Scripts downloaded"
+        fi
+      fi
     # Write the analysis script (heredoc avoids quoting issues)
     - |
       cat > /tmp/fallow-run.sh << 'FALLOW_SCRIPT_EOF'
@@ -171,6 +236,14 @@ variables:
       done
       if [ -n "$FALLOW_THRESHOLD" ] && ! echo "$FALLOW_THRESHOLD" | grep -qE '^[0-9]+\.?[0-9]*$'; then
         echo "ERROR: threshold must be a number, got: ${FALLOW_THRESHOLD}"; exit 2
+      fi
+
+      # ── Auto changed-since in MR context ───────────────────────────
+      if [ -n "${CI_MERGE_REQUEST_IID:-}" ] && [ -z "$FALLOW_CHANGED_SINCE" ] && [ "$FALLOW_COMMAND" != "fix" ]; then
+        if [ -n "${CI_MERGE_REQUEST_DIFF_BASE_SHA:-}" ]; then
+          FALLOW_CHANGED_SINCE="$CI_MERGE_REQUEST_DIFF_BASE_SHA"
+          echo "Auto-scoping to changed files (--changed-since ${FALLOW_CHANGED_SINCE:0:12})"
+        fi
       fi
 
       # ── Build CLI arguments ──────────────────────────────────────────
@@ -297,184 +370,28 @@ variables:
         echo "[]" > gl-code-quality-report.json
       fi
 
-      # ── MR comment ───────────────────────────────────────────────────
+      # ── MR summary comment ──────────────────────────────────────────
       if [ "$FALLOW_COMMENT" = "true" ] && [ -n "${CI_MERGE_REQUEST_IID:-}" ]; then
-        echo "Posting MR comment..."
-
-        # Use correct auth header: PRIVATE-TOKEN for PATs, JOB-TOKEN for CI_JOB_TOKEN
-        if [ -n "${GITLAB_TOKEN:-}" ]; then
-          AUTH_HEADER="PRIVATE-TOKEN: ${GITLAB_TOKEN}"
+        if [ -x "/tmp/fallow-scripts/comment.sh" ]; then
+          echo "Posting MR summary comment..."
+          export FALLOW_JQ_DIR="${FALLOW_JQ_DIR:-/tmp/fallow-jq}"
+          export FALLOW_SHARED_JQ_DIR="${FALLOW_SHARED_JQ_DIR:-/tmp/fallow-shared-jq}"
+          bash /tmp/fallow-scripts/comment.sh || echo "WARNING: MR comment failed"
         else
-          AUTH_HEADER="JOB-TOKEN: ${CI_JOB_TOKEN}"
+          echo "WARNING: comment.sh not available — skipping MR comment"
         fi
-        API_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/merge_requests/${CI_MERGE_REQUEST_IID}/notes"
+      fi
 
-        case "$FALLOW_COMMAND" in
-          dead-code|check|"")
-            if [ -z "$FALLOW_COMMAND" ]; then
-              jq '.check // {"total_issues": 0}' fallow-results.json > /tmp/fallow-mr-input.json
-            else
-              cp fallow-results.json /tmp/fallow-mr-input.json
-            fi
-
-            cat > /tmp/fallow-mr.jq << 'JQEOF'
-      if .total_issues == 0 then
-        "## Fallow Dead Code Analysis\n\n> **No issues found** \u00b7 \(.elapsed_ms)ms\n\nAll exports are used, all dependencies are declared, and no dead code was detected."
-      else
-        "## Fallow Dead Code Analysis\n\n> **\(.total_issues) issues** found \u00b7 \(.elapsed_ms)ms\n\n" +
-        "| Category | Count |\n|----------|------:|\n" +
-        ([
-          if (.unused_files | length) > 0 then "| Unused files | \(.unused_files | length) |" else empty end,
-          if (.unused_exports | length) > 0 then "| Unused exports | \(.unused_exports | length) |" else empty end,
-          if (.unused_types | length) > 0 then "| Unused types | \(.unused_types | length) |" else empty end,
-          if (.unused_dependencies | length) > 0 then "| Unused dependencies | \(.unused_dependencies | length) |" else empty end,
-          if (.unused_dev_dependencies | length) > 0 then "| Unused devDependencies | \(.unused_dev_dependencies | length) |" else empty end,
-          if (.unused_optional_dependencies | length) > 0 then "| Unused optionalDependencies | \(.unused_optional_dependencies | length) |" else empty end,
-          if (.unused_enum_members | length) > 0 then "| Unused enum members | \(.unused_enum_members | length) |" else empty end,
-          if (.unused_class_members | length) > 0 then "| Unused class members | \(.unused_class_members | length) |" else empty end,
-          if (.unresolved_imports | length) > 0 then "| Unresolved imports | \(.unresolved_imports | length) |" else empty end,
-          if (.unlisted_dependencies | length) > 0 then "| Unlisted dependencies | \(.unlisted_dependencies | length) |" else empty end,
-          if (.duplicate_exports | length) > 0 then "| Duplicate exports | \(.duplicate_exports | length) |" else empty end,
-          if (.circular_dependencies | length) > 0 then "| Circular dependencies | \(.circular_dependencies | length) |" else empty end,
-          if (.type_only_dependencies | length) > 0 then "| Type-only dependencies | \(.type_only_dependencies | length) |" else empty end
-        ] | join("\n")) +
-        "\n\n---\n" +
-        (if (.unused_files | length) > 0 then
-          "\n<details><summary><strong>Unused files (\(.unused_files | length))</strong></summary>\n\n" +
-          "Files not reachable from any entry point.\n\n| File |\n|------|\n" +
-          ([.unused_files[:25][] | "| `\(.path)` |"] | join("\n")) +
-          (if (.unused_files | length) > 25 then "\n\n> \((.unused_files | length) - 25) more \u2014 run `fallow` locally for the full list" else "" end) +
-          "\n\n</details>\n"
-        else "" end) +
-        (if (.unused_exports | length) > 0 then
-          "\n<details><summary><strong>Unused exports (\(.unused_exports | length))</strong></summary>\n\n" +
-          "Exported symbols with no known consumers.\n\n| File | Line | Export |\n|------|-----:|--------|\n" +
-          ([.unused_exports[:25][] | "| `\(.path)` | \(.line) | `\(.export_name)`\(if .is_re_export then " *(re-export)*" else "" end) |"] | join("\n")) +
-          (if (.unused_exports | length) > 25 then "\n\n> \((.unused_exports | length) - 25) more" else "" end) +
-          "\n\n</details>\n"
-        else "" end) +
-        "\n\n> Run `fallow fix --dry-run` to preview safe auto-fixes.\n> Add `// fallow-ignore-next-line` above a line to suppress a specific finding."
-      end
-      JQEOF
-            COMMENT_BODY=$(jq -r -f /tmp/fallow-mr.jq /tmp/fallow-mr-input.json)
-            ;;
-
-          dupes)
-            cat > /tmp/fallow-mr.jq << 'JQEOF'
-      if .stats.clone_groups == 0 then
-        "## Fallow \u2014 Code Duplication\n\nNo code duplication found.\n\n*Analyzed \(.stats.total_files) files in \(.elapsed_ms)ms*"
-      else
-        "## Fallow \u2014 Code Duplication\n\nFound **\(.stats.clone_groups) clone groups** (\(.stats.clone_instances) instances) across \(.stats.files_with_clones) files in \(.elapsed_ms)ms\n\n" +
-        "| Metric | Value |\n|--------|-------|\n" +
-        "| Files analyzed | \(.stats.total_files) |\n" +
-        "| Files with clones | \(.stats.files_with_clones) |\n" +
-        "| Clone groups | \(.stats.clone_groups) |\n" +
-        "| Duplicated lines | \(.stats.duplicated_lines) / \(.stats.total_lines) (\(.stats.duplication_percentage | . * 10 | round / 10)%) |\n" +
-        "\n<details>\n<summary>View details</summary>\n\n" +
-        (if (.clone_families | length) > 0 then
-          "**Clone Families (\(.clone_families | length))**\n\n" +
-          ([.clone_families[:15][] |
-            "- **\(.files[:3] | join(", "))\(if (.files | length) > 3 then " (+\((.files | length) - 3) more)" else "" end)** \u2014 \(.total_duplicated_lines) lines, \(.groups | length) groups" +
-            (if (.suggestions | length) > 0 then
-              "\n" + ([.suggestions[] | "  - \(.description) (~\(.estimated_savings) lines)"] | join("\n"))
-            else "" end)
-          ] | join("\n")) +
-          (if (.clone_families | length) > 15 then "\n- *... and \((.clone_families | length) - 15) more families*" else "" end)
+      # ── Inline MR review discussions ─────────────────────────────────
+      if [ "$FALLOW_REVIEW" = "true" ] && [ -n "${CI_MERGE_REQUEST_IID:-}" ] && [ "$FALLOW_COMMAND" != "fix" ]; then
+        if [ -x "/tmp/fallow-scripts/review.sh" ]; then
+          echo "Posting inline MR review..."
+          export FALLOW_JQ_DIR="${FALLOW_JQ_DIR:-/tmp/fallow-jq}"
+          export FALLOW_SHARED_JQ_DIR="${FALLOW_SHARED_JQ_DIR:-/tmp/fallow-shared-jq}"
+          export MAX_COMMENTS="$FALLOW_MAX_COMMENTS"
+          bash /tmp/fallow-scripts/review.sh || echo "WARNING: MR review failed"
         else
-          ([.clone_groups[:20][] |
-            "- **\(.token_count) tokens, \(.line_count) lines** \u2014 \([.instances[] | .file] | unique | join(", "))"
-          ] | join("\n")) +
-          (if (.clone_groups | length) > 20 then "\n- *... and \((.clone_groups | length) - 20) more groups*" else "" end)
-        end) +
-        "\n\n</details>"
-      end
-      JQEOF
-            COMMENT_BODY=$(jq -r -f /tmp/fallow-mr.jq fallow-results.json)
-            ;;
-
-          health)
-            cat > /tmp/fallow-mr.jq << 'JQEOF'
-      if (.findings | length) == 0 then
-        "## Fallow \u2014 Code Complexity\n\n> **No functions exceed complexity thresholds** \u00b7 \(.elapsed_ms)ms\n\n\(.summary.functions_analyzed) functions analyzed (max cyclomatic: \(.summary.max_cyclomatic_threshold), max cognitive: \(.summary.max_cognitive_threshold))"
-      else
-        "## Fallow \u2014 Code Complexity\n\n> **\(.summary.functions_above_threshold) function\(if .summary.functions_above_threshold == 1 then "" else "s" end) exceed\(if .summary.functions_above_threshold == 1 then "s" else "" end) thresholds** \u00b7 \(.elapsed_ms)ms\n\n" +
-        "| File | Function | Cyclomatic | Cognitive | Lines |\n|:-----|:---------|:-----------|:----------|:------|\n" +
-        ([.findings[:25][] |
-          "| `\(.path):\(.line)` | `\(.name)` | \(.cyclomatic)\(if .exceeded == "cyclomatic" or .exceeded == "both" then " **!**" else "" end) | \(.cognitive)\(if .exceeded == "cognitive" or .exceeded == "both" then " **!**" else "" end) | \(.line_count) |"
-        ] | join("\n")) +
-        (if (.findings | length) > 25 then "\n\n> \((.findings | length) - 25) more \u2014 run `fallow health` locally for the full list" else "" end) +
-        "\n\n**\(.summary.files_analyzed)** files, **\(.summary.functions_analyzed)** functions analyzed (thresholds: cyclomatic > \(.summary.max_cyclomatic_threshold), cognitive > \(.summary.max_cognitive_threshold))"
-      end
-      JQEOF
-            COMMENT_BODY=$(jq -r -f /tmp/fallow-mr.jq fallow-results.json)
-            ;;
-
-          fix)
-            cat > /tmp/fallow-mr.jq << 'JQEOF'
-      (.fixes | map(select(.type == "remove_export")) | length) as $exports |
-      (.fixes | map(select(.type == "remove_dependency")) | length) as $deps |
-
-      if (.fixes | length) == 0 then
-        "## Fallow \u2014 Auto-fix\n\nNo fixable issues found."
-      else
-        "## Fallow \u2014 Auto-fix\n\n" +
-        (if .dry_run then "**Dry run**: would apply" else "Applied" end) +
-        " **\(.fixes | length) fixes**" +
-        (if .dry_run then "" else " (\(.total_fixed) succeeded)" end) + "\n\n" +
-        "| Type | Count |\n|------|-------|\n" +
-        (if $exports > 0 then "| Export removals | \($exports) |\n" else "" end) +
-        (if $deps > 0 then "| Dependency removals | \($deps) |\n" else "" end) +
-        "\n<details>\n<summary>View details</summary>\n\n" +
-        (if $exports > 0 then
-          "**Export removals (\($exports))**\n" +
-          ([.fixes | map(select(.type == "remove_export"))[:25][] |
-            "- `\(.path):\(.line)` \u2014 `\(.name)`"] | join("\n")) +
-          (if $exports > 25 then "\n- *... and \($exports - 25) more*" else "" end) +
-          "\n\n"
-        else "" end) +
-        (if $deps > 0 then
-          "**Dependency removals (\($deps))**\n" +
-          ([.fixes | map(select(.type == "remove_dependency"))[:25][] |
-            "- `\(.package)` from \(.location) in `\(.file)`"] | join("\n")) +
-          (if $deps > 25 then "\n- *... and \($deps - 25) more*" else "" end) +
-          "\n"
-        else "" end) +
-        "\n\n</details>"
-      end
-      JQEOF
-            COMMENT_BODY=$(jq -r -f /tmp/fallow-mr.jq fallow-results.json)
-            ;;
-        esac
-
-        COMMENT_BODY="${COMMENT_BODY}
-
-      <!-- fallow-results -->"
-
-        # Find existing comment to update (avoids spam on busy MRs)
-        EXISTING_NOTE_ID=$(curl -sf \
-          --header "${AUTH_HEADER}" \
-          "${API_URL}?per_page=100" \
-          | jq -r '.[] | select(.body | contains("<!-- fallow-results -->")) | .id' \
-          | head -1) || true
-
-        if [ -n "$EXISTING_NOTE_ID" ]; then
-          curl -sf \
-            --header "${AUTH_HEADER}" \
-            --header "Content-Type: application/json" \
-            --request PUT \
-            --data "$(jq -n --arg body "$COMMENT_BODY" '{body: $body}')" \
-            "${API_URL}/${EXISTING_NOTE_ID}" > /dev/null \
-            && echo "Updated existing MR comment" \
-            || echo "WARNING: Failed to update MR comment (check GITLAB_TOKEN permissions)"
-        else
-          curl -sf \
-            --header "${AUTH_HEADER}" \
-            --header "Content-Type: application/json" \
-            --request POST \
-            --data "$(jq -n --arg body "$COMMENT_BODY" '{body: $body}')" \
-            "${API_URL}" > /dev/null \
-            && echo "Created new MR comment" \
-            || echo "WARNING: Failed to create MR comment (check GITLAB_TOKEN permissions)"
+          echo "WARNING: review.sh not available — skipping MR review"
         fi
       fi
 
