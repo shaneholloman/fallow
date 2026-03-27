@@ -8,6 +8,23 @@ use crate::extract::MemberKind;
 use crate::serde_path;
 
 /// Complete analysis results.
+///
+/// # Examples
+///
+/// ```
+/// use fallow_types::results::{AnalysisResults, UnusedFile};
+/// use std::path::PathBuf;
+///
+/// let mut results = AnalysisResults::default();
+/// assert_eq!(results.total_issues(), 0);
+/// assert!(!results.has_issues());
+///
+/// results.unused_files.push(UnusedFile {
+///     path: PathBuf::from("src/dead.ts"),
+/// });
+/// assert_eq!(results.total_issues(), 1);
+/// assert!(results.has_issues());
+/// ```
 #[derive(Debug, Default, Clone, Serialize)]
 pub struct AnalysisResults {
     /// Files not reachable from any entry point.
@@ -46,6 +63,28 @@ pub struct AnalysisResults {
 
 impl AnalysisResults {
     /// Total number of issues found.
+    ///
+    /// Sums across all issue categories (unused files, exports, types,
+    /// dependencies, members, unresolved imports, unlisted deps, duplicates,
+    /// type-only deps, and circular deps).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fallow_types::results::{AnalysisResults, UnusedFile, UnresolvedImport};
+    /// use std::path::PathBuf;
+    ///
+    /// let mut results = AnalysisResults::default();
+    /// results.unused_files.push(UnusedFile { path: PathBuf::from("a.ts") });
+    /// results.unresolved_imports.push(UnresolvedImport {
+    ///     path: PathBuf::from("b.ts"),
+    ///     specifier: "./missing".to_string(),
+    ///     line: 1,
+    ///     col: 0,
+    ///     specifier_col: 0,
+    /// });
+    /// assert_eq!(results.total_issues(), 2);
+    /// ```
     #[must_use]
     pub const fn total_issues(&self) -> usize {
         self.unused_files.len()
@@ -114,6 +153,21 @@ pub struct UnusedDependency {
 }
 
 /// Where in package.json a dependency is listed.
+///
+/// # Examples
+///
+/// ```
+/// use fallow_types::results::DependencyLocation;
+///
+/// // All three variants are constructible
+/// let loc = DependencyLocation::Dependencies;
+/// let dev = DependencyLocation::DevDependencies;
+/// let opt = DependencyLocation::OptionalDependencies;
+/// // Debug output includes the variant name
+/// assert!(format!("{loc:?}").contains("Dependencies"));
+/// assert!(format!("{dev:?}").contains("DevDependencies"));
+/// assert!(format!("{opt:?}").contains("OptionalDependencies"));
+/// ```
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum DependencyLocation {

@@ -1,6 +1,22 @@
 //! Inline suppression comment types and issue kind definitions.
 
 /// Issue kind for suppression matching.
+///
+/// # Examples
+///
+/// ```
+/// use fallow_types::suppress::IssueKind;
+///
+/// let kind = IssueKind::parse("unused-export");
+/// assert_eq!(kind, Some(IssueKind::UnusedExport));
+///
+/// // Round-trip through discriminant
+/// let d = IssueKind::UnusedFile.to_discriminant();
+/// assert_eq!(IssueKind::from_discriminant(d), Some(IssueKind::UnusedFile));
+///
+/// // Unknown strings return None
+/// assert_eq!(IssueKind::parse("not-a-kind"), None);
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IssueKind {
     /// An unused file.
@@ -91,6 +107,23 @@ impl IssueKind {
 }
 
 /// A suppression directive parsed from a source comment.
+///
+/// # Examples
+///
+/// ```
+/// use fallow_types::suppress::{Suppression, IssueKind};
+///
+/// // File-wide suppression (line 0, no specific kind)
+/// let file_wide = Suppression { line: 0, kind: None };
+/// assert_eq!(file_wide.line, 0);
+///
+/// // Line-specific suppression for unused exports
+/// let line_suppress = Suppression {
+///     line: 42,
+///     kind: Some(IssueKind::UnusedExport),
+/// };
+/// assert_eq!(line_suppress.kind, Some(IssueKind::UnusedExport));
+/// ```
 #[derive(Debug, Clone)]
 pub struct Suppression {
     /// 1-based line this suppression applies to. 0 = file-wide suppression.

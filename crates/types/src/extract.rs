@@ -51,6 +51,15 @@ pub struct ModuleInfo {
 ///
 /// The returned vec contains one entry per line: `line_offsets[i]` is the byte
 /// offset where line `i` starts (0-indexed). The first entry is always `0`.
+///
+/// # Examples
+///
+/// ```
+/// use fallow_types::extract::compute_line_offsets;
+///
+/// let offsets = compute_line_offsets("abc\ndef\nghi");
+/// assert_eq!(offsets, vec![0, 4, 8]);
+/// ```
 #[must_use]
 pub fn compute_line_offsets(source: &str) -> Vec<u32> {
     let mut offsets = vec![0u32];
@@ -66,6 +75,17 @@ pub fn compute_line_offsets(source: &str) -> Vec<u32> {
 /// using a pre-computed line offset table (from [`compute_line_offsets`]).
 ///
 /// Uses binary search for O(log L) lookup where L is the number of lines.
+///
+/// # Examples
+///
+/// ```
+/// use fallow_types::extract::{compute_line_offsets, byte_offset_to_line_col};
+///
+/// let offsets = compute_line_offsets("abc\ndef\nghi");
+/// assert_eq!(byte_offset_to_line_col(&offsets, 0), (1, 0)); // 'a' on line 1
+/// assert_eq!(byte_offset_to_line_col(&offsets, 4), (2, 0)); // 'd' on line 2
+/// assert_eq!(byte_offset_to_line_col(&offsets, 9), (3, 1)); // 'h' on line 3
+/// ```
 #[must_use]
 pub fn byte_offset_to_line_col(line_offsets: &[u32], byte_offset: u32) -> (u32, u32) {
     // Binary search: find the last line whose start is <= byte_offset
@@ -146,6 +166,17 @@ pub struct MemberInfo {
 }
 
 /// The kind of member.
+///
+/// # Examples
+///
+/// ```
+/// use fallow_types::extract::MemberKind;
+///
+/// let kind = MemberKind::EnumMember;
+/// assert_eq!(kind, MemberKind::EnumMember);
+/// assert_ne!(kind, MemberKind::ClassMethod);
+/// assert_ne!(MemberKind::ClassMethod, MemberKind::ClassProperty);
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, bincode::Encode, bincode::Decode)]
 #[serde(rename_all = "snake_case")]
 pub enum MemberKind {
@@ -158,6 +189,19 @@ pub enum MemberKind {
 }
 
 /// A static member access expression (e.g., `Status.Active`, `MyClass.create()`).
+///
+/// # Examples
+///
+/// ```
+/// use fallow_types::extract::MemberAccess;
+///
+/// let access = MemberAccess {
+///     object: "Status".to_string(),
+///     member: "Active".to_string(),
+/// };
+/// assert_eq!(access.object, "Status");
+/// assert_eq!(access.member, "Active");
+/// ```
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, bincode::Encode, bincode::Decode)]
 pub struct MemberAccess {
     /// The identifier being accessed (the import name).
@@ -176,6 +220,20 @@ fn serialize_span<S: serde::Serializer>(span: &Span, serializer: S) -> Result<S:
 }
 
 /// Export identifier.
+///
+/// # Examples
+///
+/// ```
+/// use fallow_types::extract::ExportName;
+///
+/// let named = ExportName::Named("foo".to_string());
+/// assert_eq!(named.to_string(), "foo");
+/// assert!(named.matches_str("foo"));
+///
+/// let default = ExportName::Default;
+/// assert_eq!(default.to_string(), "default");
+/// assert!(default.matches_str("default"));
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize)]
 pub enum ExportName {
     /// A named export (e.g., `export const foo`).
@@ -223,6 +281,19 @@ pub struct ImportInfo {
 }
 
 /// How a symbol is imported.
+///
+/// # Examples
+///
+/// ```
+/// use fallow_types::extract::ImportedName;
+///
+/// let named = ImportedName::Named("useState".to_string());
+/// assert_eq!(named, ImportedName::Named("useState".to_string()));
+/// assert_ne!(named, ImportedName::Default);
+///
+/// // Side-effect imports have no binding
+/// assert_eq!(ImportedName::SideEffect, ImportedName::SideEffect);
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ImportedName {
     /// A named import (e.g., `import { foo }`).

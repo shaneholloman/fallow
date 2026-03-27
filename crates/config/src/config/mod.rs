@@ -20,6 +20,25 @@ use crate::external_plugin::ExternalPluginDef;
 use crate::workspace::WorkspaceConfig;
 
 /// User-facing configuration loaded from `.fallowrc.json` or `fallow.toml`.
+///
+/// # Examples
+///
+/// ```
+/// use fallow_config::FallowConfig;
+///
+/// // Default config has sensible defaults
+/// let config = FallowConfig::default();
+/// assert!(config.entry.is_empty());
+/// assert!(!config.production);
+///
+/// // Deserialize from JSON
+/// let config: FallowConfig = serde_json::from_str(r#"{
+///     "entry": ["src/main.ts"],
+///     "production": true
+/// }"#).unwrap();
+/// assert_eq!(config.entry, vec!["src/main.ts"]);
+/// assert!(config.production);
+/// ```
 #[derive(Debug, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct FallowConfig {

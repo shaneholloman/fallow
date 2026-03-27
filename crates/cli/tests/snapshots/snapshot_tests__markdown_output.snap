@@ -1,0 +1,62 @@
+---
+source: crates/cli/tests/snapshot_tests.rs
+expression: output
+---
+## Fallow: 13 issues found
+
+### Unused files (1)
+
+- `src/dead.ts`
+
+### Unused exports (1)
+
+- `src/utils.ts`
+  - :10 `helperFn`
+
+### Unused type exports (1)
+
+- `src/types.ts`
+  - :5 `OldType`
+
+### Unused dependencies (1)
+
+- `lodash`
+
+### Unused devDependencies (1)
+
+- `jest`
+
+### Unused optionalDependencies (1)
+
+- `fsevents`
+
+### Unused enum members (1)
+
+- `src/enums.ts`
+  - :8 `Status.Deprecated`
+
+### Unused class members (1)
+
+- `src/service.ts`
+  - :42 `UserService.legacyMethod`
+
+### Unresolved imports (1)
+
+- `src/app.ts`
+  - :3 `./missing-module`
+
+### Unlisted dependencies (1)
+
+- `chalk`
+
+### Duplicate exports (1)
+
+- `Config` in `src/config.ts`, `src/types.ts`
+
+### Type-only dependencies (consider moving to devDependencies) (1)
+
+- `zod`
+
+### Circular dependencies (1)
+
+- `src/a.ts` → `src/b.ts` → `src/a.ts`

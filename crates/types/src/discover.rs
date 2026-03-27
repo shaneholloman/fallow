@@ -3,6 +3,21 @@
 use std::path::PathBuf;
 
 /// A discovered source file on disk.
+///
+/// # Examples
+///
+/// ```
+/// use fallow_types::discover::{DiscoveredFile, FileId};
+/// use std::path::PathBuf;
+///
+/// let file = DiscoveredFile {
+///     id: FileId(0),
+///     path: PathBuf::from("/project/src/index.ts"),
+///     size_bytes: 2048,
+/// };
+/// assert_eq!(file.id, FileId(0));
+/// assert_eq!(file.size_bytes, 2048);
+/// ```
 #[derive(Debug, Clone)]
 pub struct DiscoveredFile {
     /// Unique file index.
@@ -14,6 +29,22 @@ pub struct DiscoveredFile {
 }
 
 /// Compact file identifier.
+///
+/// A newtype wrapper around `u32` used as a stable index into file arrays.
+/// `FileId`s are path-sorted (not insertion order) for stable cross-run identity.
+///
+/// # Examples
+///
+/// ```
+/// use fallow_types::discover::FileId;
+///
+/// let id = FileId(42);
+/// assert_eq!(id.0, 42);
+///
+/// // Implements Copy
+/// let copy = id;
+/// assert_eq!(id, copy);
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FileId(pub u32);
 

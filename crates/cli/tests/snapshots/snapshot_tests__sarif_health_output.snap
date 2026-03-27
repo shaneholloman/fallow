@@ -1,0 +1,95 @@
+---
+source: crates/cli/tests/snapshot_tests.rs
+expression: redact_health_sarif_version(&json_str)
+---
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "fallow",
+          "version": "[VERSION]",
+          "informationUri": "https://github.com/fallow-rs/fallow",
+          "rules": [
+            {
+              "id": "fallow/high-cyclomatic-complexity",
+              "shortDescription": {
+                "text": "Function has high cyclomatic complexity"
+              },
+              "fullDescription": {
+                "text": "McCabe cyclomatic complexity exceeds the configured threshold. Cyclomatic complexity counts the number of independent paths through a function (1 + decision points: if/else, switch cases, loops, ternary, logical operators). High values indicate functions that are hard to test exhaustively."
+              },
+              "helpUri": "https://docs.fallow.tools/explanations/health#cyclomatic-complexity",
+              "defaultConfiguration": {
+                "level": "warning"
+              }
+            },
+            {
+              "id": "fallow/high-cognitive-complexity",
+              "shortDescription": {
+                "text": "Function has high cognitive complexity"
+              },
+              "fullDescription": {
+                "text": "SonarSource cognitive complexity exceeds the configured threshold. Unlike cyclomatic complexity, cognitive complexity penalizes nesting depth and non-linear control flow (breaks, continues, early returns). It measures how hard a function is to understand when reading sequentially."
+              },
+              "helpUri": "https://docs.fallow.tools/explanations/health#cognitive-complexity",
+              "defaultConfiguration": {
+                "level": "warning"
+              }
+            },
+            {
+              "id": "fallow/high-complexity",
+              "shortDescription": {
+                "text": "Function exceeds both complexity thresholds"
+              },
+              "fullDescription": {
+                "text": "Function exceeds both cyclomatic and cognitive complexity thresholds. This is the strongest signal that a function needs refactoring — it has many paths AND is hard to understand."
+              },
+              "helpUri": "https://docs.fallow.tools/explanations/health#complexity-metrics",
+              "defaultConfiguration": {
+                "level": "warning"
+              }
+            },
+            {
+              "id": "fallow/refactoring-target",
+              "shortDescription": {
+                "text": "File identified as a high-priority refactoring candidate"
+              },
+              "fullDescription": {
+                "text": "File identified as a refactoring candidate based on a weighted combination of complexity density, churn velocity, dead code ratio, fan-in (blast radius), and fan-out (coupling). Categories: urgent churn+complexity, break circular dependency, split high-impact file, remove dead code, extract complex functions, reduce coupling."
+              },
+              "helpUri": "https://docs.fallow.tools/explanations/health#refactoring-targets",
+              "defaultConfiguration": {
+                "level": "warning"
+              }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "fallow/high-complexity",
+          "level": "warning",
+          "message": {
+            "text": "'processData' has cyclomatic complexity 25 (threshold: 20) and cognitive complexity 30 (threshold: 15)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/complex.ts"
+                },
+                "region": {
+                  "startLine": 42,
+                  "startColumn": 1
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

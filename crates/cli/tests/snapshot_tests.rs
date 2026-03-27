@@ -1,8 +1,14 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use fallow_cli::report::{build_codeclimate, build_compact_lines, build_json, build_sarif};
+use fallow_cli::health_types::*;
+use fallow_cli::report::{
+    build_codeclimate, build_compact_lines, build_duplication_codeclimate,
+    build_duplication_markdown, build_health_codeclimate, build_health_markdown,
+    build_health_sarif, build_json, build_markdown, build_sarif,
+};
 use fallow_config::RulesConfig;
+use fallow_core::duplicates::{CloneGroup, CloneInstance, DuplicationReport, DuplicationStats};
 use fallow_core::extract::MemberKind;
 use fallow_core::results::*;
 
@@ -1496,4 +1502,453 @@ fn json_mixed_severity_snapshot() {
     let value = build_json(&results, &root, elapsed).expect("JSON build should succeed");
     let json_str = serde_json::to_string_pretty(&value).expect("should serialize");
     insta::assert_snapshot!("json_mixed_severity", redact_version(&json_str));
+}
+
+// ── Markdown format ─────────────────────────────────────────────
+
+#[test]
+fn markdown_output_snapshot() {
+    let root = PathBuf::from("/project");
+    let results = sample_results(&root);
+    let output = build_markdown(&results, &root);
+    insta::assert_snapshot!("markdown_output", output);
+}
+
+#[test]
+fn markdown_empty_results_snapshot() {
+    let root = PathBuf::from("/project");
+    let results = AnalysisResults::default();
+    let output = build_markdown(&results, &root);
+    insta::assert_snapshot!("markdown_empty", output);
+}
+
+#[test]
+fn markdown_single_unused_file_snapshot() {
+    let root = PathBuf::from("/project");
+    let mut results = AnalysisResults::default();
+    results.unused_files.push(UnusedFile {
+        path: root.join("src/dead.ts"),
+    });
+    let output = build_markdown(&results, &root);
+    insta::assert_snapshot!("markdown_single_unused_file", output);
+}
+
+#[test]
+fn markdown_unused_exports_only_snapshot() {
+    let root = PathBuf::from("/project");
+    let mut results = AnalysisResults::default();
+    results.unused_exports.push(UnusedExport {
+        path: root.join("src/utils.ts"),
+        export_name: "helperFn".to_string(),
+        is_type_only: false,
+        line: 10,
+        col: 4,
+        span_start: 120,
+        is_re_export: false,
+    });
+    results.unused_exports.push(UnusedExport {
+        path: root.join("src/utils.ts"),
+        export_name: "formatDate".to_string(),
+        is_type_only: false,
+        line: 25,
+        col: 0,
+        span_start: 300,
+        is_re_export: false,
+    });
+    let output = build_markdown(&results, &root);
+    insta::assert_snapshot!("markdown_unused_exports_only", output);
+}
+
+#[test]
+fn markdown_unused_types_only_snapshot() {
+    let root = PathBuf::from("/project");
+    let mut results = AnalysisResults::default();
+    results.unused_types.push(UnusedExport {
+        path: root.join("src/types.ts"),
+        export_name: "OldType".to_string(),
+        is_type_only: true,
+        line: 5,
+        col: 0,
+        span_start: 60,
+        is_re_export: false,
+    });
+    let output = build_markdown(&results, &root);
+    insta::assert_snapshot!("markdown_unused_types_only", output);
+}
+
+#[test]
+fn markdown_unused_deps_only_snapshot() {
+    let root = PathBuf::from("/project");
+    let mut results = AnalysisResults::default();
+    results.unused_dependencies.push(UnusedDependency {
+        package_name: "lodash".to_string(),
+        location: DependencyLocation::Dependencies,
+        path: root.join("package.json"),
+        line: 5,
+    });
+    let output = build_markdown(&results, &root);
+    insta::assert_snapshot!("markdown_unused_deps_only", output);
+}
+
+#[test]
+fn markdown_unresolved_imports_only_snapshot() {
+    let root = PathBuf::from("/project");
+    let mut results = AnalysisResults::default();
+    results.unresolved_imports.push(UnresolvedImport {
+        path: root.join("src/app.ts"),
+        specifier: "./missing-module".to_string(),
+        line: 3,
+        col: 0,
+        specifier_col: 0,
+    });
+    let output = build_markdown(&results, &root);
+    insta::assert_snapshot!("markdown_unresolved_imports_only", output);
+}
+
+#[test]
+fn markdown_unlisted_deps_only_snapshot() {
+    let root = PathBuf::from("/project");
+    let mut results = AnalysisResults::default();
+    results.unlisted_dependencies.push(UnlistedDependency {
+        package_name: "chalk".to_string(),
+        imported_from: vec![ImportSite {
+            path: root.join("src/cli.ts"),
+            line: 2,
+            col: 0,
+        }],
+    });
+    let output = build_markdown(&results, &root);
+    insta::assert_snapshot!("markdown_unlisted_deps_only", output);
+}
+
+#[test]
+fn markdown_unused_enum_members_only_snapshot() {
+    let root = PathBuf::from("/project");
+    let mut results = AnalysisResults::default();
+    results.unused_enum_members.push(UnusedMember {
+        path: root.join("src/enums.ts"),
+        parent_name: "Status".to_string(),
+        member_name: "Deprecated".to_string(),
+        kind: MemberKind::EnumMember,
+        line: 8,
+        col: 2,
+    });
+    let output = build_markdown(&results, &root);
+    insta::assert_snapshot!("markdown_unused_enum_members_only", output);
+}
+
+#[test]
+fn markdown_unused_class_members_only_snapshot() {
+    let root = PathBuf::from("/project");
+    let mut results = AnalysisResults::default();
+    results.unused_class_members.push(UnusedMember {
+        path: root.join("src/service.ts"),
+        parent_name: "UserService".to_string(),
+        member_name: "legacyMethod".to_string(),
+        kind: MemberKind::ClassMethod,
+        line: 42,
+        col: 4,
+    });
+    let output = build_markdown(&results, &root);
+    insta::assert_snapshot!("markdown_unused_class_members_only", output);
+}
+
+#[test]
+fn markdown_duplicate_exports_only_snapshot() {
+    let root = PathBuf::from("/project");
+    let mut results = AnalysisResults::default();
+    results.duplicate_exports.push(DuplicateExport {
+        export_name: "Config".to_string(),
+        locations: vec![
+            DuplicateLocation {
+                path: root.join("src/config.ts"),
+                line: 15,
+                col: 0,
+            },
+            DuplicateLocation {
+                path: root.join("src/types.ts"),
+                line: 30,
+                col: 0,
+            },
+        ],
+    });
+    let output = build_markdown(&results, &root);
+    insta::assert_snapshot!("markdown_duplicate_exports_only", output);
+}
+
+#[test]
+fn markdown_circular_deps_only_snapshot() {
+    let root = PathBuf::from("/project");
+    let mut results = AnalysisResults::default();
+    results.circular_dependencies.push(CircularDependency {
+        files: vec![root.join("src/a.ts"), root.join("src/b.ts")],
+        length: 2,
+        line: 3,
+        col: 0,
+    });
+    let output = build_markdown(&results, &root);
+    insta::assert_snapshot!("markdown_circular_deps_only", output);
+}
+
+#[test]
+fn markdown_type_only_deps_only_snapshot() {
+    let root = PathBuf::from("/project");
+    let mut results = AnalysisResults::default();
+    results.type_only_dependencies.push(TypeOnlyDependency {
+        package_name: "zod".to_string(),
+        path: root.join("package.json"),
+        line: 8,
+    });
+    let output = build_markdown(&results, &root);
+    insta::assert_snapshot!("markdown_type_only_deps_only", output);
+}
+
+#[test]
+fn markdown_re_export_variant_snapshot() {
+    let root = PathBuf::from("/project");
+    let mut results = AnalysisResults::default();
+    results.unused_exports.push(UnusedExport {
+        path: root.join("src/index.ts"),
+        export_name: "reExportedFn".to_string(),
+        is_type_only: false,
+        line: 1,
+        col: 0,
+        span_start: 0,
+        is_re_export: true,
+    });
+    let output = build_markdown(&results, &root);
+    insta::assert_snapshot!("markdown_re_export_variant", output);
+}
+
+#[test]
+fn markdown_workspace_dep_snapshot() {
+    let root = PathBuf::from("/project");
+    let mut results = AnalysisResults::default();
+    results.unused_dependencies.push(UnusedDependency {
+        package_name: "lodash".to_string(),
+        location: DependencyLocation::Dependencies,
+        path: root.join("packages/ui/package.json"),
+        line: 5,
+    });
+    let output = build_markdown(&results, &root);
+    insta::assert_snapshot!("markdown_workspace_deps", output);
+}
+
+// ── Health report snapshots ─────────────────────────────────────
+
+/// Build a minimal health report with one finding for snapshot tests.
+fn sample_health_report(root: &Path) -> HealthReport {
+    HealthReport {
+        findings: vec![HealthFinding {
+            path: root.join("src/complex.ts"),
+            name: "processData".to_string(),
+            line: 42,
+            col: 0,
+            cyclomatic: 25,
+            cognitive: 30,
+            line_count: 120,
+            exceeded: ExceededThreshold::Both,
+        }],
+        summary: HealthSummary {
+            files_analyzed: 50,
+            functions_analyzed: 200,
+            functions_above_threshold: 1,
+            max_cyclomatic_threshold: 20,
+            max_cognitive_threshold: 15,
+            files_scored: None,
+            average_maintainability: None,
+        },
+        vital_signs: None,
+        file_scores: vec![],
+        hotspots: vec![],
+        hotspot_summary: None,
+        targets: vec![],
+        target_thresholds: None,
+    }
+}
+
+/// Build an empty health report (no findings).
+fn empty_health_report() -> HealthReport {
+    HealthReport {
+        findings: vec![],
+        summary: HealthSummary {
+            files_analyzed: 50,
+            functions_analyzed: 200,
+            functions_above_threshold: 0,
+            max_cyclomatic_threshold: 20,
+            max_cognitive_threshold: 15,
+            files_scored: None,
+            average_maintainability: None,
+        },
+        vital_signs: None,
+        file_scores: vec![],
+        hotspots: vec![],
+        hotspot_summary: None,
+        targets: vec![],
+        target_thresholds: None,
+    }
+}
+
+#[test]
+fn markdown_health_output_snapshot() {
+    let root = PathBuf::from("/project");
+    let report = sample_health_report(&root);
+    let output = build_health_markdown(&report, &root);
+    insta::assert_snapshot!("markdown_health_output", output);
+}
+
+#[test]
+fn markdown_health_empty_snapshot() {
+    let root = PathBuf::from("/project");
+    let report = empty_health_report();
+    let output = build_health_markdown(&report, &root);
+    insta::assert_snapshot!("markdown_health_empty", output);
+}
+
+#[test]
+fn markdown_health_with_vital_signs_snapshot() {
+    let root = PathBuf::from("/project");
+    let mut report = sample_health_report(&root);
+    report.vital_signs = Some(VitalSigns {
+        dead_file_pct: Some(3.2),
+        dead_export_pct: Some(8.1),
+        avg_cyclomatic: 4.7,
+        p90_cyclomatic: 12,
+        duplication_pct: None,
+        hotspot_count: None,
+        maintainability_avg: Some(72.4),
+        unused_dep_count: Some(3),
+        circular_dep_count: Some(1),
+    });
+    let output = build_health_markdown(&report, &root);
+    insta::assert_snapshot!("markdown_health_with_vital_signs", output);
+}
+
+fn redact_health_sarif_version(json_str: &str) -> String {
+    json_str.replace(
+        &format!(
+            "\"name\": \"fallow\",\n          \"version\": \"{}\"",
+            env!("CARGO_PKG_VERSION")
+        ),
+        "\"name\": \"fallow\",\n          \"version\": \"[VERSION]\"",
+    )
+}
+
+#[test]
+fn sarif_health_output_snapshot() {
+    let root = PathBuf::from("/project");
+    let report = sample_health_report(&root);
+    let sarif = build_health_sarif(&report, &root);
+    let json_str = serde_json::to_string_pretty(&sarif).expect("should serialize");
+    insta::assert_snapshot!(
+        "sarif_health_output",
+        redact_health_sarif_version(&json_str)
+    );
+}
+
+#[test]
+fn sarif_health_empty_snapshot() {
+    let root = PathBuf::from("/project");
+    let report = empty_health_report();
+    let sarif = build_health_sarif(&report, &root);
+    let json_str = serde_json::to_string_pretty(&sarif).expect("should serialize");
+    insta::assert_snapshot!("sarif_health_empty", redact_health_sarif_version(&json_str));
+}
+
+#[test]
+fn codeclimate_health_output_snapshot() {
+    let root = PathBuf::from("/project");
+    let report = sample_health_report(&root);
+    let cc = build_health_codeclimate(&report, &root);
+    let json_str = serde_json::to_string_pretty(&cc).expect("should serialize");
+    insta::assert_snapshot!("codeclimate_health_output", json_str);
+}
+
+#[test]
+fn codeclimate_health_empty_snapshot() {
+    let root = PathBuf::from("/project");
+    let report = empty_health_report();
+    let cc = build_health_codeclimate(&report, &root);
+    let json_str = serde_json::to_string_pretty(&cc).expect("should serialize");
+    insta::assert_snapshot!("codeclimate_health_empty", json_str);
+}
+
+// ── Duplication report snapshots ────────────────────────────────
+
+/// Build a sample duplication report for snapshot tests.
+fn sample_duplication_report(root: &Path) -> DuplicationReport {
+    DuplicationReport {
+        clone_groups: vec![CloneGroup {
+            instances: vec![
+                CloneInstance {
+                    file: root.join("src/utils.ts"),
+                    start_line: 10,
+                    end_line: 20,
+                    start_col: 0,
+                    end_col: 1,
+                    fragment:
+                        "function validate(input) {\n  if (!input) return false;\n  return true;\n}"
+                            .to_string(),
+                },
+                CloneInstance {
+                    file: root.join("src/helpers.ts"),
+                    start_line: 5,
+                    end_line: 15,
+                    start_col: 0,
+                    end_col: 1,
+                    fragment:
+                        "function validate(input) {\n  if (!input) return false;\n  return true;\n}"
+                            .to_string(),
+                },
+            ],
+            token_count: 25,
+            line_count: 11,
+        }],
+        clone_families: vec![],
+        stats: DuplicationStats {
+            total_files: 100,
+            files_with_clones: 2,
+            total_lines: 5000,
+            duplicated_lines: 11,
+            total_tokens: 25000,
+            duplicated_tokens: 25,
+            clone_groups: 1,
+            clone_instances: 2,
+            duplication_percentage: 0.22,
+        },
+    }
+}
+
+#[test]
+fn markdown_duplication_output_snapshot() {
+    let root = PathBuf::from("/project");
+    let report = sample_duplication_report(&root);
+    let output = build_duplication_markdown(&report, &root);
+    insta::assert_snapshot!("markdown_duplication_output", output);
+}
+
+#[test]
+fn markdown_duplication_empty_snapshot() {
+    let root = PathBuf::from("/project");
+    let report = DuplicationReport::default();
+    let output = build_duplication_markdown(&report, &root);
+    insta::assert_snapshot!("markdown_duplication_empty", output);
+}
+
+#[test]
+fn codeclimate_duplication_output_snapshot() {
+    let root = PathBuf::from("/project");
+    let report = sample_duplication_report(&root);
+    let cc = build_duplication_codeclimate(&report, &root);
+    let json_str = serde_json::to_string_pretty(&cc).expect("should serialize");
+    insta::assert_snapshot!("codeclimate_duplication_output", json_str);
+}
+
+#[test]
+fn codeclimate_duplication_empty_snapshot() {
+    let root = PathBuf::from("/project");
+    let report = DuplicationReport::default();
+    let cc = build_duplication_codeclimate(&report, &root);
+    let json_str = serde_json::to_string_pretty(&cc).expect("should serialize");
+    insta::assert_snapshot!("codeclimate_duplication_empty", json_str);
 }
