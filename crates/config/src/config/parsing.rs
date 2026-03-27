@@ -1018,11 +1018,15 @@ minTokens = 100
     #[test]
     fn extends_absolute_path_rejected() {
         let dir = test_dir("extends-absolute");
-        std::fs::write(
-            dir.path().join(".fallowrc.json"),
-            r#"{"extends": ["/absolute/path/config.json"]}"#,
-        )
-        .unwrap();
+
+        // Use a platform-appropriate absolute path
+        #[cfg(unix)]
+        let abs_path = "/absolute/path/config.json";
+        #[cfg(windows)]
+        let abs_path = "C:\\absolute\\path\\config.json";
+
+        let json = format!(r#"{{"extends": ["{}"]}}"#, abs_path.replace('\\', "\\\\"));
+        std::fs::write(dir.path().join(".fallowrc.json"), json).unwrap();
 
         let result = FallowConfig::load(&dir.path().join(".fallowrc.json"));
         assert!(result.is_err());

@@ -16,6 +16,8 @@ fpr = "fpr"
 [default.extend-words]
 ba = "ba"
 Informations = "Informations"
+Konfiguration = "Konfiguration"
+Paket = "Paket"
 Pn = "Pn"
 ot = "ot"
 Ot = "Ot"
