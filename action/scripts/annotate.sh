@@ -10,6 +10,16 @@ if ! [[ "$MAX" =~ ^[0-9]+$ ]]; then
   MAX=50
 fi
 
+# Detect package manager from lock files
+PKG_MANAGER="npm"
+ROOT="${FALLOW_ROOT:-.}"
+if [ -f "${ROOT}/pnpm-lock.yaml" ] || [ -f "pnpm-lock.yaml" ]; then
+  PKG_MANAGER="pnpm"
+elif [ -f "${ROOT}/yarn.lock" ] || [ -f "yarn.lock" ]; then
+  PKG_MANAGER="yarn"
+fi
+export PKG_MANAGER
+
 ANNOTATIONS_FILE=$(mktemp)
 : > "$ANNOTATIONS_FILE"
 

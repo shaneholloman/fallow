@@ -84,8 +84,16 @@ pick_jq() {
   fi
 }
 
+# Detect package manager from lock files
+PKG_MANAGER="npm"
+if [ -f "${FALLOW_ROOT}/pnpm-lock.yaml" ] || [ -f "pnpm-lock.yaml" ]; then
+  PKG_MANAGER="pnpm"
+elif [ -f "${FALLOW_ROOT}/yarn.lock" ] || [ -f "yarn.lock" ]; then
+  PKG_MANAGER="yarn"
+fi
+
 # Export env vars for jq access
-export PREFIX MAX FALLOW_ROOT CI_PROJECT_URL CI_COMMIT_SHA
+export PREFIX MAX FALLOW_ROOT CI_PROJECT_URL CI_COMMIT_SHA PKG_MANAGER
 
 # --- Collect review comments ---
 

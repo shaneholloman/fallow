@@ -1,4 +1,8 @@
 def prefix: $ENV.PREFIX // "";
+def pm: $ENV.PKG_MANAGER // "npm";
+def remove(pkg): if pm == "pnpm" then "pnpm remove \(pkg)" elif pm == "yarn" then "yarn remove \(pkg)" else "npm uninstall \(pkg)" end;
+def add(pkg): if pm == "pnpm" then "pnpm add \(pkg)" elif pm == "yarn" then "yarn add \(pkg)" else "npm install \(pkg)" end;
+def add_dev(pkg): if pm == "pnpm" then "pnpm add -D \(pkg)" elif pm == "yarn" then "yarn add -D \(pkg)" else "npm install --save-dev \(pkg)" end;
 def footer(rule): "\n\n---\n<sub><a href=\"https://docs.fallow.tools/explanations/dead-code#" + rule + "\">Docs</a> \u00b7 Disagree? <a href=\"https://docs.fallow.tools/configuration/suppression\">Configure or suppress</a></sub>";
 [
   (.unused_files[]? | {
@@ -24,19 +28,19 @@ def footer(rule): "\n\n---\n<sub><a href=\"https://docs.fallow.tools/explanation
     type: "other",
     path: (prefix + .path),
     line: (if .line > 0 then .line else 1 end),
-    body: ":warning: **Unused dependency**\n\n`\(.package_name)` is listed in `\(.location)` but no file imports it directly.\n\n**Action:** If nothing in your code imports this package, remove it:\n\n```sh\nnpm uninstall \(.package_name)\n```\n\n<details>\n<summary>Why this matters</summary>\n\nUnused dependencies slow down installs, inflate `node_modules`, and add noise to security audits.\n</details>\n\n> Some packages are used indirectly (peer dependencies, framework internals, or plugin systems). If that\u2019s the case, add it to [`ignoreDependencies`](https://docs.fallow.tools/configuration/overview) in `.fallowrc.json`.\(footer("unused-dependencies"))"
+    body: ":warning: **Unused dependency**\n\n`\(.package_name)` is listed in `\(.location)` but no file imports it directly.\n\n**Action:** If nothing in your code imports this package, remove it:\n\n```sh\n\(remove(.package_name))\n```\n\n<details>\n<summary>Why this matters</summary>\n\nUnused dependencies slow down installs, inflate `node_modules`, and add noise to security audits.\n</details>\n\n> Some packages are used indirectly (peer dependencies, framework internals, or plugin systems). If that\u2019s the case, add it to [`ignoreDependencies`](https://docs.fallow.tools/configuration/overview) in `.fallowrc.json`.\(footer("unused-dependencies"))"
   }),
   (.unused_dev_dependencies[]? | {
     type: "other",
     path: (prefix + .path),
     line: (if .line > 0 then .line else 1 end),
-    body: ":warning: **Unused devDependency**\n\n`\(.package_name)` is listed in `devDependencies` but no file imports it.\n\n```sh\nnpm uninstall \(.package_name)\n```\n\n> Used by a tool that doesn\u2019t import directly (e.g., a CLI, plugin, or preset)? Add it to [`ignoreDependencies`](https://docs.fallow.tools/configuration/overview) in `.fallowrc.json`.\(footer("unused-dependencies"))"
+    body: ":warning: **Unused devDependency**\n\n`\(.package_name)` is listed in `devDependencies` but no file imports it.\n\n```sh\n\(remove(.package_name))\n```\n\n> Used by a tool that doesn\u2019t import directly (e.g., a CLI, plugin, or preset)? Add it to [`ignoreDependencies`](https://docs.fallow.tools/configuration/overview) in `.fallowrc.json`.\(footer("unused-dependencies"))"
   }),
   (.unused_optional_dependencies[]? | {
     type: "other",
     path: (prefix + .path),
     line: (if .line > 0 then .line else 1 end),
-    body: ":warning: **Unused optionalDependency**\n\n`\(.package_name)` is listed in `optionalDependencies` but no file imports it.\n\n```sh\nnpm uninstall \(.package_name)\n```\(footer("unused-dependencies"))"
+    body: ":warning: **Unused optionalDependency**\n\n`\(.package_name)` is listed in `optionalDependencies` but no file imports it.\n\n```sh\n\(remove(.package_name))\n```\(footer("unused-dependencies"))"
   }),
   (.unused_enum_members[]? | {
     type: "other",
@@ -54,13 +58,13 @@ def footer(rule): "\n\n---\n<sub><a href=\"https://docs.fallow.tools/explanation
     type: "other",
     path: (prefix + .path),
     line: .line,
-    body: ":x: **Unresolved import**\n\nImport `\(.specifier)` could not be resolved to a file or package.\n\n**Check for:**\n- Typo in the import path\n- File exists but isn\u2019t included in `tsconfig.json` (`include`/`exclude`)\n- Missing dependency \u2014 run `npm install <package>`\n- Path alias mismatch in `tsconfig.json` `paths`\(footer("unresolved-imports"))"
+    body: ":x: **Unresolved import**\n\nImport `\(.specifier)` could not be resolved to a file or package.\n\n**Check for:**\n- Typo in the import path\n- File exists but isn\u2019t included in `tsconfig.json` (`include`/`exclude`)\n- Missing dependency \u2014 run `\(add("<package>"))`\n- Path alias mismatch in `tsconfig.json` `paths`\(footer("unresolved-imports"))"
   }),
   (.unlisted_dependencies[]? | (.package_name) as $pkg | .imported_from[]? | {
     type: "other",
     path: (prefix + .path),
     line: .line,
-    body: ":x: **Unlisted dependency**\n\n`\($pkg)` is imported here but not declared in `package.json`. This will fail on a clean install.\n\n```sh\nnpm install \($pkg)\n```\(footer("unlisted-dependencies"))"
+    body: ":x: **Unlisted dependency**\n\n`\($pkg)` is imported here but not declared in `package.json`. This will fail on a clean install.\n\n```sh\n\(add($pkg))\n```\(footer("unlisted-dependencies"))"
   }),
   (.duplicate_exports[]? | .locations as $locs | .locations[0] as $loc | {
     type: "other",
@@ -78,6 +82,6 @@ def footer(rule): "\n\n---\n<sub><a href=\"https://docs.fallow.tools/explanation
     type: "other",
     path: (prefix + .path),
     line: (if .line > 0 then .line else 1 end),
-    body: ":blue_book: **Type-only dependency**\n\n`\(.package_name)` is only used in `import type` statements \u2014 it\u2019s not needed at runtime.\n\n**Action:** Move it to `devDependencies`:\n\n```sh\nnpm install --save-dev \(.package_name) && npm uninstall \(.package_name)\n```\n\n> Publishing a library? If consumers need these types, keep it in `dependencies`.\(footer("type-only-dependencies"))"
+    body: ":blue_book: **Type-only dependency**\n\n`\(.package_name)` is only used in `import type` statements \u2014 it\u2019s not needed at runtime.\n\n**Action:** Move it to `devDependencies`:\n\n```sh\n\(add_dev(.package_name)) && \(remove(.package_name))\n```\n\n> Publishing a library? If consumers need these types, keep it in `dependencies`.\(footer("type-only-dependencies"))"
   })
 ] | .[:($ENV.MAX | tonumber)]
