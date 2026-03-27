@@ -282,4 +282,218 @@ mod tests {
         ));
         assert!(is_known_tooling_dependency("prettier-plugin-tailwindcss"));
     }
+
+    // ── Additional prefix matching ────────────────────────────────
+
+    #[test]
+    fn electron_forge_prefix_matches() {
+        assert!(is_known_tooling_dependency("@electron-forge/cli"));
+        assert!(is_known_tooling_dependency(
+            "@electron-forge/maker-squirrel"
+        ));
+    }
+
+    #[test]
+    fn electron_prefix_matches() {
+        assert!(is_known_tooling_dependency("@electron/rebuild"));
+        assert!(is_known_tooling_dependency("@electron/notarize"));
+    }
+
+    #[test]
+    fn formatjs_prefix_matches() {
+        assert!(is_known_tooling_dependency("@formatjs/cli"));
+        assert!(is_known_tooling_dependency("@formatjs/intl"));
+    }
+
+    #[test]
+    fn rollup_prefix_matches() {
+        assert!(is_known_tooling_dependency("@rollup/plugin-commonjs"));
+        assert!(is_known_tooling_dependency("@rollup/plugin-node-resolve"));
+    }
+
+    #[test]
+    fn semantic_release_prefix_matches() {
+        assert!(is_known_tooling_dependency("@semantic-release/github"));
+        assert!(is_known_tooling_dependency("@semantic-release/npm"));
+        assert!(is_known_tooling_dependency("semantic-release"));
+    }
+
+    #[test]
+    fn release_it_prefix_matches() {
+        assert!(is_known_tooling_dependency(
+            "@release-it/conventional-changelog"
+        ));
+    }
+
+    #[test]
+    fn lerna_lite_prefix_matches() {
+        assert!(is_known_tooling_dependency("@lerna-lite/cli"));
+        assert!(is_known_tooling_dependency("@lerna-lite/publish"));
+    }
+
+    #[test]
+    fn changesets_prefix_matches() {
+        assert!(is_known_tooling_dependency("@changesets/cli"));
+        assert!(is_known_tooling_dependency("@changesets/changelog-github"));
+    }
+
+    #[test]
+    fn graphql_codegen_prefix_matches() {
+        assert!(is_known_tooling_dependency("@graphql-codegen/cli"));
+        assert!(is_known_tooling_dependency(
+            "@graphql-codegen/typescript-operations"
+        ));
+    }
+
+    #[test]
+    fn secretlint_prefix_matches() {
+        assert!(is_known_tooling_dependency("secretlint"));
+        assert!(is_known_tooling_dependency(
+            "@secretlint/secretlint-rule-preset-recommend"
+        ));
+    }
+
+    #[test]
+    fn oxlint_prefix_matches() {
+        assert!(is_known_tooling_dependency("oxlint"));
+    }
+
+    #[test]
+    fn react_native_community_prefix_matches() {
+        assert!(is_known_tooling_dependency("@react-native-community/cli"));
+        assert!(is_known_tooling_dependency(
+            "@react-native-community/cli-platform-android"
+        ));
+    }
+
+    #[test]
+    fn react_native_prefix_matches() {
+        assert!(is_known_tooling_dependency("@react-native/metro-config"));
+        assert!(is_known_tooling_dependency(
+            "@react-native/typescript-config"
+        ));
+    }
+
+    #[test]
+    fn jest_prefix_matches() {
+        assert!(is_known_tooling_dependency("@jest/globals"));
+        assert!(is_known_tooling_dependency("@jest/types"));
+    }
+
+    #[test]
+    fn playwright_prefix_matches() {
+        assert!(is_known_tooling_dependency("@playwright/test"));
+    }
+
+    // ── Additional exact matching ─────────────────────────────────
+
+    #[test]
+    fn exact_rolldown_matches() {
+        assert!(is_known_tooling_dependency("rolldown"));
+        assert!(is_known_tooling_dependency("rolldown-vite"));
+    }
+
+    #[test]
+    fn exact_electron_matches() {
+        assert!(is_known_tooling_dependency("electron"));
+        assert!(is_known_tooling_dependency("electron-builder"));
+        assert!(is_known_tooling_dependency("electron-vite"));
+    }
+
+    #[test]
+    fn exact_sharp_matches() {
+        assert!(is_known_tooling_dependency("sharp"));
+    }
+
+    #[test]
+    fn exact_puppeteer_matches() {
+        assert!(is_known_tooling_dependency("puppeteer"));
+    }
+
+    #[test]
+    fn exact_madge_matches() {
+        assert!(is_known_tooling_dependency("madge"));
+    }
+
+    #[test]
+    fn exact_patch_package_matches() {
+        assert!(is_known_tooling_dependency("patch-package"));
+    }
+
+    #[test]
+    fn exact_nx_matches() {
+        assert!(is_known_tooling_dependency("nx"));
+    }
+
+    #[test]
+    fn exact_vue_tsc_matches() {
+        assert!(is_known_tooling_dependency("vue-tsc"));
+    }
+
+    #[test]
+    fn exact_tsconfig_packages_match() {
+        assert!(is_known_tooling_dependency("@tsconfig/node20"));
+        assert!(is_known_tooling_dependency("@tsconfig/react-native"));
+        assert!(is_known_tooling_dependency("@vue/tsconfig"));
+    }
+
+    #[test]
+    fn exact_vitejs_plugins_match() {
+        assert!(is_known_tooling_dependency("@vitejs/plugin-vue"));
+        assert!(is_known_tooling_dependency("@vitejs/plugin-react"));
+        assert!(is_known_tooling_dependency("@vitejs/plugin-react-swc"));
+        assert!(is_known_tooling_dependency("@vitejs/plugin-legacy"));
+    }
+
+    #[test]
+    fn exact_oxc_transform_matches() {
+        assert!(is_known_tooling_dependency("oxc-transform"));
+    }
+
+    #[test]
+    fn exact_typescript_native_preview_matches() {
+        assert!(is_known_tooling_dependency("@typescript/native-preview"));
+    }
+
+    #[test]
+    fn exact_tw_animate_css_matches() {
+        assert!(is_known_tooling_dependency("tw-animate-css"));
+    }
+
+    #[test]
+    fn exact_manypkg_cli_matches() {
+        assert!(is_known_tooling_dependency("@manypkg/cli"));
+    }
+
+    #[test]
+    fn exact_swc_variants_match() {
+        assert!(is_known_tooling_dependency("@swc/core"));
+        assert!(is_known_tooling_dependency("@swc/jest"));
+    }
+
+    // ── Negative tests for near-misses ────────────────────────────
+
+    #[test]
+    fn runtime_deps_with_similar_names_not_tooling() {
+        // These are NOT tooling — they don't match any prefix or exact entry
+        assert!(!is_known_tooling_dependency("react-scripts"));
+        assert!(!is_known_tooling_dependency("express-validator"));
+        assert!(!is_known_tooling_dependency("sass-loader")); // "sass" is exact, not prefix
+    }
+
+    #[test]
+    fn postcss_prefix_matches_derived_packages() {
+        // "postcss" IS in GENERAL_TOOLING_PREFIXES, so postcss-* matches
+        assert!(is_known_tooling_dependency("postcss-modules"));
+        assert!(is_known_tooling_dependency("postcss-import"));
+    }
+
+    #[test]
+    fn tooling_exact_set_is_deterministic() {
+        // Calling the lazy set multiple times returns the same result
+        let set1 = tooling_exact_set();
+        let set2 = tooling_exact_set();
+        assert_eq!(set1.len(), set2.len());
+        assert!(set1.contains("typescript"));
+    }
 }

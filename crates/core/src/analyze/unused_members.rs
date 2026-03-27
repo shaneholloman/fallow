@@ -661,4 +661,300 @@ mod tests {
         assert_eq!(class_members.len(), 1);
         assert_eq!(class_members[0].member_name, "unusedMethod");
     }
+
+    #[test]
+    fn this_access_does_not_skip_enum_members() {
+        // `this.member` accesses only suppress class members, not enum members.
+        // Enums don't have `this` — this test ensures the check is scoped to class kinds.
+        let mut graph = build_graph(&[("/src/entry.ts", true), ("/src/enums.ts", false)]);
+        graph.modules[1].is_reachable = true;
+        graph.modules[1].exports = vec![make_export_with_members(
+            "Direction",
+            vec![
+                make_member("Up", MemberKind::EnumMember),
+                make_member("Down", MemberKind::EnumMember),
+            ],
+            Some(0),
+        )];
+
+        // File accesses this.Up — but for enum members, this should NOT suppress
+        let resolved_modules = vec![ResolvedModule {
+            file_id: FileId(1),
+            path: PathBuf::from("/src/enums.ts"),
+            exports: vec![],
+            re_exports: vec![],
+            resolved_imports: vec![],
+            resolved_dynamic_imports: vec![],
+            resolved_dynamic_patterns: vec![],
+            member_accesses: vec![MemberAccess {
+                object: "this".to_string(),
+                member: "Up".to_string(),
+            }],
+            whole_object_uses: vec![],
+            has_cjs_exports: false,
+            unused_import_bindings: FxHashSet::default(),
+        }];
+
+        let (enum_members, _) = find_unused_members(
+            &graph,
+            &resolved_modules,
+            &FxHashMap::default(),
+            &FxHashMap::default(),
+        );
+        // Both enum members should be flagged — `this` access doesn't apply to enums
+        assert_eq!(enum_members.len(), 2);
+    }
+
+    #[test]
+    fn mixed_enum_and_class_in_same_module() {
+        let mut graph = build_graph(&[("/src/entry.ts", true), ("/src/mixed.ts", false)]);
+        graph.modules[1].is_reachable = true;
+        graph.modules[1].exports = vec![
+            make_export_with_members(
+                "Status",
+                vec![make_member("Active", MemberKind::EnumMember)],
+                Some(0),
+            ),
+            make_export_with_members(
+                "Service",
+                vec![make_member("doWork", MemberKind::ClassMethod)],
+                Some(0),
+            ),
+        ];
+
+        let (enum_members, class_members) =
+            find_unused_members(&graph, &[], &FxHashMap::default(), &FxHashMap::default());
+        assert_eq!(enum_members.len(), 1);
+        assert_eq!(enum_members[0].parent_name, "Status");
+        assert_eq!(class_members.len(), 1);
+        assert_eq!(class_members[0].parent_name, "Service");
+    }
+
+    #[test]
+    fn local_name_mapped_to_imported_name() {
+        // import { Status as S } from './enums'
+        // S.Active → should map "S" back to "Status" for member access matching
+        let mut graph = build_graph(&[("/src/entry.ts", true), ("/src/enums.ts", false)]);
+        graph.modules[1].is_reachable = true;
+        graph.modules[1].exports = vec![make_export_with_members(
+            "Status",
+            vec![
+                make_member("Active", MemberKind::EnumMember),
+                make_member("Inactive", MemberKind::EnumMember),
+            ],
+            Some(0),
+        )];
+
+        let resolved_modules = vec![ResolvedModule {
+            file_id: FileId(0),
+            path: PathBuf::from("/src/entry.ts"),
+            exports: vec![],
+            re_exports: vec![],
+            resolved_imports: vec![ResolvedImport {
+                info: ImportInfo {
+                    source: "./enums".to_string(),
+                    imported_name: ImportedName::Named("Status".to_string()),
+                    local_name: "S".to_string(), // aliased
+                    is_type_only: false,
+                    span: Span::new(0, 30),
+                    source_span: Span::default(),
+                },
+                target: ResolveResult::InternalModule(FileId(1)),
+            }],
+            resolved_dynamic_imports: vec![],
+            resolved_dynamic_patterns: vec![],
+            member_accesses: vec![MemberAccess {
+                object: "S".to_string(), // uses local alias
+                member: "Active".to_string(),
+            }],
+            whole_object_uses: vec![],
+            has_cjs_exports: false,
+            unused_import_bindings: FxHashSet::default(),
+        }];
+
+        let (enum_members, _) = find_unused_members(
+            &graph,
+            &resolved_modules,
+            &FxHashMap::default(),
+            &FxHashMap::default(),
+        );
+        // S.Active maps back to Status.Active, so only Inactive is unused
+        assert_eq!(enum_members.len(), 1);
+        assert_eq!(enum_members[0].member_name, "Inactive");
+    }
+
+    #[test]
+    fn default_import_maps_to_default_export() {
+        // import MyEnum from './enums' → local "MyEnum", imported "default"
+        let mut graph = build_graph(&[("/src/entry.ts", true), ("/src/enums.ts", false)]);
+        graph.modules[1].is_reachable = true;
+        graph.modules[1].exports = vec![make_export_with_members(
+            "default",
+            vec![
+                make_member("X", MemberKind::EnumMember),
+                make_member("Y", MemberKind::EnumMember),
+            ],
+            Some(0),
+        )];
+
+        let resolved_modules = vec![ResolvedModule {
+            file_id: FileId(0),
+            path: PathBuf::from("/src/entry.ts"),
+            exports: vec![],
+            re_exports: vec![],
+            resolved_imports: vec![ResolvedImport {
+                info: ImportInfo {
+                    source: "./enums".to_string(),
+                    imported_name: ImportedName::Default,
+                    local_name: "MyEnum".to_string(),
+                    is_type_only: false,
+                    span: Span::new(0, 30),
+                    source_span: Span::default(),
+                },
+                target: ResolveResult::InternalModule(FileId(1)),
+            }],
+            resolved_dynamic_imports: vec![],
+            resolved_dynamic_patterns: vec![],
+            member_accesses: vec![MemberAccess {
+                object: "MyEnum".to_string(),
+                member: "X".to_string(),
+            }],
+            whole_object_uses: vec![],
+            has_cjs_exports: false,
+            unused_import_bindings: FxHashSet::default(),
+        }];
+
+        let (enum_members, _) = find_unused_members(
+            &graph,
+            &resolved_modules,
+            &FxHashMap::default(),
+            &FxHashMap::default(),
+        );
+        // MyEnum.X maps to default.X, so only Y is unused
+        assert_eq!(enum_members.len(), 1);
+        assert_eq!(enum_members[0].member_name, "Y");
+    }
+
+    #[test]
+    fn suppressed_enum_member_not_flagged() {
+        use crate::suppress::{IssueKind, Suppression};
+
+        let mut graph = build_graph(&[("/src/entry.ts", true), ("/src/enums.ts", false)]);
+        graph.modules[1].is_reachable = true;
+        graph.modules[1].exports = vec![make_export_with_members(
+            "Status",
+            vec![make_member("Active", MemberKind::EnumMember)],
+            Some(0),
+        )];
+
+        // Suppress on line 1 (byte offset 10 => line 1 with no offsets)
+        let supps = vec![Suppression {
+            line: 1,
+            kind: Some(IssueKind::UnusedEnumMember),
+        }];
+        let mut suppressions: FxHashMap<FileId, &[Suppression]> = FxHashMap::default();
+        suppressions.insert(FileId(1), &supps);
+
+        let (enum_members, _) =
+            find_unused_members(&graph, &[], &suppressions, &FxHashMap::default());
+        assert!(
+            enum_members.is_empty(),
+            "suppressed enum member should not be flagged"
+        );
+    }
+
+    #[test]
+    fn suppressed_class_member_not_flagged() {
+        use crate::suppress::{IssueKind, Suppression};
+
+        let mut graph = build_graph(&[("/src/entry.ts", true), ("/src/service.ts", false)]);
+        graph.modules[1].is_reachable = true;
+        graph.modules[1].exports = vec![make_export_with_members(
+            "Service",
+            vec![make_member("doWork", MemberKind::ClassMethod)],
+            Some(0),
+        )];
+
+        let supps = vec![Suppression {
+            line: 1,
+            kind: Some(IssueKind::UnusedClassMember),
+        }];
+        let mut suppressions: FxHashMap<FileId, &[Suppression]> = FxHashMap::default();
+        suppressions.insert(FileId(1), &supps);
+
+        let (_, class_members) =
+            find_unused_members(&graph, &[], &suppressions, &FxHashMap::default());
+        assert!(
+            class_members.is_empty(),
+            "suppressed class member should not be flagged"
+        );
+    }
+
+    #[test]
+    fn whole_object_use_via_aliased_import() {
+        // import { Status as S } from './enums'
+        // Object.values(S) → should map S back to Status and suppress all members
+        let mut graph = build_graph(&[("/src/entry.ts", true), ("/src/enums.ts", false)]);
+        graph.modules[1].is_reachable = true;
+        graph.modules[1].exports = vec![make_export_with_members(
+            "Status",
+            vec![
+                make_member("A", MemberKind::EnumMember),
+                make_member("B", MemberKind::EnumMember),
+            ],
+            Some(0),
+        )];
+
+        let resolved_modules = vec![ResolvedModule {
+            file_id: FileId(0),
+            path: PathBuf::from("/src/entry.ts"),
+            exports: vec![],
+            re_exports: vec![],
+            resolved_imports: vec![ResolvedImport {
+                info: ImportInfo {
+                    source: "./enums".to_string(),
+                    imported_name: ImportedName::Named("Status".to_string()),
+                    local_name: "S".to_string(),
+                    is_type_only: false,
+                    span: Span::new(0, 30),
+                    source_span: Span::default(),
+                },
+                target: ResolveResult::InternalModule(FileId(1)),
+            }],
+            resolved_dynamic_imports: vec![],
+            resolved_dynamic_patterns: vec![],
+            member_accesses: vec![],
+            whole_object_uses: vec!["S".to_string()], // aliased local name
+            has_cjs_exports: false,
+            unused_import_bindings: FxHashSet::default(),
+        }];
+
+        let (enum_members, _) = find_unused_members(
+            &graph,
+            &resolved_modules,
+            &FxHashMap::default(),
+            &FxHashMap::default(),
+        );
+        // Object.values(S) maps S→Status, so all members of Status should be considered used
+        assert!(
+            enum_members.is_empty(),
+            "whole object use via alias should suppress all members"
+        );
+    }
+
+    #[test]
+    fn export_with_no_members_skipped() {
+        let mut graph = build_graph(&[("/src/entry.ts", true), ("/src/utils.ts", false)]);
+        graph.modules[1].is_reachable = true;
+        graph.modules[1].exports = vec![make_export_with_members(
+            "helper",
+            vec![], // no members
+            Some(0),
+        )];
+
+        let (enum_members, class_members) =
+            find_unused_members(&graph, &[], &FxHashMap::default(), &FxHashMap::default());
+        assert!(enum_members.is_empty());
+        assert!(class_members.is_empty());
+    }
 }

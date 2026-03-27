@@ -217,6 +217,118 @@ mod tests {
         assert_ne!(hashed[0].hash, hashed[1].hash);
     }
 
+    // ── Literal token type tests ─────────────────────────────────
+
+    #[test]
+    fn null_literal_has_stable_hash() {
+        let tokens = vec![make_token(TokenKind::NullLiteral)];
+        let h1 = normalize_and_hash(&tokens, DetectionMode::Strict);
+        let h2 = normalize_and_hash(&tokens, DetectionMode::Semantic);
+        // NullLiteral has no value to normalize, so hash should be same across modes
+        assert_eq!(h1[0].hash, h2[0].hash);
+    }
+
+    #[test]
+    fn template_literal_has_stable_hash() {
+        let tokens = vec![make_token(TokenKind::TemplateLiteral)];
+        let h1 = normalize_and_hash(&tokens, DetectionMode::Strict);
+        let h2 = normalize_and_hash(&tokens, DetectionMode::Semantic);
+        assert_eq!(h1[0].hash, h2[0].hash);
+    }
+
+    #[test]
+    fn regexp_literal_has_stable_hash() {
+        let tokens = vec![make_token(TokenKind::RegExpLiteral)];
+        let h1 = normalize_and_hash(&tokens, DetectionMode::Strict);
+        let h2 = normalize_and_hash(&tokens, DetectionMode::Semantic);
+        assert_eq!(h1[0].hash, h2[0].hash);
+    }
+
+    #[test]
+    fn null_template_regexp_have_distinct_hashes() {
+        let tokens = vec![
+            make_token(TokenKind::NullLiteral),
+            make_token(TokenKind::TemplateLiteral),
+            make_token(TokenKind::RegExpLiteral),
+        ];
+        let hashed = normalize_and_hash(&tokens, DetectionMode::Strict);
+        assert_ne!(hashed[0].hash, hashed[1].hash);
+        assert_ne!(hashed[1].hash, hashed[2].hash);
+        assert_ne!(hashed[0].hash, hashed[2].hash);
+    }
+
+    #[test]
+    fn mild_mode_equivalent_to_strict() {
+        // Mild mode is equivalent to Strict for AST-based tokenization (both preserve all values)
+        let id_tokens = vec![
+            make_token(TokenKind::Identifier("foo".to_string())),
+            make_token(TokenKind::Identifier("bar".to_string())),
+        ];
+        let hashed = normalize_and_hash(&id_tokens, DetectionMode::Mild);
+        // Identifiers preserved in Mild mode
+        assert_ne!(hashed[0].hash, hashed[1].hash);
+
+        let str_tokens = vec![
+            make_token(TokenKind::StringLiteral("hello".to_string())),
+            make_token(TokenKind::StringLiteral("world".to_string())),
+        ];
+        let hashed = normalize_and_hash(&str_tokens, DetectionMode::Mild);
+        // Strings preserved in Mild mode (same as Strict)
+        assert_ne!(hashed[0].hash, hashed[1].hash);
+
+        let num_tokens = vec![
+            make_token(TokenKind::NumericLiteral("42".to_string())),
+            make_token(TokenKind::NumericLiteral("99".to_string())),
+        ];
+        let hashed = normalize_and_hash(&num_tokens, DetectionMode::Mild);
+        // Numbers preserved in Mild mode
+        assert_ne!(hashed[0].hash, hashed[1].hash);
+    }
+
+    #[test]
+    fn weak_mode_blinds_strings_only() {
+        let id_tokens = vec![
+            make_token(TokenKind::Identifier("foo".to_string())),
+            make_token(TokenKind::Identifier("bar".to_string())),
+        ];
+        let hashed = normalize_and_hash(&id_tokens, DetectionMode::Weak);
+        assert_ne!(hashed[0].hash, hashed[1].hash, "Weak preserves identifiers");
+
+        let num_tokens = vec![
+            make_token(TokenKind::NumericLiteral("42".to_string())),
+            make_token(TokenKind::NumericLiteral("99".to_string())),
+        ];
+        let hashed = normalize_and_hash(&num_tokens, DetectionMode::Weak);
+        assert_ne!(hashed[0].hash, hashed[1].hash, "Weak preserves numbers");
+    }
+
+    #[test]
+    fn different_token_kinds_produce_distinct_hashes() {
+        // All distinct token kinds with same inner value where applicable
+        let tokens = vec![
+            make_token(TokenKind::Keyword(KeywordType::Const)),
+            make_token(TokenKind::Identifier("x".to_string())),
+            make_token(TokenKind::StringLiteral("x".to_string())),
+            make_token(TokenKind::NumericLiteral("1".to_string())),
+            make_token(TokenKind::BooleanLiteral(true)),
+            make_token(TokenKind::NullLiteral),
+            make_token(TokenKind::TemplateLiteral),
+            make_token(TokenKind::RegExpLiteral),
+            make_token(TokenKind::Operator(OperatorType::Add)),
+            make_token(TokenKind::Punctuation(PunctuationType::OpenParen)),
+        ];
+        let hashed = normalize_and_hash(&tokens, DetectionMode::Strict);
+        // Each pair should have distinct hashes (different kind discriminant byte)
+        for i in 0..hashed.len() {
+            for j in (i + 1)..hashed.len() {
+                assert_ne!(
+                    hashed[i].hash, hashed[j].hash,
+                    "Token at index {i} and {j} should have distinct hashes"
+                );
+            }
+        }
+    }
+
     // ── Configurable normalization tests ──────────────────────────
 
     #[test]

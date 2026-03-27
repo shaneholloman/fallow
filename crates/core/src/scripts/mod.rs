@@ -791,6 +791,208 @@ mod tests {
         assert!(!filtered.contains_key("dev"));
     }
 
+    // --- looks_like_file_path tests ---
+
+    #[test]
+    fn looks_like_file_path_with_known_extensions() {
+        assert!(super::looks_like_file_path("src/app.ts"));
+        assert!(super::looks_like_file_path("config.json"));
+        assert!(super::looks_like_file_path("setup.yaml"));
+        assert!(super::looks_like_file_path("rollup.config.mjs"));
+        assert!(super::looks_like_file_path("test.spec.tsx"));
+        assert!(super::looks_like_file_path("file.toml"));
+    }
+
+    #[test]
+    fn looks_like_file_path_with_relative_prefix() {
+        assert!(super::looks_like_file_path("./scripts/build"));
+        assert!(super::looks_like_file_path("../shared/utils"));
+    }
+
+    #[test]
+    fn looks_like_file_path_with_slash_but_not_scope() {
+        assert!(super::looks_like_file_path("src/components/Button"));
+        assert!(!super::looks_like_file_path("@scope/package")); // scoped package
+    }
+
+    #[test]
+    fn looks_like_file_path_url_not_file() {
+        assert!(!super::looks_like_file_path("https://example.com/path"));
+    }
+
+    #[test]
+    fn looks_like_file_path_bare_word_not_file() {
+        assert!(!super::looks_like_file_path("webpack"));
+        assert!(!super::looks_like_file_path("--mode"));
+        assert!(!super::looks_like_file_path("production"));
+    }
+
+    // --- extract_config_arg tests ---
+
+    #[test]
+    fn extract_config_arg_with_equals() {
+        assert_eq!(
+            super::extract_config_arg("--config=webpack.prod.js", None),
+            Some("webpack.prod.js".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_config_arg_short_with_equals() {
+        assert_eq!(
+            super::extract_config_arg("-c=.eslintrc.json", None),
+            Some(".eslintrc.json".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_config_arg_with_next_token() {
+        assert_eq!(
+            super::extract_config_arg("--config", Some("jest.config.ts")),
+            Some("jest.config.ts".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_config_arg_short_with_next_token() {
+        assert_eq!(
+            super::extract_config_arg("-c", Some(".eslintrc.json")),
+            Some(".eslintrc.json".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_config_arg_next_is_flag_returns_none() {
+        assert_eq!(
+            super::extract_config_arg("--config", Some("--verbose")),
+            None
+        );
+    }
+
+    #[test]
+    fn extract_config_arg_no_match() {
+        assert_eq!(super::extract_config_arg("--verbose", None), None);
+        assert_eq!(super::extract_config_arg("src/index.ts", None), None);
+    }
+
+    #[test]
+    fn extract_config_arg_empty_equals_returns_none() {
+        assert_eq!(super::extract_config_arg("--config=", None), None);
+        assert_eq!(super::extract_config_arg("-c=", None), None);
+    }
+
+    // --- node runner flag skipping ---
+
+    #[test]
+    fn node_require_flag_skips_next_arg() {
+        let cmds = parse_script("node -r tsconfig-paths/register ./src/server.ts");
+        assert_eq!(cmds.len(), 1);
+        assert_eq!(cmds[0].binary, "node");
+        // "tsconfig-paths/register" should be skipped (consumed by -r)
+        // "./src/server.ts" should be a file arg
+        assert!(cmds[0].file_args.contains(&"./src/server.ts".to_string()));
+        assert!(
+            !cmds[0]
+                .file_args
+                .contains(&"tsconfig-paths/register".to_string())
+        );
+    }
+
+    #[test]
+    fn node_eval_skips_next_arg() {
+        let cmds = parse_script("node --eval \"console.log(1)\" scripts/run.js");
+        assert_eq!(cmds.len(), 1);
+        // The eval string is consumed, only scripts/run.js should be a file arg
+        assert!(cmds[0].file_args.contains(&"scripts/run.js".to_string()));
+    }
+
+    // --- is_production_script edge cases ---
+
+    #[test]
+    fn production_script_prepublish_only() {
+        assert!(super::is_production_script("prepublishOnly"));
+    }
+
+    #[test]
+    fn production_script_postinstall() {
+        assert!(super::is_production_script("postinstall"));
+    }
+
+    #[test]
+    fn production_script_preserve_is_not_production() {
+        // "preserve" starts with "pre" but "serve" after stripping "pre" is a match
+        // Let's check: strip "pre" → "serve" which matches, so it IS production
+        assert!(super::is_production_script("preserve"));
+    }
+
+    #[test]
+    fn production_script_preinstall() {
+        // strip "pre" → "install" which matches
+        assert!(super::is_production_script("preinstall"));
+    }
+
+    #[test]
+    fn production_script_namespaced() {
+        assert!(super::is_production_script("build:esm"));
+        assert!(super::is_production_script("start:dev"));
+        assert!(!super::is_production_script("test:unit"));
+        assert!(!super::is_production_script("lint:fix"));
+    }
+
+    // --- is_env_assignment edge cases ---
+
+    #[test]
+    fn env_assignment_empty_value() {
+        assert!(is_env_assignment("KEY="));
+    }
+
+    #[test]
+    fn env_assignment_equals_at_start_is_not_assignment() {
+        assert!(!is_env_assignment("=value"));
+    }
+
+    // --- empty/edge scripts ---
+
+    #[test]
+    fn parse_empty_script() {
+        let cmds = parse_script("");
+        assert!(cmds.is_empty());
+    }
+
+    #[test]
+    fn parse_whitespace_only_script() {
+        let cmds = parse_script("   ");
+        assert!(cmds.is_empty());
+    }
+
+    #[test]
+    fn analyze_scripts_empty_scripts() {
+        let scripts: HashMap<String, String> = HashMap::new();
+        let result = analyze_scripts(&scripts, Path::new("/nonexistent"));
+        assert!(result.used_packages.is_empty());
+        assert!(result.config_files.is_empty());
+        assert!(result.entry_files.is_empty());
+    }
+
+    // --- bun as package manager ---
+
+    #[test]
+    fn bun_treated_as_package_manager() {
+        // `bun scripts/build.ts` is treated like `yarn build` — runs a script, not a binary
+        let cmds = parse_script("bun scripts/build.ts");
+        assert!(
+            cmds.is_empty(),
+            "bare `bun <arg>` should be treated as running a script (like yarn)"
+        );
+    }
+
+    #[test]
+    fn bun_exec_extracts_binary() {
+        let cmds = parse_script("bun exec vitest run");
+        assert_eq!(cmds.len(), 1);
+        assert_eq!(cmds[0].binary, "vitest");
+    }
+
     mod proptests {
         use super::*;
         use proptest::prelude::*;

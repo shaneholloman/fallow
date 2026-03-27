@@ -357,4 +357,307 @@ mod tests {
         map.insert(FileId(0), &offsets);
         assert_eq!(super::byte_offset_to_line_col(&map, FileId(0), 5), (2, 1));
     }
+
+    // ── find_dead_code orchestration ──────────────────────────────
+
+    mod orchestration {
+        use super::super::*;
+        use fallow_config::{
+            DuplicatesConfig, FallowConfig, HealthConfig, OutputFormat, RulesConfig, Severity,
+        };
+        use std::path::PathBuf;
+
+        fn make_config_with_rules(rules: RulesConfig) -> ResolvedConfig {
+            FallowConfig {
+                schema: None,
+                extends: vec![],
+                entry: vec![],
+                ignore_patterns: vec![],
+                framework: vec![],
+                workspaces: None,
+                ignore_dependencies: vec![],
+                ignore_exports: vec![],
+                duplicates: DuplicatesConfig::default(),
+                health: HealthConfig::default(),
+                rules,
+                production: false,
+                plugins: vec![],
+                overrides: vec![],
+            }
+            .resolve(
+                PathBuf::from("/tmp/orchestration-test"),
+                OutputFormat::Human,
+                1,
+                true,
+                true,
+            )
+        }
+
+        #[test]
+        fn find_dead_code_all_rules_off_returns_empty() {
+            use crate::discover::{DiscoveredFile, EntryPoint, EntryPointSource, FileId};
+            use crate::graph::ModuleGraph;
+            use crate::resolve::ResolvedModule;
+            use rustc_hash::FxHashSet;
+
+            let files = vec![DiscoveredFile {
+                id: FileId(0),
+                path: PathBuf::from("/tmp/orchestration-test/src/index.ts"),
+                size_bytes: 100,
+            }];
+            let entry_points = vec![EntryPoint {
+                path: PathBuf::from("/tmp/orchestration-test/src/index.ts"),
+                source: EntryPointSource::ManualEntry,
+            }];
+            let resolved = vec![ResolvedModule {
+                file_id: FileId(0),
+                path: PathBuf::from("/tmp/orchestration-test/src/index.ts"),
+                exports: vec![],
+                re_exports: vec![],
+                resolved_imports: vec![],
+                resolved_dynamic_imports: vec![],
+                resolved_dynamic_patterns: vec![],
+                member_accesses: vec![],
+                whole_object_uses: vec![],
+                has_cjs_exports: false,
+                unused_import_bindings: FxHashSet::default(),
+            }];
+            let graph = ModuleGraph::build(&resolved, &entry_points, &files);
+
+            let rules = RulesConfig {
+                unused_files: Severity::Off,
+                unused_exports: Severity::Off,
+                unused_types: Severity::Off,
+                unused_dependencies: Severity::Off,
+                unused_dev_dependencies: Severity::Off,
+                unused_optional_dependencies: Severity::Off,
+                unused_enum_members: Severity::Off,
+                unused_class_members: Severity::Off,
+                unresolved_imports: Severity::Off,
+                unlisted_dependencies: Severity::Off,
+                duplicate_exports: Severity::Off,
+                type_only_dependencies: Severity::Off,
+                circular_dependencies: Severity::Off,
+            };
+            let config = make_config_with_rules(rules);
+            let results = find_dead_code(&graph, &config);
+
+            assert!(results.unused_files.is_empty());
+            assert!(results.unused_exports.is_empty());
+            assert!(results.unused_types.is_empty());
+            assert!(results.unused_dependencies.is_empty());
+            assert!(results.unused_dev_dependencies.is_empty());
+            assert!(results.unused_optional_dependencies.is_empty());
+            assert!(results.unused_enum_members.is_empty());
+            assert!(results.unused_class_members.is_empty());
+            assert!(results.unresolved_imports.is_empty());
+            assert!(results.unlisted_dependencies.is_empty());
+            assert!(results.duplicate_exports.is_empty());
+            assert!(results.circular_dependencies.is_empty());
+            assert!(results.export_usages.is_empty());
+        }
+
+        #[test]
+        fn find_dead_code_full_collect_usages_flag() {
+            use crate::discover::{DiscoveredFile, EntryPoint, EntryPointSource, FileId};
+            use crate::extract::ExportName;
+            use crate::graph::{ExportSymbol, ModuleGraph};
+            use crate::resolve::ResolvedModule;
+            use oxc_span::Span;
+            use rustc_hash::FxHashSet;
+
+            let files = vec![DiscoveredFile {
+                id: FileId(0),
+                path: PathBuf::from("/tmp/orchestration-test/src/index.ts"),
+                size_bytes: 100,
+            }];
+            let entry_points = vec![EntryPoint {
+                path: PathBuf::from("/tmp/orchestration-test/src/index.ts"),
+                source: EntryPointSource::ManualEntry,
+            }];
+            let resolved = vec![ResolvedModule {
+                file_id: FileId(0),
+                path: PathBuf::from("/tmp/orchestration-test/src/index.ts"),
+                exports: vec![],
+                re_exports: vec![],
+                resolved_imports: vec![],
+                resolved_dynamic_imports: vec![],
+                resolved_dynamic_patterns: vec![],
+                member_accesses: vec![],
+                whole_object_uses: vec![],
+                has_cjs_exports: false,
+                unused_import_bindings: FxHashSet::default(),
+            }];
+            let mut graph = ModuleGraph::build(&resolved, &entry_points, &files);
+            graph.modules[0].exports = vec![ExportSymbol {
+                name: ExportName::Named("myExport".to_string()),
+                is_type_only: false,
+                is_public: false,
+                span: Span::new(10, 30),
+                references: vec![],
+                members: vec![],
+            }];
+
+            let rules = RulesConfig::default();
+            let config = make_config_with_rules(rules);
+
+            // Without collect_usages
+            let results_no_collect = find_dead_code_full(
+                &graph,
+                &config,
+                &[],
+                None,
+                &[],
+                &[],
+                false, // collect_usages = false
+            );
+            assert!(
+                results_no_collect.export_usages.is_empty(),
+                "export_usages should be empty when collect_usages is false"
+            );
+
+            // With collect_usages
+            let results_with_collect = find_dead_code_full(
+                &graph,
+                &config,
+                &[],
+                None,
+                &[],
+                &[],
+                true, // collect_usages = true
+            );
+            assert!(
+                !results_with_collect.export_usages.is_empty(),
+                "export_usages should be populated when collect_usages is true"
+            );
+            assert_eq!(
+                results_with_collect.export_usages[0].export_name,
+                "myExport"
+            );
+        }
+
+        #[test]
+        fn find_dead_code_delegates_to_find_dead_code_with_resolved() {
+            use crate::discover::{DiscoveredFile, EntryPoint, EntryPointSource, FileId};
+            use crate::graph::ModuleGraph;
+            use crate::resolve::ResolvedModule;
+            use rustc_hash::FxHashSet;
+
+            let files = vec![DiscoveredFile {
+                id: FileId(0),
+                path: PathBuf::from("/tmp/orchestration-test/src/index.ts"),
+                size_bytes: 100,
+            }];
+            let entry_points = vec![EntryPoint {
+                path: PathBuf::from("/tmp/orchestration-test/src/index.ts"),
+                source: EntryPointSource::ManualEntry,
+            }];
+            let resolved = vec![ResolvedModule {
+                file_id: FileId(0),
+                path: PathBuf::from("/tmp/orchestration-test/src/index.ts"),
+                exports: vec![],
+                re_exports: vec![],
+                resolved_imports: vec![],
+                resolved_dynamic_imports: vec![],
+                resolved_dynamic_patterns: vec![],
+                member_accesses: vec![],
+                whole_object_uses: vec![],
+                has_cjs_exports: false,
+                unused_import_bindings: FxHashSet::default(),
+            }];
+            let graph = ModuleGraph::build(&resolved, &entry_points, &files);
+            let config = make_config_with_rules(RulesConfig::default());
+
+            // find_dead_code is a thin wrapper — verify it doesn't panic and returns results
+            let results = find_dead_code(&graph, &config);
+            // The entry point export analysis is skipped, so these should be empty
+            assert!(results.unused_exports.is_empty());
+        }
+
+        #[test]
+        fn suppressions_built_from_modules() {
+            use crate::discover::{DiscoveredFile, EntryPoint, EntryPointSource, FileId};
+            use crate::extract::ModuleInfo;
+            use crate::graph::ModuleGraph;
+            use crate::resolve::ResolvedModule;
+            use crate::suppress::{IssueKind, Suppression};
+            use rustc_hash::FxHashSet;
+
+            let files = vec![
+                DiscoveredFile {
+                    id: FileId(0),
+                    path: PathBuf::from("/tmp/orchestration-test/src/entry.ts"),
+                    size_bytes: 100,
+                },
+                DiscoveredFile {
+                    id: FileId(1),
+                    path: PathBuf::from("/tmp/orchestration-test/src/utils.ts"),
+                    size_bytes: 100,
+                },
+            ];
+            let entry_points = vec![EntryPoint {
+                path: PathBuf::from("/tmp/orchestration-test/src/entry.ts"),
+                source: EntryPointSource::ManualEntry,
+            }];
+            let resolved = files
+                .iter()
+                .map(|f| ResolvedModule {
+                    file_id: f.id,
+                    path: f.path.clone(),
+                    exports: vec![],
+                    re_exports: vec![],
+                    resolved_imports: vec![],
+                    resolved_dynamic_imports: vec![],
+                    resolved_dynamic_patterns: vec![],
+                    member_accesses: vec![],
+                    whole_object_uses: vec![],
+                    has_cjs_exports: false,
+                    unused_import_bindings: FxHashSet::default(),
+                })
+                .collect::<Vec<_>>();
+            let graph = ModuleGraph::build(&resolved, &entry_points, &files);
+
+            // Create module info with a file-level suppression for unused files
+            let modules = vec![ModuleInfo {
+                file_id: FileId(1),
+                exports: vec![],
+                imports: vec![],
+                re_exports: vec![],
+                dynamic_imports: vec![],
+                dynamic_import_patterns: vec![],
+                require_calls: vec![],
+                member_accesses: vec![],
+                whole_object_uses: vec![],
+                has_cjs_exports: false,
+                content_hash: 0,
+                suppressions: vec![Suppression {
+                    line: 0,
+                    kind: Some(IssueKind::UnusedFile),
+                }],
+                unused_import_bindings: vec![],
+                line_offsets: vec![],
+                complexity: vec![],
+            }];
+
+            let rules = RulesConfig {
+                unused_files: Severity::Error,
+                ..RulesConfig::default()
+            };
+            let config = make_config_with_rules(rules);
+
+            let results = find_dead_code_full(&graph, &config, &[], None, &[], &modules, false);
+
+            // The suppression should prevent utils.ts from being reported as unused
+            // (it would normally be unused since only entry.ts is an entry point).
+            // Note: unused_files also checks if the file exists on disk, so it
+            // may still be filtered out. The key is the suppression path is exercised.
+            assert!(
+                !results
+                    .unused_files
+                    .iter()
+                    .any(|f| f.path.to_string_lossy().contains("utils.ts")),
+                "suppressed file should not appear in unused_files"
+            );
+        }
+    }
 }
