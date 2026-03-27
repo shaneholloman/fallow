@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "FallowConfig",
-  "description": "User-facing configuration loaded from `.fallowrc.json` or `fallow.toml`.",
+  "description": "User-facing configuration loaded from `.fallowrc.json` or `fallow.toml`.\n\n# Examples\n\n```\nuse fallow_config::FallowConfig;\n\n// Default config has sensible defaults\nlet config = FallowConfig::default();\nassert!(config.entry.is_empty());\nassert!(!config.production);\n\n// Deserialize from JSON\nlet config: FallowConfig = serde_json::from_str(r#\"{\n    \"entry\": [\"src/main.ts\"],\n    \"production\": true\n}\"#).unwrap();\nassert_eq!(config.entry, vec![\"src/main.ts\"]);\nassert!(config.production);\n```",
   "type": "object",
   "properties": {
     "extends": {

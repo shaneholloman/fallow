@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.1] - 2026-03-27
+
+### Added
+
+- **Comprehensive test coverage** — 1,200+ new tests across all crates bringing total to 4,700+ unit/integration tests, 101 snapshot tests, 30 property-based tests, 14 doc tests, and 7 conformance fixtures, achieving 91% line coverage
+- **CJS `module.exports.foo` detection** — individual property assignments like `module.exports.foo = fn` are now extracted as named exports, closing ~60 missed findings on CJS-heavy projects
+- **Conformance test harness** — `tests/conformance/verify-fixtures.sh` and `verify-expected.py` provide automated expected-output verification for 7 analysis scenarios (barrel resolution, circular deps, suppression, type-only imports, and more)
+
+### Fixed
+
+- **Unreachable module export blindspot** — modules not reachable from entry points but containing a mix of used/unused exports were previously skipped entirely; now each export is evaluated individually
+- **Dead test file removed** — `unused_exports_tests.rs` (924 lines) was never compiled due to a missing module directive and contained a type mismatch; inline tests already covered all cases
+
 ## [2.3.0] - 2026-03-27
 
 ### Added
@@ -533,7 +546,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--changed-since` and `--fail-on-issues` for CI
 - Cross-workspace resolution for npm/yarn/pnpm workspaces
 
-[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.2.1...HEAD
+[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.3.1...HEAD
+[2.3.1]: https://github.com/fallow-rs/fallow/compare/v2.3.0...v2.3.1
+[2.3.0]: https://github.com/fallow-rs/fallow/compare/v2.2.3...v2.3.0
+[2.2.3]: https://github.com/fallow-rs/fallow/compare/v2.2.1...v2.2.3
 [2.2.1]: https://github.com/fallow-rs/fallow/compare/v2.2.0...v2.2.1
 [2.2.0]: https://github.com/fallow-rs/fallow/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/fallow-rs/fallow/compare/v2.0.1...v2.1.0
