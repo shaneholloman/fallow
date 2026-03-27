@@ -7,8 +7,11 @@ expression: json_str
     "type": "issue",
     "check_name": "fallow/unused-dev-dependency",
     "description": "Package 'jest' is in devDependencies but never imported",
+    "categories": [
+      "Bug Risk"
+    ],
     "severity": "major",
-    "fingerprint": "fallow/unused-dev-dependency:package.json:12",
+    "fingerprint": "0a6f69176391810d",
     "location": {
       "path": "package.json",
       "lines": {

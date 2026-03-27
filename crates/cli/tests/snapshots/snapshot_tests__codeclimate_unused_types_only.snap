@@ -7,8 +7,11 @@ expression: json_str
     "type": "issue",
     "check_name": "fallow/unused-type",
     "description": "Type export 'OldType' is never imported by other modules",
+    "categories": [
+      "Bug Risk"
+    ],
     "severity": "major",
-    "fingerprint": "fallow/unused-type:src/types.ts:5",
+    "fingerprint": "70129604df6adaf0",
     "location": {
       "path": "src/types.ts",
       "lines": {

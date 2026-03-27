@@ -7,8 +7,11 @@ expression: json_str
     "type": "issue",
     "check_name": "fallow/unused-class-member",
     "description": "Class member 'UserService.legacyMethod' is never referenced",
+    "categories": [
+      "Bug Risk"
+    ],
     "severity": "major",
-    "fingerprint": "fallow/unused-class-member:src/service.ts:42",
+    "fingerprint": "2ca79023e7a41930",
     "location": {
       "path": "src/service.ts",
       "lines": {

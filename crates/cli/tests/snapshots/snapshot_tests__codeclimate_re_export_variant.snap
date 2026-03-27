@@ -7,8 +7,11 @@ expression: json_str
     "type": "issue",
     "check_name": "fallow/unused-export",
     "description": "Re-export 'reExported' is never imported by other modules",
+    "categories": [
+      "Bug Risk"
+    ],
     "severity": "major",
-    "fingerprint": "fallow/unused-export:src/index.ts:1",
+    "fingerprint": "855fead6db8e0871",
     "location": {
       "path": "src/index.ts",
       "lines": {

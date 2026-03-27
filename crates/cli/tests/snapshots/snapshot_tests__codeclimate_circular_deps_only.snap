@@ -7,8 +7,11 @@ expression: json_str
     "type": "issue",
     "check_name": "fallow/circular-dependency",
     "description": "Circular dependency: src/a.ts → src/b.ts",
+    "categories": [
+      "Bug Risk"
+    ],
     "severity": "major",
-    "fingerprint": "fallow/circular-dependency:src/a.ts:3",
+    "fingerprint": "9c9054f3055939fb",
     "location": {
       "path": "src/a.ts",
       "lines": {

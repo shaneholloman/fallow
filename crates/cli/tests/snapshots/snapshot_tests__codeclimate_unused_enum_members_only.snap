@@ -7,8 +7,11 @@ expression: json_str
     "type": "issue",
     "check_name": "fallow/unused-enum-member",
     "description": "Enum member 'Status.Deprecated' is never referenced",
+    "categories": [
+      "Bug Risk"
+    ],
     "severity": "major",
-    "fingerprint": "fallow/unused-enum-member:src/enums.ts:8",
+    "fingerprint": "a2666411f17dc9d4",
     "location": {
       "path": "src/enums.ts",
       "lines": {

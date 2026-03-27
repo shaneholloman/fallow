@@ -7,8 +7,11 @@ expression: json_str
     "type": "issue",
     "check_name": "fallow/unused-file",
     "description": "File is not reachable from any entry point",
+    "categories": [
+      "Bug Risk"
+    ],
     "severity": "major",
-    "fingerprint": "fallow/unused-file:src/dead.ts",
+    "fingerprint": "c4d5d570389b6321",
     "location": {
       "path": "src/dead.ts",
       "lines": {
@@ -20,8 +23,11 @@ expression: json_str
     "type": "issue",
     "check_name": "fallow/unused-export",
     "description": "Export 'helperFn' is never imported by other modules",
+    "categories": [
+      "Bug Risk"
+    ],
     "severity": "minor",
-    "fingerprint": "fallow/unused-export:src/utils.ts:10",
+    "fingerprint": "1d25c1dfe1837da4",
     "location": {
       "path": "src/utils.ts",
       "lines": {
@@ -33,8 +39,11 @@ expression: json_str
     "type": "issue",
     "check_name": "fallow/unused-type",
     "description": "Type export 'OldType' is never imported by other modules",
+    "categories": [
+      "Bug Risk"
+    ],
     "severity": "minor",
-    "fingerprint": "fallow/unused-type:src/types.ts:5",
+    "fingerprint": "70129604df6adaf0",
     "location": {
       "path": "src/types.ts",
       "lines": {
@@ -46,8 +55,11 @@ expression: json_str
     "type": "issue",
     "check_name": "fallow/unused-dependency",
     "description": "Package 'lodash' is in dependencies but never imported",
+    "categories": [
+      "Bug Risk"
+    ],
     "severity": "major",
-    "fingerprint": "fallow/unused-dependency:package.json:5",
+    "fingerprint": "565a703b90e29ab5",
     "location": {
       "path": "package.json",
       "lines": {
@@ -59,8 +71,11 @@ expression: json_str
     "type": "issue",
     "check_name": "fallow/unused-dev-dependency",
     "description": "Package 'jest' is in devDependencies but never imported",
+    "categories": [
+      "Bug Risk"
+    ],
     "severity": "minor",
-    "fingerprint": "fallow/unused-dev-dependency:package.json:5",
+    "fingerprint": "0a6f69176391810d",
     "location": {
       "path": "package.json",
       "lines": {
@@ -72,8 +87,11 @@ expression: json_str
     "type": "issue",
     "check_name": "fallow/unused-optional-dependency",
     "description": "Package 'fsevents' is in optionalDependencies but never imported",
+    "categories": [
+      "Bug Risk"
+    ],
     "severity": "minor",
-    "fingerprint": "fallow/unused-optional-dependency:package.json:5",
+    "fingerprint": "5c890a87a0ad36a9",
     "location": {
       "path": "package.json",
       "lines": {
@@ -85,8 +103,11 @@ expression: json_str
     "type": "issue",
     "check_name": "fallow/type-only-dependency",
     "description": "Package 'zod' is only imported via type-only imports (consider moving to devDependencies)",
+    "categories": [
+      "Bug Risk"
+    ],
     "severity": "minor",
-    "fingerprint": "fallow/type-only-dependency:package.json:8",
+    "fingerprint": "ce7c5c861453f2d2",
     "location": {
       "path": "package.json",
       "lines": {
@@ -98,8 +119,11 @@ expression: json_str
     "type": "issue",
     "check_name": "fallow/unused-enum-member",
     "description": "Enum member 'Status.Deprecated' is never referenced",
+    "categories": [
+      "Bug Risk"
+    ],
     "severity": "minor",
-    "fingerprint": "fallow/unused-enum-member:src/enums.ts:8",
+    "fingerprint": "a2666411f17dc9d4",
     "location": {
       "path": "src/enums.ts",
       "lines": {
@@ -111,8 +135,11 @@ expression: json_str
     "type": "issue",
     "check_name": "fallow/unused-class-member",
     "description": "Class member 'UserService.legacyMethod' is never referenced",
+    "categories": [
+      "Bug Risk"
+    ],
     "severity": "minor",
-    "fingerprint": "fallow/unused-class-member:src/service.ts:42",
+    "fingerprint": "2ca79023e7a41930",
     "location": {
       "path": "src/service.ts",
       "lines": {
@@ -124,8 +151,11 @@ expression: json_str
     "type": "issue",
     "check_name": "fallow/unresolved-import",
     "description": "Import './missing-module' could not be resolved",
+    "categories": [
+      "Bug Risk"
+    ],
     "severity": "major",
-    "fingerprint": "fallow/unresolved-import:src/app.ts:3",
+    "fingerprint": "58fddadd09f5631f",
     "location": {
       "path": "src/app.ts",
       "lines": {
@@ -137,8 +167,11 @@ expression: json_str
     "type": "issue",
     "check_name": "fallow/unlisted-dependency",
     "description": "Package 'chalk' is imported but not listed in package.json",
+    "categories": [
+      "Bug Risk"
+    ],
     "severity": "major",
-    "fingerprint": "fallow/unlisted-dependency:src/cli.ts:2",
+    "fingerprint": "ec112dff06d36cce",
     "location": {
       "path": "src/cli.ts",
       "lines": {
@@ -150,8 +183,11 @@ expression: json_str
     "type": "issue",
     "check_name": "fallow/duplicate-export",
     "description": "Export 'Config' appears in multiple modules",
+    "categories": [
+      "Bug Risk"
+    ],
     "severity": "minor",
-    "fingerprint": "fallow/duplicate-export:src/config.ts:15",
+    "fingerprint": "059e550191b06ac6",
     "location": {
       "path": "src/config.ts",
       "lines": {
@@ -163,8 +199,11 @@ expression: json_str
     "type": "issue",
     "check_name": "fallow/duplicate-export",
     "description": "Export 'Config' appears in multiple modules",
+    "categories": [
+      "Bug Risk"
+    ],
     "severity": "minor",
-    "fingerprint": "fallow/duplicate-export:src/types.ts:30",
+    "fingerprint": "298ba9d90b56a182",
     "location": {
       "path": "src/types.ts",
       "lines": {
@@ -176,8 +215,11 @@ expression: json_str
     "type": "issue",
     "check_name": "fallow/circular-dependency",
     "description": "Circular dependency: src/a.ts → src/b.ts",
+    "categories": [
+      "Bug Risk"
+    ],
     "severity": "minor",
-    "fingerprint": "fallow/circular-dependency:src/a.ts:3",
+    "fingerprint": "9c9054f3055939fb",
     "location": {
       "path": "src/a.ts",
       "lines": {

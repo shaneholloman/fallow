@@ -7,8 +7,11 @@ expression: json_str
     "type": "issue",
     "check_name": "fallow/type-only-dependency",
     "description": "Package 'zod' is only imported via type-only imports (consider moving to devDependencies)",
+    "categories": [
+      "Bug Risk"
+    ],
     "severity": "minor",
-    "fingerprint": "fallow/type-only-dependency:package.json:8",
+    "fingerprint": "ce7c5c861453f2d2",
     "location": {
       "path": "package.json",
       "lines": {

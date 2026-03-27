@@ -7,8 +7,11 @@ expression: json_str
     "type": "issue",
     "check_name": "fallow/unresolved-import",
     "description": "Import './missing' could not be resolved",
+    "categories": [
+      "Bug Risk"
+    ],
     "severity": "major",
-    "fingerprint": "fallow/unresolved-import:src/index.ts:3",
+    "fingerprint": "202fe99ed82ba9cd",
     "location": {
       "path": "src/index.ts",
       "lines": {

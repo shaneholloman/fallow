@@ -7,8 +7,11 @@ expression: json_str
     "type": "issue",
     "check_name": "fallow/unused-export",
     "description": "Export 'helperFn' is never imported by other modules",
+    "categories": [
+      "Bug Risk"
+    ],
     "severity": "major",
-    "fingerprint": "fallow/unused-export:src/utils.ts:10",
+    "fingerprint": "1d25c1dfe1837da4",
     "location": {
       "path": "src/utils.ts",
       "lines": {

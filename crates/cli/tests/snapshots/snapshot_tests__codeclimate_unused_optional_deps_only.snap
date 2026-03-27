@@ -7,8 +7,11 @@ expression: json_str
     "type": "issue",
     "check_name": "fallow/unused-optional-dependency",
     "description": "Package 'fsevents' is in optionalDependencies but never imported",
+    "categories": [
+      "Bug Risk"
+    ],
     "severity": "major",
-    "fingerprint": "fallow/unused-optional-dependency:package.json:5",
+    "fingerprint": "5c890a87a0ad36a9",
     "location": {
       "path": "package.json",
       "lines": {

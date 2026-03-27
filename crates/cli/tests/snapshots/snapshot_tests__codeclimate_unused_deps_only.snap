@@ -7,8 +7,11 @@ expression: json_str
     "type": "issue",
     "check_name": "fallow/unused-dependency",
     "description": "Package 'lodash' is in dependencies but never imported",
+    "categories": [
+      "Bug Risk"
+    ],
     "severity": "major",
-    "fingerprint": "fallow/unused-dependency:package.json:5",
+    "fingerprint": "565a703b90e29ab5",
     "location": {
       "path": "package.json",
       "lines": {

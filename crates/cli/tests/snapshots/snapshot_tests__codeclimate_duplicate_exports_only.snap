@@ -7,8 +7,11 @@ expression: json_str
     "type": "issue",
     "check_name": "fallow/duplicate-export",
     "description": "Export 'Config' appears in multiple modules",
+    "categories": [
+      "Bug Risk"
+    ],
     "severity": "major",
-    "fingerprint": "fallow/duplicate-export:src/config.ts:15",
+    "fingerprint": "059e550191b06ac6",
     "location": {
       "path": "src/config.ts",
       "lines": {
@@ -20,8 +23,11 @@ expression: json_str
     "type": "issue",
     "check_name": "fallow/duplicate-export",
     "description": "Export 'Config' appears in multiple modules",
+    "categories": [
+      "Bug Risk"
+    ],
     "severity": "major",
-    "fingerprint": "fallow/duplicate-export:src/types.ts:30",
+    "fingerprint": "298ba9d90b56a182",
     "location": {
       "path": "src/types.ts",
       "lines": {
