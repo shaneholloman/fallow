@@ -94,7 +94,7 @@ mod tests {
             );
         }
         assert_eq!(IssueKind::from_discriminant(0), None);
-        assert_eq!(IssueKind::from_discriminant(14), None);
+        assert_eq!(IssueKind::from_discriminant(15), None);
     }
 
     #[test]
