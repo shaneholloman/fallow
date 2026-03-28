@@ -2340,8 +2340,9 @@ fn type_only_import_with_at_types_package_not_unlisted() {
 }
 
 #[test]
-fn value_import_with_at_types_package_still_unlisted() {
-    // `import { something } from 'geojson'` (value import) with only @types/geojson
+fn value_import_with_at_types_package_not_unlisted() {
+    // `import { Feature } from 'geojson'` (value import syntax) with @types/geojson in devDeps.
+    // TypeScript resolves types from @types/ and erases the import — the bare package is not needed.
     let (graph, resolved_modules) = build_graph_with_npm_imports(&[("geojson", false)]);
     let pkg = make_pkg(&[], &["@types/geojson"], &[]);
     let config = test_config(PathBuf::from("/project"));
@@ -2358,35 +2359,8 @@ fn value_import_with_at_types_package_still_unlisted() {
     );
 
     assert!(
-        unlisted.iter().any(|d| d.package_name == "geojson"),
-        "value import should still be flagged — @types/geojson only satisfies type-only imports"
-    );
-}
-
-#[test]
-fn same_file_mixed_type_and_value_import_with_at_types_still_unlisted() {
-    // Same file has both `import type { Feature } from 'geojson'` (type-only)
-    // AND `import { parse } from 'geojson'` (value) — should still be flagged.
-    // This tests the length-based check vs contains-based (which would miss this).
-    let (graph, resolved_modules) =
-        build_graph_with_npm_imports(&[("geojson", true), ("geojson", false)]);
-    let pkg = make_pkg(&[], &["@types/geojson"], &[]);
-    let config = test_config(PathBuf::from("/project"));
-    let line_offsets: LineOffsetsMap<'_> = FxHashMap::default();
-
-    let unlisted = find_unlisted_dependencies(
-        &graph,
-        &pkg,
-        &config,
-        &[],
-        None,
-        &resolved_modules,
-        &line_offsets,
-    );
-
-    assert!(
-        unlisted.iter().any(|d| d.package_name == "geojson"),
-        "same-file mixed imports should still flag — value import needs the real package"
+        !unlisted.iter().any(|d| d.package_name == "geojson"),
+        "import from 'geojson' should not be flagged when @types/geojson is listed"
     );
 }
 
@@ -2415,76 +2389,11 @@ fn scoped_type_only_import_with_at_types_package_not_unlisted() {
 }
 
 #[test]
-fn mixed_type_and_value_imports_with_at_types_still_unlisted() {
-    // Both type-only and value imports of the same package
-    let files = vec![
-        DiscoveredFile {
-            id: FileId(0),
-            path: PathBuf::from("/project/src/types.ts"),
-            size_bytes: 100,
-        },
-        DiscoveredFile {
-            id: FileId(1),
-            path: PathBuf::from("/project/src/runtime.ts"),
-            size_bytes: 100,
-        },
-    ];
-
-    let entry_points = vec![EntryPoint {
-        path: PathBuf::from("/project/src/types.ts"),
-        source: EntryPointSource::PackageJsonMain,
-    }];
-
-    let resolved_modules = vec![
-        ResolvedModule {
-            file_id: FileId(0),
-            path: PathBuf::from("/project/src/types.ts"),
-            exports: vec![],
-            re_exports: vec![],
-            resolved_imports: vec![ResolvedImport {
-                info: ImportInfo {
-                    source: "geojson".to_string(),
-                    imported_name: ImportedName::Named("Feature".to_string()),
-                    local_name: "Feature".to_string(),
-                    is_type_only: true,
-                    span: oxc_span::Span::new(0, 15),
-                    source_span: oxc_span::Span::default(),
-                },
-                target: ResolveResult::NpmPackage("geojson".to_string()),
-            }],
-            resolved_dynamic_imports: vec![],
-            resolved_dynamic_patterns: vec![],
-            member_accesses: vec![],
-            whole_object_uses: vec![],
-            has_cjs_exports: false,
-            unused_import_bindings: FxHashSet::default(),
-        },
-        ResolvedModule {
-            file_id: FileId(1),
-            path: PathBuf::from("/project/src/runtime.ts"),
-            exports: vec![],
-            re_exports: vec![],
-            resolved_imports: vec![ResolvedImport {
-                info: ImportInfo {
-                    source: "geojson".to_string(),
-                    imported_name: ImportedName::Named("parse".to_string()),
-                    local_name: "parse".to_string(),
-                    is_type_only: false,
-                    span: oxc_span::Span::new(0, 15),
-                    source_span: oxc_span::Span::default(),
-                },
-                target: ResolveResult::NpmPackage("geojson".to_string()),
-            }],
-            resolved_dynamic_imports: vec![],
-            resolved_dynamic_patterns: vec![],
-            member_accesses: vec![],
-            whole_object_uses: vec![],
-            has_cjs_exports: false,
-            unused_import_bindings: FxHashSet::default(),
-        },
-    ];
-
-    let graph = ModuleGraph::build(&resolved_modules, &entry_points, &files);
+fn at_types_without_bare_package_suppresses_regardless_of_import_style() {
+    // `import { Feature } from 'geojson'` + `import type { Point } from 'geojson'`
+    // with only @types/geojson — suppressed because @types/ presence means types-only usage
+    let (graph, resolved_modules) =
+        build_graph_with_npm_imports(&[("geojson", false), ("geojson", true)]);
     let pkg = make_pkg(&[], &["@types/geojson"], &[]);
     let config = test_config(PathBuf::from("/project"));
     let line_offsets: LineOffsetsMap<'_> = FxHashMap::default();
@@ -2500,7 +2409,31 @@ fn mixed_type_and_value_imports_with_at_types_still_unlisted() {
     );
 
     assert!(
-        unlisted.iter().any(|d| d.package_name == "geojson"),
-        "mixed type/value imports should still flag the package — value imports need the real package"
+        !unlisted.iter().any(|d| d.package_name == "geojson"),
+        "@types/geojson listed — geojson should not be flagged regardless of import style"
+    );
+}
+
+#[test]
+fn no_at_types_still_flags_unlisted() {
+    // `import { axios } from 'axios'` with NO @types/axios — still flagged
+    let (graph, resolved_modules) = build_graph_with_npm_imports(&[("axios", false)]);
+    let pkg = make_pkg(&[], &[], &[]);
+    let config = test_config(PathBuf::from("/project"));
+    let line_offsets: LineOffsetsMap<'_> = FxHashMap::default();
+
+    let unlisted = find_unlisted_dependencies(
+        &graph,
+        &pkg,
+        &config,
+        &[],
+        None,
+        &resolved_modules,
+        &line_offsets,
+    );
+
+    assert!(
+        unlisted.iter().any(|d| d.package_name == "axios"),
+        "no @types/axios listed — axios should be flagged as unlisted"
     );
 }

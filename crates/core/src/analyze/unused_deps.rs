@@ -443,35 +443,22 @@ pub fn is_package_listed_for_file(
         .any(|(ws_root, ws_deps)| file_path.starts_with(ws_root) && ws_deps.contains(package_name))
 }
 
-/// Check if a package is only imported via type-only imports and has a corresponding
-/// `@types/<package>` listed in dependencies. TypeScript erases type-only imports at
-/// compile time, so the bare package doesn't need to be installed.
+/// Check if a corresponding `@types/<package>` is listed in dependencies.
+///
+/// When `@types/X` is installed but `X` itself is not, the dependency is used for types
+/// only (e.g., `@types/geojson` for `import { Feature } from 'geojson'`). TypeScript
+/// resolves types from `@types/X` automatically, and the import is erased at compile time
+/// regardless of whether it uses the `import type` syntax.
 ///
 /// For scoped packages like `@scope/pkg`, the DefinitelyTyped convention is `@types/scope__pkg`.
-fn is_type_only_with_types_package(
-    package_name: &str,
-    file_ids: &[FileId],
-    graph: &crate::graph::ModuleGraph,
-    all_workspace_deps: &FxHashSet<String>,
-) -> bool {
+fn has_types_package(package_name: &str, all_workspace_deps: &FxHashSet<String>) -> bool {
     let types_name = if let Some(scoped) = package_name.strip_prefix('@') {
         // @scope/pkg -> @types/scope__pkg
         format!("@types/{}", scoped.replacen('/', "__", 1))
     } else {
         format!("@types/{package_name}")
     };
-    if !all_workspace_deps.contains(&types_name) {
-        return false;
-    }
-    // Verify ALL imports of this package are type-only.
-    // Both vecs have one entry per import (not per file), so equal length means
-    // every import was type-only. Contains-based checks would miss same-file
-    // mixed imports (e.g., `import type { X }` + `import { Y }` from same file).
-    let type_only_ids = graph.type_only_package_usage.get(package_name);
-    match type_only_ids {
-        Some(to_ids) => file_ids.len() == to_ids.len(),
-        None => false,
-    }
+    all_workspace_deps.contains(&types_name)
 }
 
 /// Look up the import location (line, col) for a given package in a given file.
@@ -585,9 +572,9 @@ pub fn find_unlisted_dependencies(
         if all_workspace_deps.contains(package_name) {
             continue;
         }
-        // Type-only imports satisfied by @types/<package> in devDependencies don't need
-        // the bare package listed — TypeScript erases these imports at compile time.
-        if is_type_only_with_types_package(package_name, file_ids, graph, &all_workspace_deps) {
+        // When @types/<package> is listed, the bare package is used for types only —
+        // TypeScript resolves types from @types/ and erases the import at compile time.
+        if has_types_package(package_name, &all_workspace_deps) {
             continue;
         }
 
