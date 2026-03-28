@@ -89,12 +89,13 @@ fn exceeds_threshold(threshold: f64, duplication_percentage: f64) -> bool {
 fn filter_by_changed_files(
     report: &mut fallow_core::duplicates::DuplicationReport,
     changed: &rustc_hash::FxHashSet<std::path::PathBuf>,
+    root: &std::path::Path,
 ) {
     report
         .clone_groups
         .retain(|g| g.instances.iter().any(|i| changed.contains(&i.file)));
     report.clone_families =
-        fallow_core::duplicates::families::group_into_families(&report.clone_groups);
+        fallow_core::duplicates::families::group_into_families(&report.clone_groups, root);
     report.stats = recompute_stats(report);
 }
 
@@ -197,14 +198,16 @@ pub fn execute_dupes(opts: &DupesOptions<'_>) -> Result<DupesResult, ExitCode> {
     if let Some(git_ref) = opts.changed_since
         && let Some(changed) = get_changed_files(opts.root, git_ref)
     {
-        filter_by_changed_files(&mut report, &changed);
+        filter_by_changed_files(&mut report, &changed, &config.root);
     }
 
     // Apply --top
     if let Some(n) = opts.top {
         report.clone_groups.truncate(n);
-        report.clone_families =
-            fallow_core::duplicates::families::group_into_families(&report.clone_groups);
+        report.clone_families = fallow_core::duplicates::families::group_into_families(
+            &report.clone_groups,
+            &config.root,
+        );
     }
 
     let elapsed = start.elapsed();
@@ -755,7 +758,7 @@ mod tests {
         let changed: rustc_hash::FxHashSet<PathBuf> =
             std::iter::once(PathBuf::from("src/a.ts")).collect();
 
-        filter_by_changed_files(&mut report, &changed);
+        filter_by_changed_files(&mut report, &changed, Path::new(""));
 
         assert_eq!(report.clone_groups.len(), 1);
         assert_eq!(
@@ -776,7 +779,7 @@ mod tests {
         let changed: rustc_hash::FxHashSet<PathBuf> =
             std::iter::once(PathBuf::from("src/c.ts")).collect();
 
-        filter_by_changed_files(&mut report, &changed);
+        filter_by_changed_files(&mut report, &changed, Path::new(""));
 
         assert!(report.clone_groups.is_empty());
     }
@@ -799,7 +802,7 @@ mod tests {
         let changed: rustc_hash::FxHashSet<PathBuf> =
             std::iter::once(PathBuf::from("src/a.ts")).collect();
 
-        filter_by_changed_files(&mut report, &changed);
+        filter_by_changed_files(&mut report, &changed, Path::new(""));
 
         assert_eq!(report.clone_groups.len(), 1);
         // The retained group should be the one containing a.ts
@@ -821,7 +824,7 @@ mod tests {
         let mut report = make_report(vec![group], 10, 1000);
         let changed: rustc_hash::FxHashSet<PathBuf> = rustc_hash::FxHashSet::default();
 
-        filter_by_changed_files(&mut report, &changed);
+        filter_by_changed_files(&mut report, &changed, Path::new(""));
 
         assert!(report.clone_groups.is_empty());
     }
@@ -888,7 +891,7 @@ mod tests {
         let changed: rustc_hash::FxHashSet<PathBuf> =
             std::iter::once(PathBuf::from("src/x.ts")).collect();
 
-        filter_by_changed_files(&mut report, &changed);
+        filter_by_changed_files(&mut report, &changed, Path::new(""));
 
         // All groups filtered out, stats should reflect that
         assert_eq!(report.stats.clone_groups, 0);

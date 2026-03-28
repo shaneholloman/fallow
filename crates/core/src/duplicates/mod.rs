@@ -131,7 +131,7 @@ pub fn find_duplicates(
     }
 
     // Step 6: Group into families with refactoring suggestions
-    report.clone_families = families::group_into_families(&report.clone_groups);
+    report.clone_families = families::group_into_families(&report.clone_groups, root);
 
     report
 }

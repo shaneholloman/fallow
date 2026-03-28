@@ -380,7 +380,7 @@ pub fn filter_new_clone_groups(
 
     // Re-generate families from the filtered groups
     report.clone_families =
-        fallow_core::duplicates::families::group_into_families(&report.clone_groups);
+        fallow_core::duplicates::families::group_into_families(&report.clone_groups, root);
 
     // Re-compute stats for the filtered groups
     report.stats = recompute_stats(&report);

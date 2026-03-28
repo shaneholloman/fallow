@@ -5,7 +5,7 @@
 //! indicating a deeper structural relationship that should be refactored together.
 
 use std::collections::BTreeSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use super::types::{CloneFamily, CloneGroup, RefactoringKind, RefactoringSuggestion};
 
@@ -16,7 +16,7 @@ const MODULE_EXTRACTION_THRESHOLD: usize = 50;
 ///
 /// Each family contains all clone groups that are duplicated across exactly the
 /// same set of files. Families are sorted by total duplicated lines (descending).
-pub fn group_into_families(clone_groups: &[CloneGroup]) -> Vec<CloneFamily> {
+pub fn group_into_families(clone_groups: &[CloneGroup], root: &Path) -> Vec<CloneFamily> {
     if clone_groups.is_empty() {
         return Vec::new();
     }
@@ -40,7 +40,8 @@ pub fn group_into_families(clone_groups: &[CloneGroup]) -> Vec<CloneFamily> {
         .map(|(file_set, groups)| {
             let total_duplicated_lines: usize = groups.iter().map(|g| g.line_count).sum();
             let total_duplicated_tokens: usize = groups.iter().map(|g| g.token_count).sum();
-            let suggestions = generate_suggestions(&file_set, &groups, total_duplicated_lines);
+            let suggestions =
+                generate_suggestions(&file_set, &groups, total_duplicated_lines, root);
 
             CloneFamily {
                 files: file_set.into_iter().collect(),
@@ -67,6 +68,7 @@ fn generate_suggestions(
     file_set: &BTreeSet<PathBuf>,
     groups: &[CloneGroup],
     total_duplicated_lines: usize,
+    root: &Path,
 ) -> Vec<RefactoringSuggestion> {
     let mut suggestions = Vec::new();
 
@@ -89,7 +91,14 @@ fn generate_suggestions(
         } else {
             directories.iter().next().map_or_else(
                 || "the same directory".to_string(),
-                |d| format!("{}", d.display()),
+                |d| {
+                    let rel = d.strip_prefix(root).unwrap_or(d);
+                    if rel.as_os_str().is_empty() {
+                        "the project root".to_string()
+                    } else {
+                        format!("{}", rel.display())
+                    }
+                },
             )
         };
 
@@ -152,9 +161,13 @@ mod tests {
         }
     }
 
+    fn root() -> PathBuf {
+        PathBuf::from("")
+    }
+
     #[test]
     fn empty_groups_produce_no_families() {
-        assert!(group_into_families(&[]).is_empty());
+        assert!(group_into_families(&[], &root()).is_empty());
     }
 
     #[test]
@@ -165,7 +178,7 @@ mod tests {
             line_count: 10,
         }];
 
-        let families = group_into_families(&groups);
+        let families = group_into_families(&groups, &root());
         assert_eq!(families.len(), 1);
         assert_eq!(families[0].groups.len(), 1);
         assert_eq!(families[0].files.len(), 2);
@@ -187,7 +200,7 @@ mod tests {
             },
         ];
 
-        let families = group_into_families(&groups);
+        let families = group_into_families(&groups, &root());
         assert_eq!(families.len(), 1);
         assert_eq!(families[0].groups.len(), 2);
         assert_eq!(families[0].total_duplicated_lines, 21);
@@ -208,7 +221,7 @@ mod tests {
             },
         ];
 
-        let families = group_into_families(&groups);
+        let families = group_into_families(&groups, &root());
         assert_eq!(families.len(), 2);
     }
 
@@ -227,7 +240,7 @@ mod tests {
             },
         ];
 
-        let families = group_into_families(&groups);
+        let families = group_into_families(&groups, &root());
         assert_eq!(families.len(), 2);
         assert_eq!(families[0].total_duplicated_lines, 20);
         assert_eq!(families[1].total_duplicated_lines, 5);
@@ -248,7 +261,7 @@ mod tests {
             },
         ];
 
-        let families = group_into_families(&groups);
+        let families = group_into_families(&groups, &root());
         assert_eq!(families.len(), 1);
         assert!(!families[0].suggestions.is_empty());
         assert_eq!(
@@ -265,7 +278,7 @@ mod tests {
             line_count: 10,
         }];
 
-        let families = group_into_families(&groups);
+        let families = group_into_families(&groups, &root());
         assert_eq!(families.len(), 1);
         assert!(!families[0].suggestions.is_empty());
         assert_eq!(
@@ -286,7 +299,7 @@ mod tests {
             line_count: 10,
         }];
 
-        let families = group_into_families(&groups);
+        let families = group_into_families(&groups, &root());
         assert_eq!(families.len(), 1);
         // 3 instances, line_count = 10, savings = 10 * (3 - 1) = 20
         assert_eq!(families[0].suggestions[0].estimated_savings, 20);
@@ -308,7 +321,7 @@ mod tests {
             },
         ];
 
-        let families = group_into_families(&groups);
+        let families = group_into_families(&groups, &root());
         assert_eq!(families.len(), 1);
         // Total savings: 30 * (2 - 1) + 26 * (2 - 1) = 56
         assert_eq!(families[0].suggestions[0].estimated_savings, 56);
@@ -336,7 +349,7 @@ mod tests {
             },
         ];
 
-        let families = group_into_families(&groups);
+        let families = group_into_families(&groups, &root());
         assert_eq!(families.len(), 1);
         assert_eq!(
             families[0].suggestions[0].kind,
@@ -367,7 +380,7 @@ mod tests {
             },
         ];
 
-        let families = group_into_families(&groups);
+        let families = group_into_families(&groups, &root());
         assert_eq!(families.len(), 1);
         assert!(
             families[0].suggestions[0]
@@ -392,7 +405,7 @@ mod tests {
             },
         ];
 
-        let families = group_into_families(&groups);
+        let families = group_into_families(&groups, &root());
         assert_eq!(families.len(), 1);
         assert_eq!(families[0].total_duplicated_tokens, 75);
     }
@@ -412,7 +425,7 @@ mod tests {
             },
         ];
 
-        let families = group_into_families(&groups);
+        let families = group_into_families(&groups, &root());
         // Total lines = 10 + 11 = 21 < 50, so each group gets a function suggestion
         assert_eq!(families.len(), 1);
         assert_eq!(families[0].suggestions.len(), 2);
@@ -434,9 +447,44 @@ mod tests {
             line_count: 10,
         }];
 
-        let families = group_into_families(&groups);
+        let families = group_into_families(&groups, &root());
         assert_eq!(families.len(), 1);
         // savings = 10 * (1 - 1) = 0
         assert_eq!(families[0].suggestions[0].estimated_savings, 0);
+    }
+
+    #[test]
+    fn absolute_paths_get_relativized_in_location_hint() {
+        let groups = vec![
+            CloneGroup {
+                instances: vec![
+                    instance("/home/user/project/src/utils/a.ts", 1, 30),
+                    instance("/home/user/project/src/utils/b.ts", 1, 30),
+                ],
+                token_count: 100,
+                line_count: 30,
+            },
+            CloneGroup {
+                instances: vec![
+                    instance("/home/user/project/src/utils/a.ts", 40, 65),
+                    instance("/home/user/project/src/utils/b.ts", 40, 65),
+                ],
+                token_count: 80,
+                line_count: 26,
+            },
+        ];
+
+        let root = PathBuf::from("/home/user/project");
+        let families = group_into_families(&groups, &root);
+        assert_eq!(families.len(), 1);
+        let desc = &families[0].suggestions[0].description;
+        assert!(
+            desc.contains("src/utils"),
+            "Should contain relative path, got: {desc}"
+        );
+        assert!(
+            !desc.contains("/home/user/project"),
+            "Should not contain absolute root path, got: {desc}"
+        );
     }
 }
