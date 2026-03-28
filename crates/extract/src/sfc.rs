@@ -390,9 +390,10 @@ import { ref } from 'vue';
         assert!(scripts[0].src.is_none());
     }
 
-    // ── Multiple script blocks: exports from both ───────────────
+    // ── Full parse tests (Oxc parser ~1000x slower under Miri) ──
 
     #[test]
+    #[cfg(not(miri))]
     fn multiple_script_blocks_exports_combined() {
         let source = r#"
 <script lang="ts">
@@ -449,6 +450,7 @@ const count = ref(0);
     // ── <script src="..."> generates side-effect import ─────────
 
     #[test]
+    #[cfg(not(miri))]
     fn script_src_generates_side_effect_import() {
         let info = parse_sfc_to_module(
             FileId(0),
@@ -467,6 +469,7 @@ const count = ref(0);
     // ── Additional coverage ─────────────────────────────────────
 
     #[test]
+    #[cfg(not(miri))]
     fn parse_sfc_no_script_returns_empty_module() {
         let info = parse_sfc_to_module(FileId(0), "<template><div>Hello</div></template>", 42);
         assert!(info.imports.is_empty());
@@ -476,12 +479,14 @@ const count = ref(0);
     }
 
     #[test]
+    #[cfg(not(miri))]
     fn parse_sfc_has_line_offsets() {
         let info = parse_sfc_to_module(FileId(0), r#"<script lang="ts">const x = 1;</script>"#, 0);
         assert!(!info.line_offsets.is_empty());
     }
 
     #[test]
+    #[cfg(not(miri))]
     fn parse_sfc_has_suppressions() {
         let info = parse_sfc_to_module(
             FileId(0),

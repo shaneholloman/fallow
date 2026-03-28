@@ -328,9 +328,10 @@ mod tests {
         assert_eq!(result.lines().count(), 2);
     }
 
-    // ── parse_mdx_to_module edge cases ───────────────────────────
+    // ── Full parse tests (Oxc parser ~1000x slower under Miri) ──
 
     #[test]
+    #[cfg(not(miri))]
     fn mdx_empty_source_returns_empty_module() {
         let info = parse_mdx_to_module(fallow_types::discover::FileId(0), "", 0);
         assert!(info.imports.is_empty());
@@ -338,6 +339,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(miri))]
     fn mdx_only_prose_returns_empty_module() {
         let info = parse_mdx_to_module(
             fallow_types::discover::FileId(0),
