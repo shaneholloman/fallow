@@ -72,6 +72,10 @@ fn build_json_envelope(report_value: serde_json::Value, elapsed: Duration) -> se
 ///
 /// Metadata fields (`schema_version`, `version`, `elapsed_ms`, `total_issues`)
 /// appear first in the output for readability. Paths are made relative to `root`.
+///
+/// # Errors
+///
+/// Returns an error if the results cannot be serialized to JSON.
 pub fn build_json(
     results: &AnalysisResults,
     root: &Path,

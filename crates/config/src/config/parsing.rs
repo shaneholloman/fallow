@@ -178,20 +178,6 @@ impl FallowConfig {
         })
     }
 
-    /// Find and load config from the current directory or ancestors.
-    ///
-    /// Checks for config files in priority order:
-    /// `.fallowrc.json` > `fallow.toml` > `.fallow.toml`
-    ///
-    /// Stops searching at the first directory containing `.git` or `package.json`,
-    /// to avoid picking up unrelated config files above the project root.
-    ///
-    /// Returns `Ok(Some(...))` if a config was found and parsed, `Ok(None)` if
-    /// no config file exists, and `Err(...)` if a config file exists but fails to parse.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error string when a discovered config file exists but fails to load.
     /// Find the config file path without loading it.
     /// Searches the same locations as `find_and_load`.
     #[must_use]
@@ -212,6 +198,11 @@ impl FallowConfig {
         None
     }
 
+    /// Find and load config, searching from `start` up to the project root.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a config file is found but cannot be read or parsed.
     pub fn find_and_load(start: &Path) -> Result<Option<(Self, PathBuf)>, String> {
         let mut dir = start;
         loop {

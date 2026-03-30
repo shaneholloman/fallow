@@ -17,6 +17,11 @@ pub enum Tolerance {
 impl Tolerance {
     /// Parse a tolerance string: `"2%"` for percentage, `"5"` for absolute.
     /// Default when no value is given: `Absolute(0)` (zero tolerance).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the string is not a valid number or percentage,
+    /// or if a percentage value is negative.
     pub fn parse(s: &str) -> Result<Self, String> {
         let s = s.trim();
         if s.is_empty() {
@@ -403,6 +408,10 @@ fn current_git_sha(root: &Path) -> Option<String> {
 }
 
 /// Save the current analysis results as a regression baseline.
+///
+/// # Errors
+///
+/// Returns an error if the baseline cannot be serialized or written to disk.
 pub fn save_regression_baseline(
     path: &Path,
     root: &Path,
@@ -447,6 +456,10 @@ pub fn save_regression_baseline(
 /// Reads the existing config, adds/updates the `regression.baseline` section,
 /// and writes it back. For JSONC files, comments are preserved using a targeted
 /// insertion/replacement strategy.
+///
+/// # Errors
+///
+/// Returns an error if the config file cannot be read, updated, or written back.
 pub fn save_baseline_to_config(config_path: &Path, counts: &CheckCounts) -> Result<(), ExitCode> {
     // If the config file doesn't exist yet, create a minimal one
     let content = match std::fs::read_to_string(config_path) {
@@ -696,6 +709,10 @@ fn update_toml_regression(content: &str, baseline: &fallow_config::RegressionBas
 }
 
 /// Load a regression baseline from disk.
+///
+/// # Errors
+///
+/// Returns an error if the file does not exist, cannot be read, or contains invalid JSON.
 pub fn load_regression_baseline(path: &Path) -> Result<RegressionBaseline, ExitCode> {
     let content = std::fs::read_to_string(path).map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
@@ -727,6 +744,11 @@ pub fn load_regression_baseline(path: &Path) -> Result<RegressionBaseline, ExitC
 /// 1. Explicit file via `--regression-baseline <PATH>`
 /// 2. Config-embedded `regression.baseline` section
 /// 3. Error with actionable message
+///
+/// # Errors
+///
+/// Returns an error if the baseline file cannot be loaded, is missing check data,
+/// or no baseline source is available.
 pub fn compare_check_regression(
     results: &AnalysisResults,
     opts: &RegressionOpts<'_>,

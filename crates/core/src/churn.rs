@@ -75,7 +75,10 @@ pub struct ChurnResult {
 /// - Durations: `6m`, `6months`, `90d`, `90days`, `1y`, `1year`, `2w`, `2weeks`
 /// - ISO dates: `2025-06-01`
 ///
-/// Returns an error for unrecognized formats.
+/// # Errors
+///
+/// Returns an error if the input is not a recognized duration format or ISO date,
+/// the numeric part is invalid, or the duration is zero.
 pub fn parse_since(input: &str) -> Result<SinceDuration, String> {
     // Try ISO date first (YYYY-MM-DD)
     if is_iso_date(input) {

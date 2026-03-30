@@ -73,18 +73,30 @@ fn file_mtime_and_size(path: &std::path::Path) -> (u64, u64) {
 }
 
 /// Run the full analysis pipeline.
+///
+/// # Errors
+///
+/// Returns an error if file discovery, parsing, or analysis fails.
 pub fn analyze(config: &ResolvedConfig) -> Result<AnalysisResults, FallowError> {
     let output = analyze_full(config, false, false)?;
     Ok(output.results)
 }
 
 /// Run the full analysis pipeline with export usage collection (for LSP Code Lens).
+///
+/// # Errors
+///
+/// Returns an error if file discovery, parsing, or analysis fails.
 pub fn analyze_with_usages(config: &ResolvedConfig) -> Result<AnalysisResults, FallowError> {
     let output = analyze_full(config, false, true)?;
     Ok(output.results)
 }
 
 /// Run the full analysis pipeline with optional performance timings and graph retention.
+///
+/// # Errors
+///
+/// Returns an error if file discovery, parsing, or analysis fails.
 pub fn analyze_with_trace(config: &ResolvedConfig) -> Result<AnalysisOutput, FallowError> {
     analyze_full(config, true, false)
 }
@@ -95,6 +107,10 @@ pub fn analyze_with_trace(config: &ResolvedConfig) -> Result<AnalysisOutput, Fal
 /// `fallow_core::extract::parse_all_files`). Discovery, plugins, scripts, entry points,
 /// import resolution, graph construction, and dead code detection still run normally.
 /// The graph is always retained (needed for file scores).
+///
+/// # Errors
+///
+/// Returns an error if discovery, graph construction, or analysis fails.
 pub fn analyze_with_parse_result(
     config: &ResolvedConfig,
     modules: &[extract::ModuleInfo],
@@ -662,6 +678,10 @@ fn run_plugins(
 }
 
 /// Run analysis on a project directory (with export usages for LSP Code Lens).
+///
+/// # Errors
+///
+/// Returns an error if config loading, file discovery, parsing, or analysis fails.
 pub fn analyze_project(root: &Path) -> Result<AnalysisResults, FallowError> {
     let config = default_config(root);
     analyze_with_usages(&config)
