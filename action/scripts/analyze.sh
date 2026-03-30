@@ -11,7 +11,7 @@ set -o pipefail
 #   INPUT_CROSS_LANGUAGE, INPUT_DRY_RUN, INPUT_WORKSPACE, INPUT_MAX_CYCLOMATIC,
 #   INPUT_MAX_COGNITIVE, INPUT_TOP, INPUT_SORT, INPUT_FILE_SCORES, INPUT_HOTSPOTS,
 #   INPUT_TARGETS, INPUT_COMPLEXITY, INPUT_SINCE, INPUT_MIN_COMMITS,
-#   INPUT_SAVE_SNAPSHOT, INPUT_ISSUE_TYPES, INPUT_NO_CACHE, INPUT_THREADS,
+#   INPUT_SAVE_SNAPSHOT, INPUT_TREND, INPUT_ISSUE_TYPES, INPUT_NO_CACHE, INPUT_THREADS,
 #   INPUT_ONLY, INPUT_SKIP
 
 # --- Shared argument building functions ---
@@ -85,6 +85,7 @@ build_command_args() {
           ARGS+=(--save-snapshot "$INPUT_SAVE_SNAPSHOT")
         fi
       fi
+      [ "${INPUT_TREND:-}" = "true" ] && ARGS+=(--trend)
       ;;
     fix)
       if [ "${INPUT_DRY_RUN:-}" = "true" ]; then

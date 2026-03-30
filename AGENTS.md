@@ -172,6 +172,7 @@ fallow health --format json --quiet --targets
 - `--since <DURATION>` -- git history window for hotspot analysis (default: 6m). Accepts durations (6m, 90d, 1y, 2w) or ISO dates (2025-06-01).
 - `--min-commits <N>` -- minimum commits for a file to appear in hotspot ranking (default: 3)
 - `--save-snapshot [PATH]` -- save vital signs snapshot for trend tracking. Defaults to `.fallow/snapshots/<timestamp>.json`. Forces file-scores + hotspot computation.
+- `--trend` -- compare current metrics against the most recent saved snapshot. Shows per-metric deltas with directional indicators (improving/declining/stable). Implies `--score`. Reads from `.fallow/snapshots/`. JSON output includes a `health_trend` object with `compared_to`, `metrics` array, `snapshots_loaded`, and `overall_direction`.
 - `--format human|json|compact|markdown|sarif` -- output format (default: human)
 
 **Exit codes:** 0 = no functions exceed thresholds, 1 = findings exist.

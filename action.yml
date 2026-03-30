@@ -135,6 +135,9 @@ inputs:
   save-snapshot:
     description: 'Save vital signs snapshot for trend tracking. Provide a path or leave empty for default (health command)'
     required: false
+  trend:
+    description: 'Compare current metrics against the most recent saved snapshot and show per-metric deltas (health command)'
+    required: false
   # Check-specific inputs
   issue-types:
     description: 'Comma-separated issue types to report (dead-code command). Valid: unused-files, unused-exports, unused-types, unused-deps, unused-enum-members, unused-class-members, unresolved-imports, unlisted-deps, duplicate-exports, circular-deps'
@@ -238,6 +241,7 @@ runs:
         INPUT_SINCE: ${{ inputs.since }}
         INPUT_MIN_COMMITS: ${{ inputs.min-commits }}
         INPUT_SAVE_SNAPSHOT: ${{ inputs.save-snapshot }}
+        INPUT_TREND: ${{ inputs.trend }}
         INPUT_ISSUE_TYPES: ${{ inputs.issue-types }}
         INPUT_FAIL_ON_REGRESSION: ${{ inputs.fail-on-regression }}
         INPUT_TOLERANCE: ${{ inputs.tolerance }}

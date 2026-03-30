@@ -7,8 +7,9 @@
 use std::path::{Path, PathBuf};
 
 use crate::health_types::{
-    FileHealthScore, HOTSPOT_SCORE_THRESHOLD, HealthScore, HealthScorePenalties, HotspotEntry,
-    SNAPSHOT_SCHEMA_VERSION, VitalSigns, VitalSignsCounts, VitalSignsSnapshot, letter_grade,
+    FileHealthScore, HOTSPOT_SCORE_THRESHOLD, HealthScore, HealthScorePenalties, HealthTrend,
+    HotspotEntry, SNAPSHOT_SCHEMA_VERSION, TrendCount, TrendDirection, TrendMetric, TrendPoint,
+    VitalSigns, VitalSignsCounts, VitalSignsSnapshot, letter_grade,
 };
 
 /// Data sources for computing vital signs.
@@ -348,6 +349,272 @@ pub fn save_snapshot(
     std::fs::write(&path, json).map_err(|e| format!("failed to write snapshot: {e}"))?;
 
     Ok(path)
+}
+
+/// Load all snapshots from the default snapshot directory, sorted by timestamp ascending.
+///
+/// Corrupt or unreadable files are skipped with a warning to stderr.
+/// Returns an empty vec if the directory does not exist.
+pub fn load_snapshots(root: &Path) -> Vec<VitalSignsSnapshot> {
+    let dir = root.join(".fallow").join("snapshots");
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return Vec::new();
+    };
+
+    let mut snapshots = Vec::new();
+    for entry in entries {
+        let Ok(entry) = entry else { continue };
+        let path = entry.path();
+        if path.extension().is_some_and(|ext| ext == "json") {
+            match std::fs::read_to_string(&path) {
+                Ok(content) => match serde_json::from_str::<VitalSignsSnapshot>(&content) {
+                    Ok(snap) => snapshots.push(snap),
+                    Err(e) => {
+                        eprintln!("warning: skipping corrupt snapshot {}: {e}", path.display());
+                    }
+                },
+                Err(e) => {
+                    eprintln!("warning: could not read snapshot {}: {e}", path.display());
+                }
+            }
+        }
+    }
+
+    // Sort by timestamp (ISO 8601 sorts lexicographically)
+    snapshots.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
+    snapshots
+}
+
+/// Tolerance for treating a metric delta as "stable" rather than improving/declining.
+const TREND_TOLERANCE: f64 = 0.5;
+
+/// Compute a trend comparison between the current run and the most recent snapshot.
+///
+/// Uses the stored `score` field from the snapshot (never re-derives it).
+/// Returns `None` if no snapshots are available.
+pub fn compute_trend(
+    current_vs: &VitalSigns,
+    current_counts: &VitalSignsCounts,
+    current_score: Option<f64>,
+    snapshots: &[VitalSignsSnapshot],
+) -> Option<HealthTrend> {
+    let prev = snapshots.last()?;
+
+    let compared_to = TrendPoint {
+        timestamp: prev.timestamp.clone(),
+        git_sha: prev.git_sha.clone(),
+        score: prev.score,
+        grade: prev.grade.clone(),
+    };
+
+    let mut metrics = Vec::new();
+
+    // Health Score — higher is better
+    if let (Some(prev_score), Some(cur_score)) = (prev.score, current_score) {
+        metrics.push(make_metric(
+            "score",
+            "Health Score",
+            prev_score,
+            cur_score,
+            "",
+            true, // higher is better
+            None,
+            None,
+        ));
+    }
+
+    // Dead File % — lower is better
+    if let (Some(prev_val), Some(cur_val)) =
+        (prev.vital_signs.dead_file_pct, current_vs.dead_file_pct)
+    {
+        metrics.push(make_metric(
+            "dead_file_pct",
+            "Dead Files",
+            prev_val,
+            cur_val,
+            "%",
+            false,
+            Some(TrendCount {
+                value: prev.counts.dead_files,
+                total: prev.counts.total_files,
+            }),
+            Some(TrendCount {
+                value: current_counts.dead_files,
+                total: current_counts.total_files,
+            }),
+        ));
+    }
+
+    // Dead Export % — lower is better
+    if let (Some(prev_val), Some(cur_val)) =
+        (prev.vital_signs.dead_export_pct, current_vs.dead_export_pct)
+    {
+        metrics.push(make_metric(
+            "dead_export_pct",
+            "Dead Exports",
+            prev_val,
+            cur_val,
+            "%",
+            false,
+            Some(TrendCount {
+                value: prev.counts.dead_exports,
+                total: prev.counts.total_exports,
+            }),
+            Some(TrendCount {
+                value: current_counts.dead_exports,
+                total: current_counts.total_exports,
+            }),
+        ));
+    }
+
+    // Avg Cyclomatic — lower is better
+    {
+        metrics.push(make_metric(
+            "avg_cyclomatic",
+            "Avg Cyclomatic",
+            prev.vital_signs.avg_cyclomatic,
+            current_vs.avg_cyclomatic,
+            "",
+            false,
+            None,
+            None,
+        ));
+    }
+
+    // Maintainability — higher is better
+    if let (Some(prev_val), Some(cur_val)) = (
+        prev.vital_signs.maintainability_avg,
+        current_vs.maintainability_avg,
+    ) {
+        metrics.push(make_metric(
+            "maintainability_avg",
+            "Maintainability",
+            prev_val,
+            cur_val,
+            "",
+            true,
+            None,
+            None,
+        ));
+    }
+
+    // Unused Deps — lower is better
+    if let (Some(prev_val), Some(cur_val)) = (
+        prev.vital_signs.unused_dep_count,
+        current_vs.unused_dep_count,
+    ) {
+        metrics.push(make_metric(
+            "unused_dep_count",
+            "Unused Deps",
+            f64::from(prev_val),
+            f64::from(cur_val),
+            "",
+            false,
+            None,
+            None,
+        ));
+    }
+
+    // Circular Deps — lower is better
+    if let (Some(prev_val), Some(cur_val)) = (
+        prev.vital_signs.circular_dep_count,
+        current_vs.circular_dep_count,
+    ) {
+        metrics.push(make_metric(
+            "circular_dep_count",
+            "Circular Deps",
+            f64::from(prev_val),
+            f64::from(cur_val),
+            "",
+            false,
+            None,
+            None,
+        ));
+    }
+
+    // Hotspot Count — lower is better
+    if let (Some(prev_val), Some(cur_val)) =
+        (prev.vital_signs.hotspot_count, current_vs.hotspot_count)
+    {
+        metrics.push(make_metric(
+            "hotspot_count",
+            "Hotspots",
+            f64::from(prev_val),
+            f64::from(cur_val),
+            "",
+            false,
+            None,
+            None,
+        ));
+    }
+
+    // Determine overall direction
+    let (improving, declining) =
+        metrics
+            .iter()
+            .fold((0usize, 0usize), |(imp, dec), m| match m.direction {
+                TrendDirection::Improving => (imp + 1, dec),
+                TrendDirection::Declining => (imp, dec + 1),
+                TrendDirection::Stable => (imp, dec),
+            });
+    let overall_direction = match improving.cmp(&declining) {
+        std::cmp::Ordering::Greater => TrendDirection::Improving,
+        std::cmp::Ordering::Less => TrendDirection::Declining,
+        std::cmp::Ordering::Equal => TrendDirection::Stable,
+    };
+
+    Some(HealthTrend {
+        compared_to,
+        metrics,
+        snapshots_loaded: snapshots.len(),
+        overall_direction,
+    })
+}
+
+/// Build a single trend metric.
+#[expect(clippy::too_many_arguments)]
+fn make_metric(
+    name: &'static str,
+    label: &'static str,
+    previous: f64,
+    current: f64,
+    unit: &'static str,
+    higher_is_better: bool,
+    previous_count: Option<TrendCount>,
+    current_count: Option<TrendCount>,
+) -> TrendMetric {
+    let delta = (current - previous).round_to(1);
+    let direction = if delta.abs() < TREND_TOLERANCE {
+        TrendDirection::Stable
+    } else if (higher_is_better && delta > 0.0) || (!higher_is_better && delta < 0.0) {
+        TrendDirection::Improving
+    } else {
+        TrendDirection::Declining
+    };
+
+    TrendMetric {
+        name,
+        label,
+        previous,
+        current,
+        delta,
+        direction,
+        unit,
+        previous_count,
+        current_count,
+    }
+}
+
+/// Extension trait for rounding floats to N decimal places.
+trait RoundTo {
+    fn round_to(self, decimals: u32) -> Self;
+}
+
+impl RoundTo for f64 {
+    fn round_to(self, decimals: u32) -> Self {
+        let factor = 10_f64.powi(decimals as i32);
+        (self * factor).round() / factor
+    }
 }
 
 #[cfg(test)]
@@ -729,5 +996,223 @@ mod tests {
         // 5 hotspots in 1000 files = 0.5% = 1 point
         let score_1000 = compute_health_score(&vs, 1000);
         assert!(score_1000.score > score_100.score);
+    }
+
+    // --- load_snapshots ---
+
+    #[test]
+    fn load_snapshots_empty_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let snaps = load_snapshots(dir.path());
+        assert!(snaps.is_empty());
+    }
+
+    #[test]
+    fn load_snapshots_returns_sorted() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let snap_dir = root.join(".fallow/snapshots");
+        std::fs::create_dir_all(&snap_dir).unwrap();
+
+        let older = make_test_snapshot("2026-01-01T00:00:00Z", Some(72.0));
+        let newer = make_test_snapshot("2026-03-01T00:00:00Z", Some(78.0));
+
+        // Write newer first to test sorting
+        std::fs::write(
+            snap_dir.join("2026-03-01T00-00-00Z.json"),
+            serde_json::to_string(&newer).unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            snap_dir.join("2026-01-01T00-00-00Z.json"),
+            serde_json::to_string(&older).unwrap(),
+        )
+        .unwrap();
+
+        let loaded = load_snapshots(root);
+        assert_eq!(loaded.len(), 2);
+        assert_eq!(loaded[0].timestamp, "2026-01-01T00:00:00Z");
+        assert_eq!(loaded[1].timestamp, "2026-03-01T00:00:00Z");
+    }
+
+    #[test]
+    fn load_snapshots_skips_corrupt_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let snap_dir = root.join(".fallow/snapshots");
+        std::fs::create_dir_all(&snap_dir).unwrap();
+
+        std::fs::write(snap_dir.join("corrupt.json"), "not valid json").unwrap();
+        let good = make_test_snapshot("2026-02-01T00:00:00Z", Some(80.0));
+        std::fs::write(
+            snap_dir.join("good.json"),
+            serde_json::to_string(&good).unwrap(),
+        )
+        .unwrap();
+
+        let loaded = load_snapshots(root);
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].timestamp, "2026-02-01T00:00:00Z");
+    }
+
+    #[test]
+    fn load_snapshots_ignores_non_json() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let snap_dir = root.join(".fallow/snapshots");
+        std::fs::create_dir_all(&snap_dir).unwrap();
+
+        std::fs::write(snap_dir.join("readme.txt"), "not a snapshot").unwrap();
+
+        let loaded = load_snapshots(root);
+        assert!(loaded.is_empty());
+    }
+
+    // --- compute_trend ---
+
+    #[test]
+    fn compute_trend_no_snapshots() {
+        let vs = make_test_vital_signs();
+        let counts = make_test_counts();
+        assert!(compute_trend(&vs, &counts, Some(78.0), &[]).is_none());
+    }
+
+    #[test]
+    fn compute_trend_improving() {
+        let prev = make_test_snapshot("2026-01-01T00:00:00Z", Some(72.0));
+        let vs = VitalSigns {
+            dead_file_pct: Some(2.8),
+            dead_export_pct: Some(7.5),
+            avg_cyclomatic: 4.1,
+            p90_cyclomatic: 12,
+            duplication_pct: None,
+            hotspot_count: Some(3),
+            maintainability_avg: Some(75.0),
+            unused_dep_count: Some(3),
+            circular_dep_count: Some(1),
+        };
+        let counts = VitalSignsCounts {
+            total_files: 100,
+            total_exports: 500,
+            dead_files: 3,
+            dead_exports: 38,
+            duplicated_lines: None,
+            total_lines: None,
+            files_scored: Some(95),
+            total_deps: 40,
+        };
+
+        let trend = compute_trend(&vs, &counts, Some(78.0), &[prev]).unwrap();
+        assert_eq!(trend.compared_to.timestamp, "2026-01-01T00:00:00Z");
+        assert_eq!(trend.snapshots_loaded, 1);
+        assert_eq!(trend.overall_direction, TrendDirection::Improving);
+
+        // Score should be improving (72 → 78)
+        let score_metric = trend.metrics.iter().find(|m| m.name == "score").unwrap();
+        assert_eq!(score_metric.direction, TrendDirection::Improving);
+        assert!((score_metric.delta - 6.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn compute_trend_stable_within_tolerance() {
+        let prev = make_test_snapshot("2026-01-01T00:00:00Z", Some(78.0));
+        let vs = make_test_vital_signs();
+        let counts = make_test_counts();
+
+        let trend = compute_trend(&vs, &counts, Some(78.3), &[prev]).unwrap();
+        let score_metric = trend.metrics.iter().find(|m| m.name == "score").unwrap();
+        assert_eq!(score_metric.direction, TrendDirection::Stable);
+    }
+
+    #[test]
+    fn compute_trend_uses_most_recent_snapshot() {
+        let older = make_test_snapshot("2026-01-01T00:00:00Z", Some(60.0));
+        let newer = make_test_snapshot("2026-03-01T00:00:00Z", Some(72.0));
+        let vs = make_test_vital_signs();
+        let counts = make_test_counts();
+
+        let trend = compute_trend(&vs, &counts, Some(78.0), &[older, newer]).unwrap();
+        // Should compare against newer (72.0), not older (60.0)
+        assert_eq!(trend.compared_to.score, Some(72.0));
+        assert_eq!(trend.snapshots_loaded, 2);
+    }
+
+    #[test]
+    fn compute_trend_includes_raw_counts() {
+        let prev = make_test_snapshot("2026-01-01T00:00:00Z", Some(72.0));
+        let vs = make_test_vital_signs();
+        let counts = make_test_counts();
+
+        let trend = compute_trend(&vs, &counts, Some(78.0), &[prev]).unwrap();
+        let dead_files = trend
+            .metrics
+            .iter()
+            .find(|m| m.name == "dead_file_pct")
+            .unwrap();
+        assert!(dead_files.previous_count.is_some());
+        assert!(dead_files.current_count.is_some());
+    }
+
+    // --- test helpers ---
+
+    fn make_test_vital_signs() -> VitalSigns {
+        VitalSigns {
+            dead_file_pct: Some(3.2),
+            dead_export_pct: Some(8.1),
+            avg_cyclomatic: 4.2,
+            p90_cyclomatic: 12,
+            duplication_pct: None,
+            hotspot_count: Some(5),
+            maintainability_avg: Some(72.4),
+            unused_dep_count: Some(4),
+            circular_dep_count: Some(2),
+        }
+    }
+
+    fn make_test_counts() -> VitalSignsCounts {
+        VitalSignsCounts {
+            total_files: 100,
+            total_exports: 500,
+            dead_files: 3,
+            dead_exports: 40,
+            duplicated_lines: None,
+            total_lines: None,
+            files_scored: Some(95),
+            total_deps: 42,
+        }
+    }
+
+    fn make_test_snapshot(timestamp: &str, score: Option<f64>) -> VitalSignsSnapshot {
+        VitalSignsSnapshot {
+            snapshot_schema_version: SNAPSHOT_SCHEMA_VERSION,
+            version: "2.5.5".into(),
+            timestamp: timestamp.into(),
+            git_sha: Some("abc1234".into()),
+            git_branch: Some("main".into()),
+            shallow_clone: false,
+            vital_signs: VitalSigns {
+                dead_file_pct: Some(3.2),
+                dead_export_pct: Some(8.1),
+                avg_cyclomatic: 4.7,
+                p90_cyclomatic: 12,
+                duplication_pct: None,
+                hotspot_count: Some(5),
+                maintainability_avg: Some(72.4),
+                unused_dep_count: Some(4),
+                circular_dep_count: Some(2),
+            },
+            counts: VitalSignsCounts {
+                total_files: 100,
+                total_exports: 500,
+                dead_files: 3,
+                dead_exports: 40,
+                duplicated_lines: None,
+                total_lines: None,
+                files_scored: Some(95),
+                total_deps: 42,
+            },
+            score,
+            grade: score.map(|s| letter_grade(s).to_string()),
+        }
     }
 }

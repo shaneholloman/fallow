@@ -148,6 +148,10 @@
           "$ref": "#/definitions/TargetThresholds",
           "description": "Adaptive percentile-based thresholds used for target scoring. Only present when --targets is used."
         },
+        "health_trend": {
+          "$ref": "#/definitions/HealthTrend",
+          "description": "Trend comparison against a previous snapshot. Only present when --trend is used."
+        },
         "_meta": { "$ref": "#/definitions/Meta" }
       }
     },
@@ -453,6 +457,55 @@
         "fan_in_p75": { "type": "number", "description": "Fan-in moderate threshold for contributing factors (p75, floor 3)." },
         "fan_out_p95": { "type": "number", "description": "Fan-out saturation for priority formula (p95, floor 8)." },
         "fan_out_p90": { "type": "integer", "description": "Fan-out high threshold for rules and factors (p90, floor 5)." }
+      }
+    },
+
+    "HealthTrend": {
+      "type": "object",
+      "description": "Trend comparison between the current run and a previous snapshot. Shows per-metric deltas with directional indicators.",
+      "required": ["compared_to", "metrics", "snapshots_loaded", "overall_direction"],
+      "properties": {
+        "compared_to": {
+          "type": "object",
+          "description": "The snapshot being compared against.",
+          "required": ["timestamp"],
+          "properties": {
+            "timestamp": { "type": "string", "description": "ISO 8601 timestamp of the snapshot." },
+            "git_sha": { "type": "string", "description": "Git SHA at time of snapshot." },
+            "score": { "type": "number", "description": "Health score from the snapshot (stored, not re-derived)." },
+            "grade": { "type": "string", "description": "Letter grade from the snapshot." }
+          }
+        },
+        "metrics": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "label", "previous", "current", "delta", "direction", "unit"],
+            "properties": {
+              "name": { "type": "string", "description": "Metric identifier (e.g., 'score', 'dead_file_pct')." },
+              "label": { "type": "string", "description": "Human-readable label." },
+              "previous": { "type": "number", "description": "Previous value (from snapshot)." },
+              "current": { "type": "number", "description": "Current value (from this run)." },
+              "delta": { "type": "number", "description": "Absolute change (current - previous)." },
+              "direction": { "type": "string", "enum": ["improving", "declining", "stable"] },
+              "unit": { "type": "string", "description": "Unit for display (e.g., '%', '')." },
+              "previous_count": { "$ref": "#/definitions/TrendCount" },
+              "current_count": { "$ref": "#/definitions/TrendCount" }
+            }
+          }
+        },
+        "snapshots_loaded": { "type": "integer", "description": "Number of snapshots found in the snapshot directory." },
+        "overall_direction": { "type": "string", "enum": ["improving", "declining", "stable"] }
+      }
+    },
+
+    "TrendCount": {
+      "type": "object",
+      "description": "Raw numerator/denominator for a percentage metric in trend comparison.",
+      "required": ["value", "total"],
+      "properties": {
+        "value": { "type": "integer", "description": "The numerator (e.g., dead files count)." },
+        "total": { "type": "integer", "description": "The denominator (e.g., total files)." }
       }
     },
 

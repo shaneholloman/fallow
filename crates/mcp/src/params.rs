@@ -239,4 +239,8 @@ pub struct HealthParams {
 
     /// Number of parser threads. Defaults to available CPU cores.
     pub threads: Option<usize>,
+
+    /// Compare current metrics against the most recent saved snapshot and show per-metric deltas.
+    /// Implies --score. Reads from `.fallow/snapshots/`.
+    pub trend: Option<bool>,
 }

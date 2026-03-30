@@ -80,6 +80,9 @@ pub fn build_health_args(params: &HealthParams) -> Vec<String> {
     if let Some(threads) = params.threads {
         args.extend(["--threads".to_string(), threads.to_string()]);
     }
+    if params.trend == Some(true) {
+        args.push("--trend".to_string());
+    }
 
     args
 }

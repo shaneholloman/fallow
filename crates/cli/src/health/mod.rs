@@ -52,6 +52,7 @@ pub struct HealthOptions<'a> {
     pub min_commits: Option<u32>,
     pub explain: bool,
     pub save_snapshot: Option<std::path::PathBuf>,
+    pub trend: bool,
 }
 
 /// Run health analysis and return results without printing.
@@ -268,9 +269,12 @@ pub fn execute_health(opts: &HealthOptions<'_>) -> Result<HealthResult, ExitCode
         None
     };
 
+    // Build counts (cheap — needed for snapshot saving and trend comparison)
+    let counts = vital_signs::build_counts(&vs_input);
+
     // Save snapshot if requested
     if let Some(ref snapshot_path) = opts.save_snapshot {
-        let counts = vital_signs::build_counts(&vs_input);
+        let counts = counts.clone();
         let shallow = hotspot_summary.as_ref().is_some_and(|s| s.shallow_clone);
         let snapshot = vital_signs::build_snapshot(
             vital_signs.clone(),
@@ -296,6 +300,31 @@ pub fn execute_health(opts: &HealthOptions<'_>) -> Result<HealthResult, ExitCode
             }
         }
     }
+
+    // Compute trend if requested
+    let health_trend = if opts.trend {
+        if opts.changed_since.is_some() && !opts.quiet {
+            eprintln!(
+                "warning: --trend comparison may be inaccurate with --changed-since; \
+                 snapshots are typically from full-project runs"
+            );
+        }
+        let snapshots = vital_signs::load_snapshots(opts.root);
+        if snapshots.is_empty() && !opts.quiet {
+            eprintln!(
+                "No snapshots found. Run `fallow health --save-snapshot` to save a \
+                 baseline, then use --trend on subsequent runs to track progress."
+            );
+        }
+        vital_signs::compute_trend(
+            &vital_signs,
+            &counts,
+            health_score.as_ref().map(|s| s.score),
+            &snapshots,
+        )
+    } else {
+        None
+    };
 
     // Extract file scores for the report (apply --top after hotspot/target computation)
     let file_scores = if opts.file_scores {
@@ -341,6 +370,7 @@ pub fn execute_health(opts: &HealthOptions<'_>) -> Result<HealthResult, ExitCode
         hotspot_summary: report_hotspot_summary,
         targets,
         target_thresholds,
+        health_trend,
     };
 
     let elapsed = start.elapsed();

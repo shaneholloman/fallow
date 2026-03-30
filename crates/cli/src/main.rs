@@ -369,6 +369,12 @@ enum Command {
         )]
         #[arg(long, value_name = "PATH", num_args = 0..=1, default_missing_value = "")]
         save_snapshot: Option<Option<String>>,
+
+        /// Compare current metrics against the most recent saved snapshot.
+        /// Reads from `.fallow/snapshots/` and shows per-metric deltas with
+        /// directional indicators. Implies --score.
+        #[arg(long)]
+        trend: bool,
     },
 
     /// Dump the CLI interface as machine-readable JSON for agent introspection
@@ -966,6 +972,7 @@ fn main() -> ExitCode {
                 since,
                 min_commits,
                 save_snapshot,
+                trend,
             } => {
                 let (output, quiet, _fail_on_issues) = apply_ci_defaults(
                     cli.ci,
@@ -974,11 +981,11 @@ fn main() -> ExitCode {
                     quiet,
                     cli_format_was_explicit,
                 );
-                // --min-score and --save-snapshot imply --score
-                let score = score || min_score.is_some();
+                // --min-score, --save-snapshot, and --trend imply --score
+                let score = score || min_score.is_some() || trend;
                 let snapshot_requested = save_snapshot.is_some();
                 // No section flags = show all (including score). Any flag set = show only those.
-                // --save-snapshot is orthogonal (not a section flag) but forces score.
+                // --save-snapshot and --trend are orthogonal (not section flags) but force score.
                 let any_section = complexity || file_scores || hotspots || targets || score;
                 let eff_score = if any_section { score } else { true } || snapshot_requested;
                 // Score needs full pipeline for accuracy
@@ -1013,6 +1020,7 @@ fn main() -> ExitCode {
                     min_commits,
                     explain: cli.explain,
                     save_snapshot: save_snapshot.map(|opt| PathBuf::from(opt.unwrap_or_default())),
+                    trend,
                 })
             }
             Command::Schema => unreachable!("handled above"),

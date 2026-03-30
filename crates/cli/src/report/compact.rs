@@ -166,6 +166,22 @@ pub(super) fn print_health_compact(report: &crate::health_types::HealthReport, r
             entry.trend,
         );
     }
+    if let Some(ref trend) = report.health_trend {
+        println!(
+            "trend:overall:direction={}",
+            trend.overall_direction.label()
+        );
+        for m in &trend.metrics {
+            println!(
+                "trend:{}:previous={:.1},current={:.1},delta={:+.1},direction={}",
+                m.name,
+                m.previous,
+                m.current,
+                m.delta,
+                m.direction.label(),
+            );
+        }
+    }
     for target in &report.targets {
         let relative = normalize_uri(&relative_path(&target.path, root).display().to_string());
         let category = target.category.compact_label();

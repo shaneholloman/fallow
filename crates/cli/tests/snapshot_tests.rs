@@ -1772,6 +1772,7 @@ fn sample_health_report(root: &Path) -> HealthReport {
         hotspot_summary: None,
         targets: vec![],
         target_thresholds: None,
+        health_trend: None,
     }
 }
 
@@ -1795,6 +1796,7 @@ fn empty_health_report() -> HealthReport {
         hotspot_summary: None,
         targets: vec![],
         target_thresholds: None,
+        health_trend: None,
     }
 }
 
@@ -1942,6 +1944,84 @@ fn codeclimate_health_with_score_snapshot() {
     let cc = build_health_codeclimate(&report, &root);
     let json_str = serde_json::to_string_pretty(&cc).expect("should serialize");
     insta::assert_snapshot!("codeclimate_health_with_score", json_str);
+}
+
+// ── Health trend snapshots ─────────────────────────────────────
+
+/// Build a health report with trend data populated.
+fn health_report_with_trend(root: &Path) -> HealthReport {
+    let mut report = health_report_with_score(root);
+    report.health_trend = Some(HealthTrend {
+        compared_to: TrendPoint {
+            timestamp: "2026-03-25T14:30:00Z".into(),
+            git_sha: Some("abc1234".into()),
+            score: Some(72.0),
+            grade: Some("B".into()),
+        },
+        metrics: vec![
+            TrendMetric {
+                name: "score",
+                label: "Health Score",
+                previous: 72.0,
+                current: 76.9,
+                delta: 4.9,
+                direction: TrendDirection::Improving,
+                unit: "",
+                previous_count: None,
+                current_count: None,
+            },
+            TrendMetric {
+                name: "dead_file_pct",
+                label: "Dead Files",
+                previous: 18.0,
+                current: 15.5,
+                delta: -2.5,
+                direction: TrendDirection::Improving,
+                unit: "%",
+                previous_count: Some(TrendCount {
+                    value: 18,
+                    total: 100,
+                }),
+                current_count: Some(TrendCount {
+                    value: 16,
+                    total: 100,
+                }),
+            },
+            TrendMetric {
+                name: "avg_cyclomatic",
+                label: "Avg Cyclomatic",
+                previous: 1.3,
+                current: 1.3,
+                delta: 0.0,
+                direction: TrendDirection::Stable,
+                unit: "",
+                previous_count: None,
+                current_count: None,
+            },
+            TrendMetric {
+                name: "unused_dep_count",
+                label: "Unused Deps",
+                previous: 20.0,
+                current: 22.0,
+                delta: 2.0,
+                direction: TrendDirection::Declining,
+                unit: "",
+                previous_count: None,
+                current_count: None,
+            },
+        ],
+        snapshots_loaded: 3,
+        overall_direction: TrendDirection::Improving,
+    });
+    report
+}
+
+#[test]
+fn markdown_health_with_trend_snapshot() {
+    let root = PathBuf::from("/project");
+    let report = health_report_with_trend(&root);
+    let output = build_health_markdown(&report, &root);
+    insta::assert_snapshot!("markdown_health_with_trend", output);
 }
 
 // ── Duplication report snapshots ────────────────────────────────

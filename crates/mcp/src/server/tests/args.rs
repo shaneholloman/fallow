@@ -503,6 +503,7 @@ fn health_args_with_all_options() {
         save_baseline: Some("new.json".to_string()),
         no_cache: Some(true),
         threads: Some(4),
+        trend: None,
     };
     let args = build_health_args(&params);
     assert_eq!(

@@ -462,6 +462,7 @@ fn build_health_opts<'a>(opts: &'a CombinedOptions<'a>) -> HealthOptions<'a> {
         min_commits: None,
         explain: opts.explain,
         save_snapshot: None,
+        trend: false,
     }
 }
 

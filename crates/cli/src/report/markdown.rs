@@ -367,6 +367,78 @@ pub fn build_health_markdown(report: &crate::health_types::HealthReport, root: &
         let _ = writeln!(out, "## Health Score: {:.0} ({})\n", hs.score, hs.grade);
     }
 
+    // Trend comparison table
+    if let Some(ref trend) = report.health_trend {
+        let sha_str = trend
+            .compared_to
+            .git_sha
+            .as_deref()
+            .map_or(String::new(), |sha| format!(" ({sha})"));
+        let _ = writeln!(
+            out,
+            "## Trend (vs {}{})\n",
+            trend
+                .compared_to
+                .timestamp
+                .get(..10)
+                .unwrap_or(&trend.compared_to.timestamp),
+            sha_str,
+        );
+        out.push_str("| Metric | Previous | Current | Delta | Direction |\n");
+        out.push_str("|:-------|:---------|:--------|:------|:----------|\n");
+        for m in &trend.metrics {
+            let fmt_val = |v: f64| -> String {
+                if m.unit == "%" {
+                    format!("{v:.1}%")
+                } else if (v - v.round()).abs() < 0.05 {
+                    format!("{v:.0}")
+                } else {
+                    format!("{v:.1}")
+                }
+            };
+            let prev = fmt_val(m.previous);
+            let cur = fmt_val(m.current);
+            let delta = if m.unit == "%" {
+                format!("{:+.1}%", m.delta)
+            } else if (m.delta - m.delta.round()).abs() < 0.05 {
+                format!("{:+.0}", m.delta)
+            } else {
+                format!("{:+.1}", m.delta)
+            };
+            let _ = writeln!(
+                out,
+                "| {} | {} | {} | {} | {} {} |",
+                m.label,
+                prev,
+                cur,
+                delta,
+                m.direction.arrow(),
+                m.direction.label(),
+            );
+        }
+        let md_sha = trend
+            .compared_to
+            .git_sha
+            .as_deref()
+            .map_or(String::new(), |sha| format!(" ({sha})"));
+        let _ = writeln!(
+            out,
+            "\n*vs {}{} · {} {} available*\n",
+            trend
+                .compared_to
+                .timestamp
+                .get(..10)
+                .unwrap_or(&trend.compared_to.timestamp),
+            md_sha,
+            trend.snapshots_loaded,
+            if trend.snapshots_loaded == 1 {
+                "snapshot"
+            } else {
+                "snapshots"
+            },
+        );
+    }
+
     // Vital signs summary table
     if let Some(ref vs) = report.vital_signs {
         out.push_str("## Vital Signs\n\n");
@@ -911,6 +983,7 @@ mod tests {
             hotspot_summary: None,
             targets: vec![],
             target_thresholds: None,
+            health_trend: None,
         };
         let md = build_health_markdown(&report, &root);
         assert!(md.contains("no functions exceed complexity thresholds"));
@@ -947,6 +1020,7 @@ mod tests {
             hotspot_summary: None,
             targets: vec![],
             target_thresholds: None,
+            health_trend: None,
         };
         let md = build_health_markdown(&report, &root);
         assert!(md.contains("## Fallow: 1 high complexity function\n"));
@@ -988,6 +1062,7 @@ mod tests {
             hotspot_summary: None,
             targets: vec![],
             target_thresholds: None,
+            health_trend: None,
         };
         let md = build_health_markdown(&report, &root);
         // Cyclomatic 15 is below threshold 20, no marker
@@ -1047,6 +1122,7 @@ mod tests {
                 },
             ],
             target_thresholds: None,
+            health_trend: None,
         };
         let md = build_health_markdown(&report, &root);
 
@@ -1231,6 +1307,7 @@ mod tests {
             hotspot_summary: None,
             targets: vec![],
             target_thresholds: None,
+            health_trend: None,
         };
         let md = build_health_markdown(&report, &root);
         assert!(md.contains("## Vital Signs"));
@@ -1288,6 +1365,7 @@ mod tests {
             hotspot_summary: None,
             targets: vec![],
             target_thresholds: None,
+            health_trend: None,
         };
         let md = build_health_markdown(&report, &root);
         assert!(md.contains("### File Health Scores (1 files)"));
@@ -1344,6 +1422,7 @@ mod tests {
             }),
             targets: vec![],
             target_thresholds: None,
+            health_trend: None,
         };
         let md = build_health_markdown(&report, &root);
         assert!(md.contains("### Hotspots (1 files, since 6 months)"));
@@ -1394,6 +1473,7 @@ mod tests {
             hotspot_summary: None,
             targets: vec![],
             target_thresholds: None,
+            health_trend: None,
         };
         let md = build_health_markdown(&report, &root);
         assert!(md.contains("<details><summary>Metric definitions</summary>"));
@@ -1434,6 +1514,7 @@ mod tests {
             hotspot_summary: None,
             targets: vec![],
             target_thresholds: None,
+            health_trend: None,
         };
         let md = build_health_markdown(&report, &root);
         assert!(md.contains("5 high complexity functions (1 shown)"));
@@ -1535,6 +1616,7 @@ mod tests {
             }),
             targets: vec![],
             target_thresholds: None,
+            health_trend: None,
         };
         let md = build_health_markdown(&report, &root);
         assert!(!md.contains("files excluded"));

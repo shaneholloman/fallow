@@ -81,6 +81,7 @@ pub(in crate::report) fn build_health_human_lines(
 ) -> Vec<String> {
     let mut lines = Vec::new();
     render_health_score(&mut lines, report);
+    render_health_trend(&mut lines, report);
     render_vital_signs(&mut lines, report);
     render_findings(&mut lines, report, root);
     render_file_scores(&mut lines, report, root);
@@ -186,7 +187,111 @@ fn render_health_score(lines: &mut Vec<String>, report: &crate::health_types::He
     lines.push(String::new());
 }
 
+/// Format a float for trend display: show as integer if it is one, otherwise 1dp.
+fn fmt_trend_val(v: f64, unit: &str) -> String {
+    if unit == "%" {
+        format!("{v:.1}%")
+    } else if (v - v.round()).abs() < 0.05 {
+        format!("{v:.0}")
+    } else {
+        format!("{v:.1}")
+    }
+}
+
+/// Format a delta for trend display: show with sign prefix.
+fn fmt_trend_delta(v: f64, unit: &str) -> String {
+    if unit == "%" {
+        format!("{v:+.1}%")
+    } else if (v - v.round()).abs() < 0.05 {
+        format!("{v:+.0}")
+    } else {
+        format!("{v:+.1}")
+    }
+}
+
+fn render_health_trend(lines: &mut Vec<String>, report: &crate::health_types::HealthReport) {
+    let Some(ref trend) = report.health_trend else {
+        return;
+    };
+
+    use crate::health_types::TrendDirection;
+
+    // Section header with overall direction — the headline
+    let date = trend
+        .compared_to
+        .timestamp
+        .get(..10)
+        .unwrap_or(&trend.compared_to.timestamp);
+    let sha_str = trend
+        .compared_to
+        .git_sha
+        .as_deref()
+        .map_or(String::new(), |sha| format!(" \u{00b7} {sha}"));
+    let direction_label = format!(
+        "{} {}",
+        trend.overall_direction.arrow(),
+        trend.overall_direction.label()
+    );
+    let direction_colored = match trend.overall_direction {
+        TrendDirection::Improving => direction_label.green().bold().to_string(),
+        TrendDirection::Declining => direction_label.red().bold().to_string(),
+        TrendDirection::Stable => direction_label.dimmed().to_string(),
+    };
+    lines.push(format!(
+        "{} {} {} {}",
+        "\u{25cf}".cyan(),
+        "Trend:".cyan().bold(),
+        direction_colored,
+        format!("(vs {date}{sha_str})").dimmed(),
+    ));
+
+    // All-stable collapse: single dimmed line instead of N identical rows
+    let all_stable = trend
+        .metrics
+        .iter()
+        .all(|m| m.direction == TrendDirection::Stable);
+    if all_stable {
+        lines.push(format!(
+            "  {}",
+            format!("All {} metrics unchanged", trend.metrics.len()).dimmed()
+        ));
+        lines.push(String::new());
+        return;
+    }
+
+    // Metric rows — aligned columns, no arrow separator (avoids collision with direction arrow)
+    for m in &trend.metrics {
+        let label = format!("{:<18}", m.label);
+        let prev_str = fmt_trend_val(m.previous, m.unit);
+        let cur_str = fmt_trend_val(m.current, m.unit);
+        let delta_str = fmt_trend_delta(m.delta, m.unit);
+
+        let direction_str = match m.direction {
+            TrendDirection::Improving => format!("{} {}", m.direction.arrow(), m.direction.label())
+                .green()
+                .to_string(),
+            TrendDirection::Declining => format!("{} {}", m.direction.arrow(), m.direction.label())
+                .red()
+                .to_string(),
+            TrendDirection::Stable => format!("{} {}", m.direction.arrow(), m.direction.label())
+                .dimmed()
+                .to_string(),
+        };
+
+        let values = format!("{prev_str:>8}  {cur_str:<8}");
+        lines.push(format!(
+            "  {label} {values}  {delta_str:<10} {direction_str}"
+        ));
+    }
+
+    lines.push(String::new());
+}
+
 fn render_vital_signs(lines: &mut Vec<String>, report: &crate::health_types::HealthReport) {
+    // Suppress when trend is active — the trend table already shows all metrics
+    if report.health_trend.is_some() {
+        return;
+    }
     let Some(ref vs) = report.vital_signs else {
         return;
     };
@@ -637,6 +742,7 @@ mod tests {
             hotspot_summary: None,
             targets: vec![],
             target_thresholds: None,
+            health_trend: None,
         };
         let lines = build_health_human_lines(&report, &root);
         let text = plain(&lines);
@@ -674,6 +780,7 @@ mod tests {
             hotspot_summary: None,
             targets: vec![],
             target_thresholds: None,
+            health_trend: None,
         };
         let lines = build_health_human_lines(&report, &root);
         let text = plain(&lines);
@@ -716,6 +823,7 @@ mod tests {
             hotspot_summary: None,
             targets: vec![],
             target_thresholds: None,
+            health_trend: None,
         };
         let lines = build_health_human_lines(&report, &root);
         let text = plain(&lines);
@@ -765,6 +873,7 @@ mod tests {
             hotspot_summary: None,
             targets: vec![],
             target_thresholds: None,
+            health_trend: None,
         };
         let lines = build_health_human_lines(&report, &root);
         let text = plain(&lines);

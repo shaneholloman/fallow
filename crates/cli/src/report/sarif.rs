@@ -953,6 +953,7 @@ mod tests {
             hotspot_summary: None,
             targets: vec![],
             target_thresholds: None,
+            health_trend: None,
         };
         let sarif = build_health_sarif(&report, &root);
         assert_eq!(sarif["version"], "2.1.0");
@@ -994,6 +995,7 @@ mod tests {
             hotspot_summary: None,
             targets: vec![],
             target_thresholds: None,
+            health_trend: None,
         };
         let sarif = build_health_sarif(&report, &root);
         let entry = &sarif["runs"][0]["results"][0];
@@ -1044,6 +1046,7 @@ mod tests {
             hotspot_summary: None,
             targets: vec![],
             target_thresholds: None,
+            health_trend: None,
         };
         let sarif = build_health_sarif(&report, &root);
         let entry = &sarif["runs"][0]["results"][0];
@@ -1088,6 +1091,7 @@ mod tests {
             hotspot_summary: None,
             targets: vec![],
             target_thresholds: None,
+            health_trend: None,
         };
         let sarif = build_health_sarif(&report, &root);
         let entry = &sarif["runs"][0]["results"][0];
@@ -1505,6 +1509,7 @@ mod tests {
                 evidence: None,
             }],
             target_thresholds: None,
+            health_trend: None,
         };
 
         let sarif = build_health_sarif(&report, &root);
@@ -1541,6 +1546,7 @@ mod tests {
             hotspot_summary: None,
             targets: vec![],
             target_thresholds: None,
+            health_trend: None,
         };
         let sarif = build_health_sarif(&report, &root);
         let rules = sarif["runs"][0]["tool"]["driver"]["rules"]

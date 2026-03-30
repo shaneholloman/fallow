@@ -658,6 +658,7 @@ fn health_args_with_all_options_including_targets_and_snapshot() {
         save_baseline: Some("new.json".to_string()),
         no_cache: Some(true),
         threads: Some(4),
+        trend: Some(true),
     };
     let args = build_health_args(&params);
     // Every single flag should be present
@@ -672,6 +673,7 @@ fn health_args_with_all_options_including_targets_and_snapshot() {
     assert!(args.contains(&"--hotspots".to_string()));
     assert!(args.contains(&"--production".to_string()));
     assert!(args.contains(&"--no-cache".to_string()));
+    assert!(args.contains(&"--trend".to_string()));
 }
 
 // ── Unicode in paths for all arg builders ─────────────────────────
