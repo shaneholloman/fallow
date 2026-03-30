@@ -100,6 +100,7 @@ pub struct HealthScorePenalties {
 }
 
 /// Map a numeric score (0–100) to a letter grade.
+#[must_use]
 pub const fn letter_grade(score: f64) -> &'static str {
     // Truncate to u32 so that 84.9 maps to B and 85.0 maps to A —
     // fractional digits don't affect the grade bucket.
@@ -285,6 +286,7 @@ pub enum TrendDirection {
 
 impl TrendDirection {
     /// Arrow symbol for terminal output.
+    #[must_use]
     pub const fn arrow(self) -> &'static str {
         match self {
             Self::Improving => "\u{2191}", // ↑
@@ -294,6 +296,7 @@ impl TrendDirection {
     }
 
     /// Human-readable label.
+    #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
             Self::Improving => "improving",
@@ -491,6 +494,7 @@ pub enum RecommendationCategory {
 
 impl RecommendationCategory {
     /// Human-readable label for terminal output.
+    #[must_use]
     pub const fn label(&self) -> &'static str {
         match self {
             Self::UrgentChurnComplexity => "churn+complexity",
@@ -503,6 +507,7 @@ impl RecommendationCategory {
     }
 
     /// Machine-parseable label for compact output (no spaces).
+    #[must_use]
     pub const fn compact_label(&self) -> &'static str {
         match self {
             Self::UrgentChurnComplexity => "churn_complexity",
@@ -560,6 +565,7 @@ pub enum EffortEstimate {
 
 impl EffortEstimate {
     /// Human-readable label for terminal output.
+    #[must_use]
     pub const fn label(&self) -> &'static str {
         match self {
             Self::Low => "low",
@@ -569,6 +575,7 @@ impl EffortEstimate {
     }
 
     /// Numeric value for arithmetic (efficiency = priority / effort).
+    #[must_use]
     pub const fn numeric(&self) -> f64 {
         match self {
             Self::Low => 1.0,
@@ -597,6 +604,7 @@ pub enum Confidence {
 
 impl Confidence {
     /// Human-readable label for terminal output.
+    #[must_use]
     pub const fn label(&self) -> &'static str {
         match self {
             Self::High => "high",

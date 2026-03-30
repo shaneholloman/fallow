@@ -129,6 +129,7 @@ fn parse_single_file_cached(
 }
 
 /// Parse a single file and extract module information.
+#[must_use]
 pub fn parse_single_file(file: &DiscoveredFile) -> Option<ModuleInfo> {
     let source = std::fs::read_to_string(&file.path).ok()?;
     let content_hash = xxhash_rust::xxh3::xxh3_64(source.as_bytes());
@@ -141,6 +142,7 @@ pub fn parse_single_file(file: &DiscoveredFile) -> Option<ModuleInfo> {
 }
 
 /// Parse from in-memory content (for LSP).
+#[must_use]
 pub fn parse_from_content(file_id: FileId, path: &Path, content: &str) -> ModuleInfo {
     let content_hash = xxhash_rust::xxh3::xxh3_64(content.as_bytes());
     parse_source_to_module(file_id, path, content, content_hash)

@@ -141,6 +141,7 @@ pub struct PipelineTimings {
 }
 
 /// Trace why an export is considered used or unused.
+#[must_use]
 pub fn trace_export(
     graph: &ModuleGraph,
     root: &Path,
@@ -244,6 +245,7 @@ pub fn trace_export(
 }
 
 /// Trace all edges for a file.
+#[must_use]
 pub fn trace_file(graph: &ModuleGraph, root: &Path, file_path: &str) -> Option<FileTrace> {
     let module = graph
         .modules
@@ -334,6 +336,7 @@ pub fn trace_file(graph: &ModuleGraph, root: &Path, file_path: &str) -> Option<F
 }
 
 /// Trace where a dependency is used.
+#[must_use]
 pub fn trace_dependency(graph: &ModuleGraph, root: &Path, package_name: &str) -> DependencyTrace {
     let imported_by: Vec<PathBuf> = graph
         .package_usage
@@ -402,6 +405,7 @@ pub struct TracedCloneGroup {
     pub instances: Vec<CloneInstance>,
 }
 
+#[must_use]
 pub fn trace_clone(
     report: &DuplicationReport,
     root: &Path,

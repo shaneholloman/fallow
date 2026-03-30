@@ -3,10 +3,12 @@ use std::path::PathBuf;
 
 use fallow_config::{FallowConfig, OutputFormat};
 
+#[must_use]
 pub fn create_test_config(root: PathBuf) -> fallow_config::ResolvedConfig {
     make_config(root, true)
 }
 
+#[must_use]
 pub fn make_config(root: PathBuf, no_cache: bool) -> fallow_config::ResolvedConfig {
     FallowConfig {
         schema: None,
@@ -30,6 +32,7 @@ pub fn make_config(root: PathBuf, no_cache: bool) -> fallow_config::ResolvedConf
 
 /// Generate a synthetic project with `file_count` source files.
 /// Half of the exports are consumed by the entry point, the other half are "dead".
+#[must_use]
 pub fn create_synthetic_project(
     name: &str,
     file_count: usize,
@@ -37,6 +40,7 @@ pub fn create_synthetic_project(
     create_synthetic_project_with_cache(name, file_count, true)
 }
 
+#[must_use]
 pub fn create_synthetic_project_with_cache(
     name: &str,
     file_count: usize,
@@ -84,6 +88,7 @@ export const helper{i} = () => value{i} + 1;
 
 /// Generate a synthetic project with duplicated code blocks for dupe detection benchmarks.
 /// ~40% of files contain shared code blocks (each ~30 lines), rest is unique.
+#[must_use]
 #[allow(dead_code)] // Used by large_analysis bench target
 pub fn create_dupe_project(
     name: &str,

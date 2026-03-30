@@ -125,6 +125,7 @@ pub const CHECK_RULES: &[RuleDef] = &[
 ];
 
 /// Look up a rule definition by its SARIF rule ID across all rule sets.
+#[must_use]
 pub fn rule_by_id(id: &str) -> Option<&'static RuleDef> {
     CHECK_RULES
         .iter()
@@ -134,6 +135,7 @@ pub fn rule_by_id(id: &str) -> Option<&'static RuleDef> {
 }
 
 /// Build the docs URL for a rule.
+#[must_use]
 pub fn rule_docs_url(rule: &RuleDef) -> String {
     format!("{DOCS_BASE}/{}", rule.docs_path)
 }
@@ -182,6 +184,7 @@ pub const DUPES_RULES: &[RuleDef] = &[RuleDef {
 // ── JSON _meta builders ─────────────────────────────────────────
 
 /// Build the `_meta` object for `fallow dead-code --format json --explain`.
+#[must_use]
 pub fn check_meta() -> Value {
     let rules: Value = CHECK_RULES
         .iter()
@@ -205,6 +208,7 @@ pub fn check_meta() -> Value {
 }
 
 /// Build the `_meta` object for `fallow health --format json --explain`.
+#[must_use]
 pub fn health_meta() -> Value {
     json!({
         "docs": HEALTH_DOCS,
@@ -310,6 +314,7 @@ pub fn health_meta() -> Value {
 }
 
 /// Build the `_meta` object for `fallow dupes --format json --explain`.
+#[must_use]
 pub fn dupes_meta() -> Value {
     json!({
         "docs": DUPES_DOCS,

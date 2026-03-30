@@ -5,6 +5,7 @@ pub use fallow_types::suppress::{IssueKind, Suppression};
 pub use fallow_extract::suppress::{parse_suppressions, parse_suppressions_from_source};
 
 /// Check if a specific issue at a given line should be suppressed.
+#[must_use]
 pub fn is_suppressed(suppressions: &[Suppression], line: u32, kind: IssueKind) -> bool {
     suppressions.iter().any(|s| {
         // File-wide suppression
@@ -17,6 +18,7 @@ pub fn is_suppressed(suppressions: &[Suppression], line: u32, kind: IssueKind) -
 }
 
 /// Check if the entire file is suppressed (for issue types that don't have line numbers).
+#[must_use]
 pub fn is_file_suppressed(suppressions: &[Suppression], kind: IssueKind) -> bool {
     suppressions
         .iter()

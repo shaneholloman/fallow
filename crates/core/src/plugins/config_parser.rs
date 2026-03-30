@@ -19,6 +19,7 @@ use oxc_parser::Parser;
 use oxc_span::SourceType;
 
 /// Extract all import source specifiers from JS/TS source code.
+#[must_use]
 pub fn extract_imports(source: &str, path: &Path) -> Vec<String> {
     extract_from_source(source, path, |program| {
         let mut sources = Vec::new();
@@ -33,6 +34,7 @@ pub fn extract_imports(source: &str, path: &Path) -> Vec<String> {
 }
 
 /// Extract string array from a property at a nested path in a config's default export.
+#[must_use]
 pub fn extract_config_string_array(source: &str, path: &Path, prop_path: &[&str]) -> Vec<String> {
     extract_from_source(source, path, |program| {
         let obj = find_config_object(program)?;
@@ -42,6 +44,7 @@ pub fn extract_config_string_array(source: &str, path: &Path, prop_path: &[&str]
 }
 
 /// Extract a single string from a property at a nested path.
+#[must_use]
 pub fn extract_config_string(source: &str, path: &Path, prop_path: &[&str]) -> Option<String> {
     extract_from_source(source, path, |program| {
         let obj = find_config_object(program)?;
@@ -55,6 +58,7 @@ pub fn extract_config_string(source: &str, path: &Path, prop_path: &[&str]) -> O
 /// **Warning**: This recurses into nested objects/arrays. For config arrays that contain
 /// tuples like `["pkg-name", { options }]`, use [`extract_config_shallow_strings`] instead
 /// to avoid extracting option values as package names.
+#[must_use]
 pub fn extract_config_property_strings(source: &str, path: &Path, key: &str) -> Vec<String> {
     extract_from_source(source, path, |program| {
         let obj = find_config_object(program)?;
@@ -73,6 +77,7 @@ pub fn extract_config_property_strings(source: &str, path: &Path, key: &str) -> 
 /// objects or sub-arrays. Useful for config arrays with tuple elements like:
 /// `reporters: ["default", ["jest-junit", { outputDirectory: "reports" }]]`
 /// — only `"default"` and `"jest-junit"` are returned, not `"reports"`.
+#[must_use]
 pub fn extract_config_shallow_strings(source: &str, path: &Path, key: &str) -> Vec<String> {
     extract_from_source(source, path, |program| {
         let obj = find_config_object(program)?;
@@ -87,6 +92,7 @@ pub fn extract_config_shallow_strings(source: &str, path: &Path, key: &str) -> V
 /// Navigates `outer_path` to find a nested object, then extracts shallow strings
 /// from the `key` property. Useful for configs like Vitest where reporters are at
 /// `test.reporters`: `{ test: { reporters: ["default", ["vitest-sonar-reporter", {...}]] } }`.
+#[must_use]
 pub fn extract_config_nested_shallow_strings(
     source: &str,
     path: &Path,
@@ -115,6 +121,7 @@ pub fn find_config_object_pub<'a>(program: &'a Program) -> Option<&'a ObjectExpr
 ///
 /// Useful for `PostCSS` config: `{ plugins: { autoprefixer: {}, tailwindcss: {} } }`
 /// → returns `["autoprefixer", "tailwindcss"]`.
+#[must_use]
 pub fn extract_config_object_keys(source: &str, path: &Path, prop_path: &[&str]) -> Vec<String> {
     extract_from_source(source, path, |program| {
         let obj = find_config_object(program)?;
@@ -129,6 +136,7 @@ pub fn extract_config_object_keys(source: &str, path: &Path, prop_path: &[&str])
 /// - `entry: "./src/index.js"` → `["./src/index.js"]`
 /// - `entry: ["./src/a.js", "./src/b.js"]` → `["./src/a.js", "./src/b.js"]`
 /// - `entry: { main: "./src/main.js" }` → `["./src/main.js"]`
+#[must_use]
 pub fn extract_config_string_or_array(
     source: &str,
     path: &Path,
@@ -147,6 +155,7 @@ pub fn extract_config_string_or_array(
 /// array, navigates `inner_path` to extract string values. Useful for configs like
 /// Vitest projects where values are nested in array elements:
 /// - `test.projects[*].test.setupFiles`
+#[must_use]
 pub fn extract_config_array_nested_string_or_array(
     source: &str,
     path: &Path,
@@ -182,6 +191,7 @@ pub fn extract_config_array_nested_string_or_array(
 /// (regardless of key name), navigates `inner_path` to extract string values. Useful for
 /// configs with dynamic keys like `angular.json`:
 /// - `projects.*.architect.build.options.styles`
+#[must_use]
 pub fn extract_config_object_nested_string_or_array(
     source: &str,
     path: &Path,
@@ -197,6 +207,7 @@ pub fn extract_config_object_nested_string_or_array(
 ///
 /// Like [`extract_config_object_nested_string_or_array`] but returns a single optional string
 /// per object value (useful for fields like `architect.build.options.main`).
+#[must_use]
 pub fn extract_config_object_nested_strings(
     source: &str,
     path: &Path,
@@ -247,6 +258,7 @@ fn extract_config_object_nested(
 /// Handles direct require calls and arrays containing require calls or tuples:
 /// - `plugins: [require('autoprefixer')]`
 /// - `plugins: [require('postcss-import'), [require('postcss-preset-env'), { ... }]]`
+#[must_use]
 pub fn extract_config_require_strings(source: &str, path: &Path, key: &str) -> Vec<String> {
     extract_from_source(source, path, |program| {
         let obj = find_config_object(program)?;

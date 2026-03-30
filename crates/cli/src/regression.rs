@@ -126,6 +126,7 @@ pub struct CheckCounts {
 }
 
 impl CheckCounts {
+    #[must_use]
     pub const fn from_results(results: &AnalysisResults) -> Self {
         Self {
             total_issues: results.total_issues(),
@@ -147,6 +148,7 @@ impl CheckCounts {
     }
 
     /// Convert from config-embedded baseline.
+    #[must_use]
     pub const fn from_config_baseline(b: &fallow_config::RegressionBaseline) -> Self {
         Self {
             total_issues: b.total_issues,
@@ -168,6 +170,7 @@ impl CheckCounts {
     }
 
     /// Convert to config-embeddable baseline.
+    #[must_use]
     pub const fn to_config_baseline(&self) -> fallow_config::RegressionBaseline {
         fallow_config::RegressionBaseline {
             total_issues: self.total_issues,
@@ -301,11 +304,13 @@ pub enum RegressionOutcome {
 
 impl RegressionOutcome {
     /// Whether this outcome should cause a non-zero exit code.
+    #[must_use]
     pub const fn is_failure(&self) -> bool {
         matches!(self, Self::Exceeded { .. })
     }
 
     /// Build a JSON value for the regression outcome (added to JSON output envelope).
+    #[must_use]
     pub fn to_json(&self) -> serde_json::Value {
         match self {
             Self::Pass {

@@ -96,7 +96,7 @@ export default function App({ name, age }: Props) {
 
     c.bench_function("parse_single_file", |b| {
         b.iter(|| {
-            fallow_core::extract::parse_single_file(&file);
+            let _ = fallow_core::extract::parse_single_file(&file);
         });
     });
 

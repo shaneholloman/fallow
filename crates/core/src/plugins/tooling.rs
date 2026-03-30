@@ -126,6 +126,7 @@ fn tooling_exact_set() -> &'static rustc_hash::FxHashSet<&'static str> {
 /// This is the single source of truth for general tooling detection.
 /// Per-plugin tooling dependencies are declared via `Plugin::tooling_dependencies()`
 /// and aggregated separately in `AggregatedPluginResult`.
+#[must_use]
 pub fn is_known_tooling_dependency(name: &str) -> bool {
     GENERAL_TOOLING_PREFIXES.iter().any(|p| name.starts_with(p))
         || tooling_exact_set().contains(name)

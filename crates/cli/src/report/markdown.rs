@@ -263,6 +263,7 @@ pub(super) fn print_duplication_markdown(report: &DuplicationReport, root: &Path
 }
 
 /// Build markdown output for duplication results.
+#[must_use]
 pub fn build_duplication_markdown(report: &DuplicationReport, root: &Path) -> String {
     let rel = |p: &Path| normalize_uri(&relative_path(p, root).display().to_string());
 
@@ -353,6 +354,7 @@ pub(super) fn print_health_markdown(report: &crate::health_types::HealthReport, 
 }
 
 /// Build markdown output for health (complexity) results.
+#[must_use]
 pub fn build_health_markdown(report: &crate::health_types::HealthReport, root: &Path) -> String {
     let rel = |p: &Path| {
         escape_backticks(&normalize_uri(

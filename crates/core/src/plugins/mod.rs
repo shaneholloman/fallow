@@ -27,6 +27,7 @@ pub struct PluginResult {
 }
 
 impl PluginResult {
+    #[must_use]
     pub const fn is_empty(&self) -> bool {
         self.entry_patterns.is_empty()
             && self.referenced_dependencies.is_empty()

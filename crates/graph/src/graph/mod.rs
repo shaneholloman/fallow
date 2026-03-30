@@ -132,17 +132,20 @@ impl ModuleGraph {
     }
 
     /// Total number of modules.
+    #[must_use]
     pub const fn module_count(&self) -> usize {
         self.modules.len()
     }
 
     /// Total number of edges.
+    #[must_use]
     pub const fn edge_count(&self) -> usize {
         self.edges.len()
     }
 
     /// Check if any importer uses `import * as ns` for this module.
     /// Uses precomputed bitset — O(1) lookup.
+    #[must_use]
     pub fn has_namespace_import(&self, file_id: FileId) -> bool {
         let idx = file_id.0 as usize;
         if idx >= self.namespace_imported.len() {
@@ -152,6 +155,7 @@ impl ModuleGraph {
     }
 
     /// Get the target `FileId`s of all outgoing edges for a module.
+    #[must_use]
     pub fn edges_for(&self, file_id: FileId) -> Vec<FileId> {
         let idx = file_id.0 as usize;
         if idx >= self.modules.len() {
@@ -163,6 +167,7 @@ impl ModuleGraph {
 
     /// Find the byte offset of the first import statement from `source` to `target`.
     /// Returns `None` if no edge exists or the edge has no symbols.
+    #[must_use]
     pub fn find_import_span_start(&self, source: FileId, target: FileId) -> Option<u32> {
         let idx = source.0 as usize;
         if idx >= self.modules.len() {

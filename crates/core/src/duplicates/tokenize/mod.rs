@@ -20,11 +20,13 @@ use super::token_visitor::TokenExtractor;
 /// When `strip_types` is true, TypeScript type annotations, interfaces, and type
 /// aliases are stripped from the token stream. This enables cross-language clone
 /// detection between `.ts` and `.js` files.
+#[must_use]
 pub fn tokenize_file(path: &Path, source: &str) -> FileTokens {
     tokenize_file_inner(path, source, false)
 }
 
 /// Tokenize a source file with optional type stripping for cross-language detection.
+#[must_use]
 pub fn tokenize_file_cross_language(path: &Path, source: &str, strip_types: bool) -> FileTokens {
     tokenize_file_inner(path, source, strip_types)
 }

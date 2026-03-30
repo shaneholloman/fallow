@@ -45,6 +45,7 @@ pub struct CloneDetector {
 
 impl CloneDetector {
     /// Create a new detector with the given thresholds.
+    #[must_use]
     pub const fn new(min_tokens: usize, min_lines: usize, skip_local: bool) -> Self {
         Self {
             min_tokens,

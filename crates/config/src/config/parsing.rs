@@ -194,6 +194,7 @@ impl FallowConfig {
     /// Returns an error string when a discovered config file exists but fails to load.
     /// Find the config file path without loading it.
     /// Searches the same locations as `find_and_load`.
+    #[must_use]
     pub fn find_config_path(start: &Path) -> Option<PathBuf> {
         let mut dir = start;
         loop {

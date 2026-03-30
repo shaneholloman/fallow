@@ -52,6 +52,7 @@ pub struct CrossReferenceResult {
 /// 2. An unused export/type at the same line range overlaps
 ///
 /// Returns combined findings sorted by priority (unused files first, then exports).
+#[must_use]
 pub fn cross_reference(
     duplication: &DuplicationReport,
     dead_code: &AnalysisResults,
@@ -136,16 +137,19 @@ fn find_overlapping_unused_export(
 /// Summary statistics for cross-referenced findings.
 impl CrossReferenceResult {
     /// Total number of combined findings.
+    #[must_use]
     pub const fn total(&self) -> usize {
         self.combined_findings.len()
     }
 
     /// Whether any combined findings exist.
+    #[must_use]
     pub const fn has_findings(&self) -> bool {
         !self.combined_findings.is_empty()
     }
 
     /// Get clone groups that have at least one combined finding, with their indices.
+    #[must_use]
     pub fn affected_group_indices(&self) -> FxHashSet<usize> {
         self.combined_findings
             .iter()

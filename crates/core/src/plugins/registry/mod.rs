@@ -55,6 +55,7 @@ pub struct AggregatedPluginResult {
 
 impl PluginRegistry {
     /// Create a registry with all built-in plugins and optional external plugins.
+    #[must_use]
     pub fn new(external: Vec<ExternalPluginDef>) -> Self {
         Self {
             plugins: builtin::create_builtin_plugins(),
@@ -390,6 +391,7 @@ impl PluginRegistry {
 
     /// Pre-compile config pattern glob matchers for all plugins that have config patterns.
     /// Returns a vec of (plugin, matchers) pairs that can be reused across multiple `run_workspace_fast` calls.
+    #[must_use]
     pub fn precompile_config_matchers(&self) -> Vec<(&dyn Plugin, Vec<globset::GlobMatcher>)> {
         self.plugins
             .iter()

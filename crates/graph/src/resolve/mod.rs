@@ -32,6 +32,7 @@ use specifier::{create_resolver, resolve_specifier};
 use types::ResolveContext;
 
 /// Resolve all imports across all modules in parallel.
+#[must_use]
 pub fn resolve_all_imports(
     modules: &[ModuleInfo],
     files: &[DiscoveredFile],

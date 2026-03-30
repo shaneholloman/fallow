@@ -19,6 +19,7 @@ impl ModuleGraph {
     ///
     /// Returns cycles sorted by length (shortest first), with files within each
     /// cycle sorted by path for deterministic output.
+    #[must_use]
     #[expect(clippy::excessive_nesting)]
     pub fn find_cycles(&self) -> Vec<Vec<FileId>> {
         let n = self.modules.len();

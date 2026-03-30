@@ -161,6 +161,7 @@ fn apply_line_suppressions(
 /// Run duplication detection on a project directory using auto-discovered files.
 ///
 /// This is a convenience function that handles file discovery internally.
+#[must_use]
 pub fn find_duplicates_in_project(root: &Path, config: &DuplicatesConfig) -> DuplicationReport {
     let resolved = crate::default_config(root);
     let files = discover::discover_files(&resolved);

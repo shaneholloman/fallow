@@ -16,6 +16,7 @@ const MODULE_EXTRACTION_THRESHOLD: usize = 50;
 ///
 /// Each family contains all clone groups that are duplicated across exactly the
 /// same set of files. Families are sorted by total duplicated lines (descending).
+#[must_use]
 pub fn group_into_families(clone_groups: &[CloneGroup], root: &Path) -> Vec<CloneFamily> {
     if clone_groups.is_empty() {
         return Vec::new();

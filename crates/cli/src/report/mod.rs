@@ -29,18 +29,21 @@ pub struct ReportContext<'a> {
 }
 
 /// Strip the project root prefix from a path for display, falling back to the full path.
+#[must_use]
 pub fn relative_path<'a>(path: &'a Path, root: &Path) -> &'a Path {
     path.strip_prefix(root).unwrap_or(path)
 }
 
 /// Split a path string into (directory, filename) for display.
 /// Directory includes the trailing `/`. If no directory, returns `("", filename)`.
+#[must_use]
 pub fn split_dir_filename(path: &str) -> (&str, &str) {
     path.rfind('/')
         .map_or(("", path), |pos| (&path[..=pos], &path[pos + 1..]))
 }
 
 /// Return `"s"` for plural or `""` for singular.
+#[must_use]
 pub const fn plural(n: usize) -> &'static str {
     if n == 1 { "" } else { "s" }
 }
@@ -49,6 +52,7 @@ pub const fn plural(n: usize) -> &'static str {
 ///
 /// On success prints the JSON and returns `ExitCode::SUCCESS`.
 /// On serialization failure prints an error to stderr and returns exit code 2.
+#[must_use]
 pub fn emit_json(value: &serde_json::Value, kind: &str) -> ExitCode {
     match serde_json::to_string_pretty(value) {
         Ok(json) => {
@@ -67,6 +71,7 @@ pub fn emit_json(value: &serde_json::Value, kind: &str) -> ExitCode {
 /// Returns the remaining suffix of `target`.
 ///
 /// Example: `elide_common_prefix("a/b/c/foo.ts", "a/b/d/bar.ts")` → `"d/bar.ts"`
+#[must_use]
 pub fn elide_common_prefix<'a>(base: &str, target: &'a str) -> &'a str {
     let mut last_sep = 0;
     for (i, (a, b)) in base.bytes().zip(target.bytes()).enumerate() {
@@ -93,6 +98,7 @@ fn relative_uri(path: &Path, root: &Path) -> String {
 ///
 /// Brackets (`[`, `]`) are not valid in URI path segments per RFC 3986 and cause
 /// SARIF validation warnings (e.g., Next.js dynamic routes like `[slug]`).
+#[must_use]
 pub fn normalize_uri(path_str: &str) -> String {
     path_str
         .replace('\\', "/")
@@ -108,6 +114,7 @@ pub enum Level {
     Error,
 }
 
+#[must_use]
 pub const fn severity_to_level(s: Severity) -> Level {
     match s {
         Severity::Error => Level::Error,
@@ -121,6 +128,7 @@ pub const fn severity_to_level(s: Severity) -> Level {
 /// Returns exit code 2 if serialization fails, SUCCESS otherwise.
 ///
 /// When `regression` is `Some`, the JSON format includes a `regression` key in the output envelope.
+#[must_use]
 pub fn print_results(
     results: &AnalysisResults,
     ctx: &ReportContext<'_>,
@@ -151,6 +159,7 @@ pub fn print_results(
 // ── Duplication report ────────────────────────────────────────────
 
 /// Print duplication analysis results in the configured format.
+#[must_use]
 pub fn print_duplication_report(
     report: &DuplicationReport,
     ctx: &ReportContext<'_>,
@@ -178,6 +187,7 @@ pub fn print_duplication_report(
 // ── Health / complexity report ─────────────────────────────────────
 
 /// Print health (complexity) analysis results in the configured format.
+#[must_use]
 pub fn print_health_report(
     report: &crate::health_types::HealthReport,
     ctx: &ReportContext<'_>,

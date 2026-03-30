@@ -101,6 +101,7 @@ fn push_dep_cc_issues(
 }
 
 /// Build CodeClimate JSON array from dead-code analysis results.
+#[must_use]
 pub fn build_codeclimate(
     results: &AnalysisResults,
     root: &Path,
@@ -429,6 +430,7 @@ fn health_severity(value: u16, threshold: u16) -> &'static str {
 }
 
 /// Build CodeClimate JSON array from health/complexity analysis results.
+#[must_use]
 pub fn build_health_codeclimate(report: &HealthReport, root: &Path) -> serde_json::Value {
     let mut issues = Vec::new();
 
@@ -494,6 +496,7 @@ pub(super) fn print_health_codeclimate(report: &HealthReport, root: &Path) -> Ex
 }
 
 /// Build CodeClimate JSON array from duplication analysis results.
+#[must_use]
 pub fn build_duplication_codeclimate(report: &DuplicationReport, root: &Path) -> serde_json::Value {
     let mut issues = Vec::new();
 

@@ -6,6 +6,7 @@
 /// via tsconfig.json `paths` or package.json `imports`. They should not be cached
 /// (resolution depends on the importing file's tsconfig context) and should return
 /// `Unresolvable` (not `NpmPackage`) when resolution fails.
+#[must_use]
 pub fn is_path_alias(specifier: &str) -> bool {
     // `#` prefix is Node.js imports maps (package.json "imports" field)
     if specifier.starts_with('#') {
@@ -33,6 +34,7 @@ pub fn is_path_alias(specifier: &str) -> bool {
 }
 
 /// Check if a specifier is a bare specifier (npm package or Node.js imports map entry).
+#[must_use]
 pub fn is_bare_specifier(specifier: &str) -> bool {
     !specifier.starts_with('.')
         && !specifier.starts_with('/')
@@ -43,6 +45,7 @@ pub fn is_bare_specifier(specifier: &str) -> bool {
 /// Extract the npm package name from a specifier.
 /// `@scope/pkg/foo/bar` -> `@scope/pkg`
 /// `lodash/merge` -> `lodash`
+#[must_use]
 pub fn extract_package_name(specifier: &str) -> String {
     if specifier.starts_with('@') {
         let parts: Vec<&str> = specifier.splitn(3, '/').collect();

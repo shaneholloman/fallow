@@ -172,6 +172,7 @@ pub fn analyze_churn(root: &Path, since: &SinceDuration) -> Option<ChurnResult> 
 }
 
 /// Check if the repository is a shallow clone.
+#[must_use]
 pub fn is_shallow_clone(root: &Path) -> bool {
     Command::new("git")
         .args(["rev-parse", "--is-shallow-repository"])
@@ -186,6 +187,7 @@ pub fn is_shallow_clone(root: &Path) -> bool {
 }
 
 /// Check if the directory is inside a git repository.
+#[must_use]
 pub fn is_git_repo(root: &Path) -> bool {
     Command::new("git")
         .args(["rev-parse", "--git-dir"])

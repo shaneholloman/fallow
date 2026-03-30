@@ -16,6 +16,7 @@ pub struct HashedToken {
 ///
 /// Returns a vector of `HashedToken` values ready for the Rabin-Karp sliding window.
 /// Tokens that should be skipped (based on mode) are excluded from the output.
+#[must_use]
 pub fn normalize_and_hash(tokens: &[SourceToken], mode: DetectionMode) -> Vec<HashedToken> {
     let resolved = ResolvedNormalization::resolve(mode, &NormalizationConfig::default());
     normalize_and_hash_resolved(tokens, resolved)
@@ -24,6 +25,7 @@ pub fn normalize_and_hash(tokens: &[SourceToken], mode: DetectionMode) -> Vec<Ha
 /// Normalize and hash with explicit resolved normalization flags.
 ///
 /// This is the primary normalization entry point when using configurable overrides.
+#[must_use]
 pub fn normalize_and_hash_resolved(
     tokens: &[SourceToken],
     normalization: ResolvedNormalization,

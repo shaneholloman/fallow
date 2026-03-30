@@ -247,6 +247,7 @@ fn build_sarif_rules(rules: &RulesConfig) -> Vec<serde_json::Value> {
     ]
 }
 
+#[must_use]
 pub fn build_sarif(
     results: &AnalysisResults,
     root: &Path,
@@ -516,6 +517,7 @@ pub(super) fn print_duplication_sarif(report: &DuplicationReport, root: &Path) -
 // SARIF is designed for diagnostic results (issues/findings), not metric tables.
 // File health scores are available in JSON, human, compact, and markdown formats.
 
+#[must_use]
 pub fn build_health_sarif(
     report: &crate::health_types::HealthReport,
     root: &Path,

@@ -316,6 +316,7 @@ fn discover_nested_package_entries(
 }
 
 /// Discover entry points for a workspace package.
+#[must_use]
 pub fn discover_workspace_entry_points(
     ws_root: &Path,
     _config: &ResolvedConfig,
@@ -372,6 +373,7 @@ pub fn discover_workspace_entry_points(
 ///
 /// Converts plugin-discovered patterns and setup files into concrete entry points
 /// by matching them against the discovered file list.
+#[must_use]
 pub fn discover_plugin_entry_points(
     plugin_result: &crate::plugins::AggregatedPluginResult,
     config: &ResolvedConfig,
@@ -461,6 +463,7 @@ pub fn discover_plugin_entry_points(
 }
 
 /// Pre-compile a set of glob patterns for efficient matching against many paths.
+#[must_use]
 pub fn compile_glob_set(patterns: &[String]) -> Option<globset::GlobSet> {
     if patterns.is_empty() {
         return None;

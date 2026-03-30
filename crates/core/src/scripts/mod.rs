@@ -53,6 +53,7 @@ pub struct ScriptCommand {
 ///
 /// In production mode, dev/test/lint scripts are excluded since they only affect
 /// devDependency usage, not the production dependency graph.
+#[must_use]
 #[expect(clippy::implicit_hasher, clippy::disallowed_types)]
 pub fn filter_production_scripts(scripts: &HashMap<String, String>) -> HashMap<String, String> {
     scripts
@@ -90,6 +91,7 @@ fn is_production_script(name: &str) -> bool {
 ///
 /// For each script value, parses shell commands, extracts binary names (mapped to
 /// package names), `--config` file paths, and positional file path arguments.
+#[must_use]
 #[expect(clippy::implicit_hasher, clippy::disallowed_types)]
 pub fn analyze_scripts(scripts: &HashMap<String, String>, root: &Path) -> ScriptAnalysis {
     let mut result = ScriptAnalysis::default();
@@ -136,6 +138,7 @@ pub fn analyze_scripts(scripts: &HashMap<String, String>, root: &Path) -> Script
 /// Parse a single script value into one or more commands.
 ///
 /// Splits on shell operators (`&&`, `||`, `;`, `|`, `&`) and parses each segment.
+#[must_use]
 pub fn parse_script(script: &str) -> Vec<ScriptCommand> {
     let mut commands = Vec::new();
 

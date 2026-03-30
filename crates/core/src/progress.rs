@@ -8,6 +8,7 @@ pub struct AnalysisProgress {
 
 impl AnalysisProgress {
     /// Create a new progress reporter.
+    #[must_use]
     pub fn new(enabled: bool) -> Self {
         Self {
             multi: MultiProgress::new(),
@@ -16,6 +17,7 @@ impl AnalysisProgress {
     }
 
     /// Create a spinner for a stage.
+    #[must_use]
     pub fn stage_spinner(&self, message: &str) -> ProgressBar {
         if !self.enabled {
             return ProgressBar::hidden();
@@ -33,6 +35,7 @@ impl AnalysisProgress {
     }
 
     /// Create a progress bar for file processing.
+    #[must_use]
     pub fn file_progress(&self, total: u64, message: &str) -> ProgressBar {
         if !self.enabled {
             return ProgressBar::hidden();

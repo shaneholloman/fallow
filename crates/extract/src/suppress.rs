@@ -22,6 +22,7 @@ fn byte_offset_to_line(source: &str, byte_offset: u32) -> u32 {
 /// - `// fallow-ignore-file unused-export` — suppress specific issue type for the file
 /// - `// fallow-ignore-next-line` — suppress all issues on the next line
 /// - `// fallow-ignore-next-line unused-export` — suppress specific issue type on the next line
+#[must_use]
 pub fn parse_suppressions(comments: &[Comment], source: &str) -> Vec<Suppression> {
     let mut suppressions = Vec::new();
 

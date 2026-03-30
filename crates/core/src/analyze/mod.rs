@@ -50,11 +50,13 @@ fn read_source(path: &std::path::Path) -> String {
 }
 
 /// Find all dead code in the project.
+#[must_use]
 pub fn find_dead_code(graph: &ModuleGraph, config: &ResolvedConfig) -> AnalysisResults {
     find_dead_code_with_resolved(graph, config, &[], None)
 }
 
 /// Find all dead code, with optional resolved module data and plugin context.
+#[must_use]
 pub fn find_dead_code_with_resolved(
     graph: &ModuleGraph,
     config: &ResolvedConfig,

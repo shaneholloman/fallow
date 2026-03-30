@@ -25,6 +25,7 @@ pub struct ProjectState {
 
 impl ProjectState {
     /// Build a new project state from discovered files and workspaces.
+    #[must_use]
     pub fn new(files: Vec<DiscoveredFile>, workspaces: Vec<WorkspaceInfo>) -> Self {
         debug_assert!(
             files.iter().enumerate().all(|(i, f)| f.id.0 as usize == i),
@@ -39,37 +40,44 @@ impl ProjectState {
     }
 
     /// All discovered files, indexed by `FileId`.
+    #[must_use]
     pub fn files(&self) -> &[DiscoveredFile] {
         &self.files
     }
 
     /// All discovered workspace packages.
+    #[must_use]
     pub fn workspaces(&self) -> &[WorkspaceInfo] {
         &self.workspaces
     }
 
     /// Look up a file by its `FileId`.
+    #[must_use]
     pub fn file_by_id(&self, id: FileId) -> Option<&DiscoveredFile> {
         self.files.get(id.0 as usize)
     }
 
     /// Look up a `FileId` by absolute path.
+    #[must_use]
     pub fn id_for_path(&self, path: &Path) -> Option<FileId> {
         self.path_to_id.get(path).copied()
     }
 
     /// Find which workspace a file belongs to, if any.
+    #[must_use]
     pub fn workspace_for_file(&self, id: FileId) -> Option<&WorkspaceInfo> {
         let path = &self.files.get(id.0 as usize)?.path;
         self.workspaces.iter().find(|ws| path.starts_with(&ws.root))
     }
 
     /// Look up a workspace by package name.
+    #[must_use]
     pub fn workspace_by_name(&self, name: &str) -> Option<&WorkspaceInfo> {
         self.workspaces.iter().find(|ws| ws.name == name)
     }
 
     /// Get all `FileId`s for files within a workspace.
+    #[must_use]
     pub fn files_in_workspace(&self, ws: &WorkspaceInfo) -> Vec<FileId> {
         self.files
             .iter()

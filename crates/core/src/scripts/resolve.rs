@@ -23,6 +23,7 @@ static BINARY_TO_PACKAGE: &[(&str, &str)] = &[
 /// 1. Check known binary→package divergence map
 /// 2. Read `node_modules/.bin/<binary>` symlink target
 /// 3. Fall back: binary name = package name
+#[must_use]
 pub fn resolve_binary_to_package(binary: &str, root: &Path) -> String {
     // 1. Known divergences
     if let Some(&(_, pkg)) = BINARY_TO_PACKAGE.iter().find(|(bin, _)| *bin == binary) {

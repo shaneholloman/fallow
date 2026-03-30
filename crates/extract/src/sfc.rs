@@ -98,6 +98,7 @@ pub fn extract_sfc_scripts(source: &str) -> Vec<SfcScript> {
 }
 
 /// Check if a file path is a Vue or Svelte SFC (`.vue` or `.svelte`).
+#[must_use]
 pub fn is_sfc_file(path: &Path) -> bool {
     path.extension()
         .and_then(|e| e.to_str())
