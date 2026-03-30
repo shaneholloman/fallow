@@ -1246,4 +1246,955 @@ mod tests {
         let pos = find_json_key(content, "foo").unwrap();
         assert!(content[pos..].starts_with("\"foo\": 1"));
     }
+
+    // ── Additional tolerance parsing ────────────────────────────────
+
+    #[test]
+    fn parse_whitespace_padded_tolerance() {
+        let t = Tolerance::parse("  5  ").unwrap();
+        assert!(matches!(t, Tolerance::Absolute(5)));
+    }
+
+    #[test]
+    fn parse_whitespace_only_defaults_to_zero() {
+        let t = Tolerance::parse("   ").unwrap();
+        assert!(matches!(t, Tolerance::Absolute(0)));
+    }
+
+    #[test]
+    fn parse_zero_percent_tolerance() {
+        let t = Tolerance::parse("0%").unwrap();
+        assert!(matches!(t, Tolerance::Percentage(p) if p == 0.0));
+    }
+
+    #[test]
+    fn parse_decimal_percentage_tolerance() {
+        let t = Tolerance::parse("1.5%").unwrap();
+        assert!(matches!(t, Tolerance::Percentage(p) if (p - 1.5).abs() < f64::EPSILON));
+    }
+
+    #[test]
+    fn parse_large_absolute_tolerance() {
+        let t = Tolerance::parse("1000").unwrap();
+        assert!(matches!(t, Tolerance::Absolute(1000)));
+    }
+
+    #[test]
+    fn parse_negative_absolute_is_err() {
+        // usize can't be negative, so parsing "-1" as usize fails
+        assert!(Tolerance::parse("-1").is_err());
+    }
+
+    #[test]
+    fn parse_whitespace_padded_percentage() {
+        let t = Tolerance::parse("  3.5%  ").unwrap();
+        assert!(matches!(t, Tolerance::Percentage(p) if (p - 3.5).abs() < f64::EPSILON));
+    }
+
+    // ── Additional Tolerance::exceeded ──────────────────────────────
+
+    #[test]
+    fn zero_pct_tolerance_detects_any_increase() {
+        let t = Tolerance::Percentage(0.0);
+        assert!(t.exceeded(100, 101));
+        assert!(!t.exceeded(100, 100));
+        assert!(!t.exceeded(100, 99));
+    }
+
+    #[test]
+    fn percentage_tolerance_with_small_baseline() {
+        // baseline=3, 10% of 3 = 0.3, floor = 0 => delta > 0 triggers
+        let t = Tolerance::Percentage(10.0);
+        assert!(t.exceeded(3, 4)); // delta=1 > allowed=0
+        assert!(!t.exceeded(3, 3)); // no increase
+    }
+
+    #[test]
+    fn percentage_tolerance_large_percentage() {
+        let t = Tolerance::Percentage(100.0);
+        // baseline=10, 100% of 10 = 10, floor=10 => delta > 10 triggers
+        assert!(!t.exceeded(10, 20)); // delta=10, allowed=10
+        assert!(t.exceeded(10, 21)); // delta=11, allowed=10
+    }
+
+    #[test]
+    fn absolute_tolerance_at_exact_boundary() {
+        let t = Tolerance::Absolute(5);
+        assert!(!t.exceeded(10, 15)); // delta=5, allowed=5
+        assert!(t.exceeded(10, 16)); // delta=6, allowed=5
+    }
+
+    #[test]
+    fn decrease_never_exceeds_for_all_variants() {
+        let t = Tolerance::Absolute(0);
+        assert!(!t.exceeded(10, 0));
+        let t = Tolerance::Percentage(0.0);
+        assert!(!t.exceeded(10, 0));
+    }
+
+    #[test]
+    fn equal_values_never_exceed() {
+        assert!(!Tolerance::Absolute(0).exceeded(0, 0));
+        assert!(!Tolerance::Percentage(0.0).exceeded(0, 0));
+        assert!(!Tolerance::Absolute(0).exceeded(100, 100));
+        assert!(!Tolerance::Percentage(0.0).exceeded(100, 100));
+    }
+
+    // ── CheckCounts config baseline roundtrip ────────────────────────
+
+    #[test]
+    fn check_counts_config_roundtrip() {
+        let counts = CheckCounts {
+            total_issues: 42,
+            unused_files: 5,
+            unused_exports: 20,
+            unused_types: 8,
+            unused_dependencies: 3,
+            unused_dev_dependencies: 2,
+            unused_optional_dependencies: 1,
+            unused_enum_members: 1,
+            unused_class_members: 1,
+            unresolved_imports: 0,
+            unlisted_dependencies: 1,
+            duplicate_exports: 0,
+            circular_dependencies: 0,
+            type_only_dependencies: 0,
+            test_only_dependencies: 0,
+        };
+        let config_baseline = counts.to_config_baseline();
+        let roundtripped = CheckCounts::from_config_baseline(&config_baseline);
+        assert_eq!(roundtripped.total_issues, 42);
+        assert_eq!(roundtripped.unused_files, 5);
+        assert_eq!(roundtripped.unused_exports, 20);
+        assert_eq!(roundtripped.unused_types, 8);
+        assert_eq!(roundtripped.unused_dependencies, 3);
+        assert_eq!(roundtripped.unused_dev_dependencies, 2);
+        assert_eq!(roundtripped.unused_optional_dependencies, 1);
+        assert_eq!(roundtripped.unused_enum_members, 1);
+        assert_eq!(roundtripped.unused_class_members, 1);
+        assert_eq!(roundtripped.unresolved_imports, 0);
+        assert_eq!(roundtripped.unlisted_dependencies, 1);
+        assert_eq!(roundtripped.duplicate_exports, 0);
+        assert_eq!(roundtripped.circular_dependencies, 0);
+        assert_eq!(roundtripped.type_only_dependencies, 0);
+        assert_eq!(roundtripped.test_only_dependencies, 0);
+    }
+
+    #[test]
+    fn check_counts_zero_config_roundtrip() {
+        let counts = CheckCounts {
+            total_issues: 0,
+            unused_files: 0,
+            unused_exports: 0,
+            unused_types: 0,
+            unused_dependencies: 0,
+            unused_dev_dependencies: 0,
+            unused_optional_dependencies: 0,
+            unused_enum_members: 0,
+            unused_class_members: 0,
+            unresolved_imports: 0,
+            unlisted_dependencies: 0,
+            duplicate_exports: 0,
+            circular_dependencies: 0,
+            type_only_dependencies: 0,
+            test_only_dependencies: 0,
+        };
+        let config_baseline = counts.to_config_baseline();
+        let roundtripped = CheckCounts::from_config_baseline(&config_baseline);
+        assert_eq!(roundtripped.total_issues, 0);
+        assert_eq!(roundtripped.unused_files, 0);
+    }
+
+    // ── deltas edge cases ──────────────────────────────────────────
+
+    #[test]
+    fn deltas_empty_when_identical() {
+        let counts = CheckCounts {
+            total_issues: 10,
+            unused_files: 5,
+            unused_exports: 3,
+            unused_types: 2,
+            unused_dependencies: 0,
+            unused_dev_dependencies: 0,
+            unused_optional_dependencies: 0,
+            unused_enum_members: 0,
+            unused_class_members: 0,
+            unresolved_imports: 0,
+            unlisted_dependencies: 0,
+            duplicate_exports: 0,
+            circular_dependencies: 0,
+            type_only_dependencies: 0,
+            test_only_dependencies: 0,
+        };
+        let deltas = counts.deltas(&counts);
+        assert!(deltas.is_empty());
+    }
+
+    #[test]
+    fn deltas_all_categories_changed() {
+        let baseline = CheckCounts {
+            total_issues: 0,
+            unused_files: 0,
+            unused_exports: 0,
+            unused_types: 0,
+            unused_dependencies: 0,
+            unused_dev_dependencies: 0,
+            unused_optional_dependencies: 0,
+            unused_enum_members: 0,
+            unused_class_members: 0,
+            unresolved_imports: 0,
+            unlisted_dependencies: 0,
+            duplicate_exports: 0,
+            circular_dependencies: 0,
+            type_only_dependencies: 0,
+            test_only_dependencies: 0,
+        };
+        let current = CheckCounts {
+            total_issues: 14,
+            unused_files: 1,
+            unused_exports: 1,
+            unused_types: 1,
+            unused_dependencies: 1,
+            unused_dev_dependencies: 1,
+            unused_optional_dependencies: 1,
+            unused_enum_members: 1,
+            unused_class_members: 1,
+            unresolved_imports: 1,
+            unlisted_dependencies: 1,
+            duplicate_exports: 1,
+            circular_dependencies: 1,
+            type_only_dependencies: 1,
+            test_only_dependencies: 1,
+        };
+        let deltas = baseline.deltas(&current);
+        // total_issues is not in deltas — only per-type fields
+        assert_eq!(deltas.len(), 14);
+        for (_, d) in &deltas {
+            assert_eq!(*d, 1);
+        }
+    }
+
+    #[test]
+    fn deltas_mixed_increase_decrease() {
+        let baseline = CheckCounts {
+            total_issues: 10,
+            unused_files: 5,
+            unused_exports: 3,
+            unused_types: 2,
+            unused_dependencies: 0,
+            unused_dev_dependencies: 0,
+            unused_optional_dependencies: 0,
+            unused_enum_members: 0,
+            unused_class_members: 0,
+            unresolved_imports: 0,
+            unlisted_dependencies: 0,
+            duplicate_exports: 0,
+            circular_dependencies: 0,
+            type_only_dependencies: 0,
+            test_only_dependencies: 0,
+        };
+        let current = CheckCounts {
+            unused_files: 3,       // -2
+            unused_exports: 5,     // +2
+            unused_types: 0,       // -2
+            unresolved_imports: 1, // +1
+            ..baseline
+        };
+        let deltas = baseline.deltas(&current);
+        assert_eq!(deltas.len(), 4);
+        assert!(deltas.contains(&("unused_files", -2)));
+        assert!(deltas.contains(&("unused_exports", 2)));
+        assert!(deltas.contains(&("unused_types", -2)));
+        assert!(deltas.contains(&("unresolved_imports", 1)));
+    }
+
+    // ── RegressionOutcome JSON with absolute tolerance ──────────────
+
+    #[test]
+    fn exceeded_outcome_json_absolute() {
+        let outcome = RegressionOutcome::Exceeded {
+            baseline_total: 10,
+            current_total: 15,
+            tolerance: Tolerance::Absolute(2),
+            type_deltas: vec![("unused_files", 5)],
+        };
+        let json = outcome.to_json();
+        assert_eq!(json["status"], "exceeded");
+        assert_eq!(json["tolerance_kind"], "absolute");
+        assert_eq!(json["tolerance"], 2.0);
+        assert_eq!(json["delta"], 5);
+    }
+
+    #[test]
+    fn pass_outcome_json_with_improvement() {
+        let outcome = RegressionOutcome::Pass {
+            baseline_total: 10,
+            current_total: 5,
+        };
+        let json = outcome.to_json();
+        assert_eq!(json["status"], "pass");
+        assert_eq!(json["delta"], -5);
+        assert_eq!(json["exceeded"], false);
+    }
+
+    // ── DupesCounts serialization ──────────────────────────────────
+
+    #[test]
+    fn dupes_counts_roundtrip() {
+        let dupes = DupesCounts {
+            clone_groups: 8,
+            duplication_percentage: 3.17,
+        };
+        let json = serde_json::to_string(&dupes).unwrap();
+        let loaded: DupesCounts = serde_json::from_str(&json).unwrap();
+        assert_eq!(loaded.clone_groups, 8);
+        assert!((loaded.duplication_percentage - 3.17).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn dupes_counts_default_fields() {
+        // Deserializing with missing fields should default to zero
+        let json = "{}";
+        let loaded: DupesCounts = serde_json::from_str(json).unwrap();
+        assert_eq!(loaded.clone_groups, 0);
+        assert!((loaded.duplication_percentage).abs() < f64::EPSILON);
+    }
+
+    // ── RegressionBaseline with missing optional sections ──────────
+
+    #[test]
+    fn baseline_without_check_section() {
+        let baseline = RegressionBaseline {
+            schema_version: 1,
+            fallow_version: "2.4.0".into(),
+            timestamp: "2026-03-27T10:00:00Z".into(),
+            git_sha: None,
+            check: None,
+            dupes: Some(DupesCounts {
+                clone_groups: 3,
+                duplication_percentage: 1.0,
+            }),
+        };
+        let json = serde_json::to_string_pretty(&baseline).unwrap();
+        let loaded: RegressionBaseline = serde_json::from_str(&json).unwrap();
+        assert!(loaded.check.is_none());
+        assert!(loaded.dupes.is_some());
+    }
+
+    #[test]
+    fn baseline_without_dupes_section() {
+        let baseline = RegressionBaseline {
+            schema_version: 1,
+            fallow_version: "2.4.0".into(),
+            timestamp: "2026-03-27T10:00:00Z".into(),
+            git_sha: Some("deadbeef".into()),
+            check: Some(CheckCounts {
+                total_issues: 1,
+                unused_files: 1,
+                ..CheckCounts::from_config_baseline(&fallow_config::RegressionBaseline::default())
+            }),
+            dupes: None,
+        };
+        let json = serde_json::to_string_pretty(&baseline).unwrap();
+        let loaded: RegressionBaseline = serde_json::from_str(&json).unwrap();
+        assert!(loaded.check.is_some());
+        assert!(loaded.dupes.is_none());
+        assert_eq!(loaded.git_sha.as_deref(), Some("deadbeef"));
+    }
+
+    #[test]
+    fn baseline_without_git_sha() {
+        let baseline = RegressionBaseline {
+            schema_version: 1,
+            fallow_version: "2.4.0".into(),
+            timestamp: "2026-03-27T10:00:00Z".into(),
+            git_sha: None,
+            check: None,
+            dupes: None,
+        };
+        let json = serde_json::to_string_pretty(&baseline).unwrap();
+        // git_sha should be skipped in serialization
+        assert!(!json.contains("git_sha"));
+        let loaded: RegressionBaseline = serde_json::from_str(&json).unwrap();
+        assert!(loaded.git_sha.is_none());
+    }
+
+    // ── Forward compatibility: extra fields are ignored ──────────────
+
+    #[test]
+    fn baseline_json_with_unknown_check_fields_deserializes() {
+        let json = r#"{
+            "schema_version": 1,
+            "fallow_version": "3.0.0",
+            "timestamp": "2026-03-27T10:00:00Z",
+            "check": {
+                "total_issues": 10,
+                "unused_files": 2,
+                "some_future_field": 99
+            }
+        }"#;
+        // Should not fail — extra fields are ignored by serde default
+        let loaded: Result<RegressionBaseline, _> = serde_json::from_str(json);
+        // Note: serde doesn't deny unknown fields by default, so this should work
+        assert!(loaded.is_ok());
+        let loaded = loaded.unwrap();
+        assert_eq!(loaded.check.as_ref().unwrap().total_issues, 10);
+    }
+
+    // ── save/load roundtrip ────────────────────────────────────────
+
+    #[test]
+    fn save_load_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("regression-baseline.json");
+        let counts = CheckCounts {
+            total_issues: 15,
+            unused_files: 3,
+            unused_exports: 5,
+            unused_types: 2,
+            unused_dependencies: 1,
+            unused_dev_dependencies: 1,
+            unused_optional_dependencies: 0,
+            unused_enum_members: 1,
+            unused_class_members: 0,
+            unresolved_imports: 1,
+            unlisted_dependencies: 0,
+            duplicate_exports: 1,
+            circular_dependencies: 0,
+            type_only_dependencies: 0,
+            test_only_dependencies: 0,
+        };
+        let dupes = DupesCounts {
+            clone_groups: 4,
+            duplication_percentage: 2.5,
+        };
+
+        save_regression_baseline(&path, dir.path(), Some(&counts), Some(&dupes)).unwrap();
+        let loaded = load_regression_baseline(&path).unwrap();
+
+        assert_eq!(loaded.schema_version, REGRESSION_SCHEMA_VERSION);
+        let check = loaded.check.unwrap();
+        assert_eq!(check.total_issues, 15);
+        assert_eq!(check.unused_files, 3);
+        assert_eq!(check.unused_exports, 5);
+        assert_eq!(check.unused_types, 2);
+        assert_eq!(check.unused_dependencies, 1);
+        assert_eq!(check.unresolved_imports, 1);
+        assert_eq!(check.duplicate_exports, 1);
+        let dupes = loaded.dupes.unwrap();
+        assert_eq!(dupes.clone_groups, 4);
+        assert!((dupes.duplication_percentage - 2.5).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn save_load_roundtrip_check_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("regression-baseline.json");
+        let counts = CheckCounts {
+            total_issues: 5,
+            unused_files: 5,
+            ..CheckCounts::from_config_baseline(&fallow_config::RegressionBaseline::default())
+        };
+
+        save_regression_baseline(&path, dir.path(), Some(&counts), None).unwrap();
+        let loaded = load_regression_baseline(&path).unwrap();
+
+        assert!(loaded.check.is_some());
+        assert!(loaded.dupes.is_none());
+        assert_eq!(loaded.check.unwrap().unused_files, 5);
+    }
+
+    #[test]
+    fn save_creates_parent_directories() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nested").join("dir").join("baseline.json");
+        let counts = CheckCounts {
+            total_issues: 1,
+            unused_files: 1,
+            ..CheckCounts::from_config_baseline(&fallow_config::RegressionBaseline::default())
+        };
+
+        save_regression_baseline(&path, dir.path(), Some(&counts), None).unwrap();
+        assert!(path.exists());
+    }
+
+    #[test]
+    fn load_nonexistent_file_returns_error() {
+        let result = load_regression_baseline(Path::new("/tmp/nonexistent-baseline-12345.json"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn load_invalid_json_returns_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bad.json");
+        std::fs::write(&path, "not valid json {{{").unwrap();
+        let result = load_regression_baseline(&path);
+        assert!(result.is_err());
+    }
+
+    // ── save_baseline_to_config ────────────────────────────────────
+
+    #[test]
+    fn save_baseline_to_json_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join(".fallowrc.json");
+        std::fs::write(&config_path, r#"{"entry": ["src/main.ts"]}"#).unwrap();
+
+        let counts = CheckCounts {
+            total_issues: 7,
+            unused_files: 3,
+            unused_exports: 4,
+            ..CheckCounts::from_config_baseline(&fallow_config::RegressionBaseline::default())
+        };
+        save_baseline_to_config(&config_path, &counts).unwrap();
+
+        let content = std::fs::read_to_string(&config_path).unwrap();
+        assert!(content.contains("\"regression\""));
+        assert!(content.contains("\"totalIssues\": 7"));
+        // Should still be valid JSON
+        serde_json::from_str::<serde_json::Value>(&content).unwrap();
+    }
+
+    #[test]
+    fn save_baseline_to_toml_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("fallow.toml");
+        std::fs::write(&config_path, "[rules]\nunused-files = \"warn\"\n").unwrap();
+
+        let counts = CheckCounts {
+            total_issues: 7,
+            unused_files: 3,
+            unused_exports: 4,
+            ..CheckCounts::from_config_baseline(&fallow_config::RegressionBaseline::default())
+        };
+        save_baseline_to_config(&config_path, &counts).unwrap();
+
+        let content = std::fs::read_to_string(&config_path).unwrap();
+        assert!(content.contains("[regression.baseline]"));
+        assert!(content.contains("totalIssues = 7"));
+        assert!(content.contains("[rules]"));
+    }
+
+    #[test]
+    fn save_baseline_to_nonexistent_json_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join(".fallowrc.json");
+        // File doesn't exist — should create it from scratch
+
+        let counts = CheckCounts {
+            total_issues: 1,
+            unused_files: 1,
+            ..CheckCounts::from_config_baseline(&fallow_config::RegressionBaseline::default())
+        };
+        save_baseline_to_config(&config_path, &counts).unwrap();
+
+        let content = std::fs::read_to_string(&config_path).unwrap();
+        assert!(content.contains("\"regression\""));
+        serde_json::from_str::<serde_json::Value>(&content).unwrap();
+    }
+
+    #[test]
+    fn save_baseline_to_nonexistent_toml_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("fallow.toml");
+
+        let counts = CheckCounts {
+            total_issues: 0,
+            ..CheckCounts::from_config_baseline(&fallow_config::RegressionBaseline::default())
+        };
+        save_baseline_to_config(&config_path, &counts).unwrap();
+
+        let content = std::fs::read_to_string(&config_path).unwrap();
+        assert!(content.contains("[regression.baseline]"));
+        assert!(content.contains("totalIssues = 0"));
+    }
+
+    // ── update_json_regression edge cases ──────────────────────────
+
+    #[test]
+    fn json_insert_with_trailing_comma() {
+        let config = r#"{
+  "entry": ["src/main.ts"],
+}"#;
+        // Trailing comma — our insertion should still produce reasonable output
+        let result = update_json_regression(config, &sample_baseline()).unwrap();
+        assert!(result.contains("\"regression\""));
+    }
+
+    #[test]
+    fn json_no_closing_brace_returns_error() {
+        let result = update_json_regression("", &sample_baseline());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn json_nested_regression_object_replaced_correctly() {
+        let config = r#"{
+  "regression": {
+    "baseline": {
+      "totalIssues": 99,
+      "unusedFiles": 10
+    },
+    "tolerance": "5%"
+  },
+  "entry": ["src/main.ts"]
+}"#;
+        let result = update_json_regression(config, &sample_baseline()).unwrap();
+        assert!(!result.contains("99"));
+        assert!(result.contains("\"totalIssues\": 5"));
+        assert!(result.contains("\"entry\""));
+    }
+
+    // ── update_toml_regression edge cases ──────────────────────────
+
+    #[test]
+    fn toml_content_without_trailing_newline() {
+        let config = "[rules]\nunused-files = \"warn\"";
+        let result = update_toml_regression(config, &sample_baseline());
+        assert!(result.contains("[regression.baseline]"));
+        assert!(result.contains("[rules]"));
+    }
+
+    #[test]
+    fn toml_replace_section_not_at_end() {
+        let config = "[regression.baseline]\ntotalIssues = 99\nunusedFiles = 10\n\n[rules]\nunused-files = \"warn\"\n";
+        let result = update_toml_regression(config, &sample_baseline());
+        assert!(!result.contains("99"));
+        assert!(result.contains("totalIssues = 5"));
+        assert!(result.contains("[rules]"));
+        assert!(result.contains("unused-files = \"warn\""));
+    }
+
+    #[test]
+    fn toml_replace_section_at_end() {
+        let config =
+            "[rules]\nunused-files = \"warn\"\n\n[regression.baseline]\ntotalIssues = 99\n";
+        let result = update_toml_regression(config, &sample_baseline());
+        assert!(!result.contains("99"));
+        assert!(result.contains("totalIssues = 5"));
+        assert!(result.contains("[rules]"));
+    }
+
+    // ── find_json_key edge cases ────────────────────────────────────
+
+    #[test]
+    fn find_json_key_multiple_same_keys() {
+        // Returns the first occurrence
+        let content = r#"{"foo": 1, "bar": {"foo": 2}}"#;
+        let pos = find_json_key(content, "foo").unwrap();
+        assert_eq!(pos, 1);
+    }
+
+    #[test]
+    fn find_json_key_in_nested_comment_then_real() {
+        let content = "{\n  // \"entry\": old\n  /* \"entry\": also old */\n  \"entry\": []\n}";
+        let pos = find_json_key(content, "entry").unwrap();
+        assert!(content[pos..].starts_with("\"entry\": []"));
+    }
+
+    // ── chrono_now ─────────────────────────────────────────────────
+
+    #[test]
+    fn chrono_now_format() {
+        let ts = chrono_now();
+        // Should be ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ
+        assert_eq!(ts.len(), 20);
+        assert!(ts.ends_with('Z'));
+        assert_eq!(&ts[4..5], "-");
+        assert_eq!(&ts[7..8], "-");
+        assert_eq!(&ts[10..11], "T");
+        assert_eq!(&ts[13..14], ":");
+        assert_eq!(&ts[16..17], ":");
+    }
+
+    // ── print_regression_outcome ────────────────────────────────────
+
+    #[test]
+    fn print_pass_outcome_does_not_panic() {
+        let outcome = RegressionOutcome::Pass {
+            baseline_total: 10,
+            current_total: 8,
+        };
+        // Just verify it doesn't panic — output goes to stderr
+        print_regression_outcome(&outcome);
+    }
+
+    #[test]
+    fn print_exceeded_outcome_does_not_panic() {
+        let outcome = RegressionOutcome::Exceeded {
+            baseline_total: 10,
+            current_total: 15,
+            tolerance: Tolerance::Percentage(2.0),
+            type_deltas: vec![("unused_files", 5), ("unused_exports", -2)],
+        };
+        print_regression_outcome(&outcome);
+    }
+
+    #[test]
+    fn print_exceeded_outcome_absolute_does_not_panic() {
+        let outcome = RegressionOutcome::Exceeded {
+            baseline_total: 10,
+            current_total: 15,
+            tolerance: Tolerance::Absolute(2),
+            type_deltas: vec![("unused_files", 3), ("unresolved_imports", 2)],
+        };
+        print_regression_outcome(&outcome);
+    }
+
+    #[test]
+    fn print_skipped_outcome_does_not_panic() {
+        let outcome = RegressionOutcome::Skipped {
+            reason: "test reason",
+        };
+        print_regression_outcome(&outcome);
+    }
+
+    #[test]
+    fn print_exceeded_with_empty_deltas_does_not_panic() {
+        let outcome = RegressionOutcome::Exceeded {
+            baseline_total: 10,
+            current_total: 15,
+            tolerance: Tolerance::Absolute(0),
+            type_deltas: vec![],
+        };
+        print_regression_outcome(&outcome);
+    }
+
+    // ── compare_check_regression ────────────────────────────────────
+
+    fn make_opts(
+        fail: bool,
+        tolerance: Tolerance,
+        scoped: bool,
+        baseline_file: Option<&Path>,
+    ) -> RegressionOpts<'_> {
+        RegressionOpts {
+            fail_on_regression: fail,
+            tolerance,
+            regression_baseline_file: baseline_file,
+            save_target: SaveRegressionTarget::None,
+            scoped,
+            quiet: true,
+        }
+    }
+
+    #[test]
+    fn compare_returns_none_when_disabled() {
+        let results = AnalysisResults::default();
+        let opts = make_opts(false, Tolerance::Absolute(0), false, None);
+        let config_baseline = fallow_config::RegressionBaseline {
+            total_issues: 5,
+            ..Default::default()
+        };
+        let outcome = compare_check_regression(&results, &opts, Some(&config_baseline)).unwrap();
+        assert!(outcome.is_none());
+    }
+
+    #[test]
+    fn compare_returns_skipped_when_scoped() {
+        let results = AnalysisResults::default();
+        let opts = make_opts(true, Tolerance::Absolute(0), true, None);
+        let config_baseline = fallow_config::RegressionBaseline {
+            total_issues: 5,
+            ..Default::default()
+        };
+        let outcome = compare_check_regression(&results, &opts, Some(&config_baseline)).unwrap();
+        assert!(matches!(outcome, Some(RegressionOutcome::Skipped { .. })));
+    }
+
+    #[test]
+    fn compare_pass_with_config_baseline() {
+        let results = AnalysisResults::default(); // 0 issues
+        let opts = make_opts(true, Tolerance::Absolute(0), false, None);
+        let config_baseline = fallow_config::RegressionBaseline {
+            total_issues: 0,
+            ..Default::default()
+        };
+        let outcome = compare_check_regression(&results, &opts, Some(&config_baseline)).unwrap();
+        match outcome {
+            Some(RegressionOutcome::Pass {
+                baseline_total,
+                current_total,
+            }) => {
+                assert_eq!(baseline_total, 0);
+                assert_eq!(current_total, 0);
+            }
+            other => panic!("expected Pass, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn compare_exceeded_with_config_baseline() {
+        let mut results = AnalysisResults::default();
+        results.unused_files.push(UnusedFile {
+            path: PathBuf::from("a.ts"),
+        });
+        results.unused_files.push(UnusedFile {
+            path: PathBuf::from("b.ts"),
+        });
+        let opts = make_opts(true, Tolerance::Absolute(0), false, None);
+        let config_baseline = fallow_config::RegressionBaseline {
+            total_issues: 0,
+            ..Default::default()
+        };
+        let outcome = compare_check_regression(&results, &opts, Some(&config_baseline)).unwrap();
+        match outcome {
+            Some(RegressionOutcome::Exceeded {
+                baseline_total,
+                current_total,
+                ..
+            }) => {
+                assert_eq!(baseline_total, 0);
+                assert_eq!(current_total, 2);
+            }
+            other => panic!("expected Exceeded, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn compare_pass_within_tolerance() {
+        let mut results = AnalysisResults::default();
+        results.unused_files.push(UnusedFile {
+            path: PathBuf::from("a.ts"),
+        });
+        let opts = make_opts(true, Tolerance::Absolute(5), false, None);
+        let config_baseline = fallow_config::RegressionBaseline {
+            total_issues: 0,
+            ..Default::default()
+        };
+        let outcome = compare_check_regression(&results, &opts, Some(&config_baseline)).unwrap();
+        assert!(matches!(outcome, Some(RegressionOutcome::Pass { .. })));
+    }
+
+    #[test]
+    fn compare_improvement_is_pass() {
+        // Current has fewer issues than baseline
+        let results = AnalysisResults::default(); // 0 issues
+        let opts = make_opts(true, Tolerance::Absolute(0), false, None);
+        let config_baseline = fallow_config::RegressionBaseline {
+            total_issues: 10,
+            unused_files: 5,
+            unused_exports: 5,
+            ..Default::default()
+        };
+        let outcome = compare_check_regression(&results, &opts, Some(&config_baseline)).unwrap();
+        match outcome {
+            Some(RegressionOutcome::Pass {
+                baseline_total,
+                current_total,
+            }) => {
+                assert_eq!(baseline_total, 10);
+                assert_eq!(current_total, 0);
+            }
+            other => panic!("expected Pass, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn compare_with_file_baseline() {
+        let dir = tempfile::tempdir().unwrap();
+        let baseline_path = dir.path().join("baseline.json");
+
+        // Save a baseline to file
+        let counts = CheckCounts {
+            total_issues: 5,
+            unused_files: 5,
+            ..CheckCounts::from_config_baseline(&fallow_config::RegressionBaseline::default())
+        };
+        save_regression_baseline(&baseline_path, dir.path(), Some(&counts), None).unwrap();
+
+        // Compare with empty results -> pass (improvement)
+        let results = AnalysisResults::default();
+        let opts = make_opts(true, Tolerance::Absolute(0), false, Some(&baseline_path));
+        let outcome = compare_check_regression(&results, &opts, None).unwrap();
+        assert!(matches!(outcome, Some(RegressionOutcome::Pass { .. })));
+    }
+
+    #[test]
+    fn compare_file_baseline_missing_check_data_returns_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let baseline_path = dir.path().join("baseline.json");
+
+        // Save a baseline with no check data (dupes only)
+        save_regression_baseline(
+            &baseline_path,
+            dir.path(),
+            None,
+            Some(&DupesCounts {
+                clone_groups: 1,
+                duplication_percentage: 1.0,
+            }),
+        )
+        .unwrap();
+
+        let results = AnalysisResults::default();
+        let opts = make_opts(true, Tolerance::Absolute(0), false, Some(&baseline_path));
+        let outcome = compare_check_regression(&results, &opts, None);
+        assert!(outcome.is_err());
+    }
+
+    #[test]
+    fn compare_no_baseline_source_returns_error() {
+        let results = AnalysisResults::default();
+        let opts = make_opts(true, Tolerance::Absolute(0), false, None);
+        let outcome = compare_check_regression(&results, &opts, None);
+        assert!(outcome.is_err());
+    }
+
+    #[test]
+    fn compare_exceeded_includes_type_deltas() {
+        let mut results = AnalysisResults::default();
+        results.unused_files.push(UnusedFile {
+            path: PathBuf::from("a.ts"),
+        });
+        results.unused_files.push(UnusedFile {
+            path: PathBuf::from("b.ts"),
+        });
+        results.unused_exports.push(UnusedExport {
+            path: PathBuf::from("c.ts"),
+            export_name: "foo".into(),
+            is_type_only: false,
+            line: 1,
+            col: 0,
+            span_start: 0,
+            is_re_export: false,
+        });
+
+        let opts = make_opts(true, Tolerance::Absolute(0), false, None);
+        let config_baseline = fallow_config::RegressionBaseline {
+            total_issues: 0,
+            ..Default::default()
+        };
+        let outcome = compare_check_regression(&results, &opts, Some(&config_baseline)).unwrap();
+
+        match outcome {
+            Some(RegressionOutcome::Exceeded { type_deltas, .. }) => {
+                assert!(type_deltas.contains(&("unused_files", 2)));
+                assert!(type_deltas.contains(&("unused_exports", 1)));
+            }
+            other => panic!("expected Exceeded, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn compare_with_percentage_tolerance() {
+        let mut results = AnalysisResults::default();
+        // Add 1 issue
+        results.unused_files.push(UnusedFile {
+            path: PathBuf::from("a.ts"),
+        });
+
+        let opts = make_opts(true, Tolerance::Percentage(50.0), false, None);
+        // baseline=10, 50% of 10 = 5, delta=1-10=-9 (improvement, should pass)
+        // Wait, total_issues in config is the baseline for comparison.
+        // results has 1 issue, baseline has 10 -> improvement -> pass
+        let config_baseline = fallow_config::RegressionBaseline {
+            total_issues: 10,
+            unused_files: 10,
+            ..Default::default()
+        };
+        let outcome = compare_check_regression(&results, &opts, Some(&config_baseline)).unwrap();
+        assert!(matches!(outcome, Some(RegressionOutcome::Pass { .. })));
+    }
 }
