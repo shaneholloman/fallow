@@ -882,4 +882,1274 @@ mod tests {
         let count = text.matches("src/parser.ts").count();
         assert_eq!(count, 1, "File header should appear once for grouped items");
     }
+
+    // ── Helper: build an empty base report ───────────────────────
+
+    fn empty_report() -> crate::health_types::HealthReport {
+        crate::health_types::HealthReport {
+            findings: vec![],
+            summary: crate::health_types::HealthSummary {
+                files_analyzed: 10,
+                functions_analyzed: 50,
+                functions_above_threshold: 0,
+                max_cyclomatic_threshold: 20,
+                max_cognitive_threshold: 15,
+                files_scored: None,
+                average_maintainability: None,
+            },
+            vital_signs: None,
+            health_score: None,
+            file_scores: vec![],
+            hotspots: vec![],
+            hotspot_summary: None,
+            targets: vec![],
+            target_thresholds: None,
+            health_trend: None,
+        }
+    }
+
+    // ── fmt_trend_val / fmt_trend_delta ───────────────────────────
+
+    #[test]
+    fn fmt_trend_val_percentage() {
+        assert_eq!(fmt_trend_val(15.5, "%"), "15.5%");
+        assert_eq!(fmt_trend_val(0.0, "%"), "0.0%");
+    }
+
+    #[test]
+    fn fmt_trend_val_integer_when_round() {
+        assert_eq!(fmt_trend_val(72.0, ""), "72");
+        assert_eq!(fmt_trend_val(5.0, "pts"), "5");
+    }
+
+    #[test]
+    fn fmt_trend_val_decimal_when_fractional() {
+        assert_eq!(fmt_trend_val(4.7, ""), "4.7");
+        assert_eq!(fmt_trend_val(1.3, "pts"), "1.3");
+    }
+
+    #[test]
+    fn fmt_trend_delta_percentage() {
+        assert_eq!(fmt_trend_delta(2.5, "%"), "+2.5%");
+        assert_eq!(fmt_trend_delta(-1.3, "%"), "-1.3%");
+    }
+
+    #[test]
+    fn fmt_trend_delta_integer_when_round() {
+        assert_eq!(fmt_trend_delta(5.0, ""), "+5");
+        assert_eq!(fmt_trend_delta(-3.0, "pts"), "-3");
+    }
+
+    #[test]
+    fn fmt_trend_delta_decimal_when_fractional() {
+        assert_eq!(fmt_trend_delta(4.9, ""), "+4.9");
+        assert_eq!(fmt_trend_delta(-0.7, "pts"), "-0.7");
+    }
+
+    // ── render_health_score ──────────────────────────────────────
+
+    #[test]
+    fn health_score_grade_a_display() {
+        let root = PathBuf::from("/project");
+        let mut report = empty_report();
+        report.health_score = Some(crate::health_types::HealthScore {
+            score: 92.0,
+            grade: "A",
+            penalties: crate::health_types::HealthScorePenalties {
+                dead_files: Some(3.0),
+                dead_exports: Some(2.0),
+                complexity: 1.5,
+                p90_complexity: 1.5,
+                maintainability: Some(0.0),
+                hotspots: Some(0.0),
+                unused_deps: Some(0.0),
+                circular_deps: Some(0.0),
+            },
+        });
+        let lines = build_health_human_lines(&report, &root);
+        let text = plain(&lines);
+        assert!(text.contains("Health score:"));
+        assert!(text.contains("92 A"));
+        assert!(text.contains("dead files -3.0"));
+        assert!(text.contains("dead exports -2.0"));
+        assert!(text.contains("complexity -1.5"));
+        assert!(text.contains("p90 -1.5"));
+    }
+
+    #[test]
+    fn health_score_grade_b_display() {
+        let root = PathBuf::from("/project");
+        let mut report = empty_report();
+        report.health_score = Some(crate::health_types::HealthScore {
+            score: 76.0,
+            grade: "B",
+            penalties: crate::health_types::HealthScorePenalties {
+                dead_files: Some(5.0),
+                dead_exports: Some(6.0),
+                complexity: 3.0,
+                p90_complexity: 2.0,
+                maintainability: Some(4.0),
+                hotspots: Some(2.0),
+                unused_deps: Some(1.0),
+                circular_deps: Some(1.0),
+            },
+        });
+        let lines = build_health_human_lines(&report, &root);
+        let text = plain(&lines);
+        assert!(text.contains("76 B"));
+        assert!(text.contains("MI -4.0"));
+        assert!(text.contains("hotspots -2.0"));
+        assert!(text.contains("unused deps -1.0"));
+        assert!(text.contains("circular deps -1.0"));
+    }
+
+    #[test]
+    fn health_score_grade_c_display() {
+        let root = PathBuf::from("/project");
+        let mut report = empty_report();
+        report.health_score = Some(crate::health_types::HealthScore {
+            score: 60.0,
+            grade: "C",
+            penalties: crate::health_types::HealthScorePenalties {
+                dead_files: Some(10.0),
+                dead_exports: Some(10.0),
+                complexity: 10.0,
+                p90_complexity: 5.0,
+                maintainability: Some(5.0),
+                hotspots: None,
+                unused_deps: None,
+                circular_deps: None,
+            },
+        });
+        let lines = build_health_human_lines(&report, &root);
+        let text = plain(&lines);
+        assert!(text.contains("60 C"));
+    }
+
+    #[test]
+    fn health_score_grade_f_display() {
+        let root = PathBuf::from("/project");
+        let mut report = empty_report();
+        report.health_score = Some(crate::health_types::HealthScore {
+            score: 30.0,
+            grade: "F",
+            penalties: crate::health_types::HealthScorePenalties {
+                dead_files: Some(15.0),
+                dead_exports: Some(15.0),
+                complexity: 20.0,
+                p90_complexity: 10.0,
+                maintainability: Some(10.0),
+                hotspots: None,
+                unused_deps: None,
+                circular_deps: None,
+            },
+        });
+        let lines = build_health_human_lines(&report, &root);
+        let text = plain(&lines);
+        assert!(text.contains("30 F"));
+    }
+
+    #[test]
+    fn health_score_na_components_shown() {
+        let root = PathBuf::from("/project");
+        let mut report = empty_report();
+        report.health_score = Some(crate::health_types::HealthScore {
+            score: 90.0,
+            grade: "A",
+            penalties: crate::health_types::HealthScorePenalties {
+                dead_files: None,
+                dead_exports: None,
+                complexity: 0.0,
+                p90_complexity: 0.0,
+                maintainability: None,
+                hotspots: None,
+                unused_deps: None,
+                circular_deps: None,
+            },
+        });
+        let lines = build_health_human_lines(&report, &root);
+        let text = plain(&lines);
+        assert!(text.contains("N/A: dead code, MI, hotspots"));
+        assert!(text.contains("run --score for full pipeline"));
+    }
+
+    #[test]
+    fn health_score_no_na_when_all_present() {
+        let root = PathBuf::from("/project");
+        let mut report = empty_report();
+        report.health_score = Some(crate::health_types::HealthScore {
+            score: 85.0,
+            grade: "A",
+            penalties: crate::health_types::HealthScorePenalties {
+                dead_files: Some(0.0),
+                dead_exports: Some(0.0),
+                complexity: 0.0,
+                p90_complexity: 0.0,
+                maintainability: Some(0.0),
+                hotspots: Some(0.0),
+                unused_deps: Some(0.0),
+                circular_deps: Some(0.0),
+            },
+        });
+        let lines = build_health_human_lines(&report, &root);
+        let text = plain(&lines);
+        assert!(!text.contains("N/A:"));
+    }
+
+    #[test]
+    fn health_score_zero_penalties_suppressed() {
+        let root = PathBuf::from("/project");
+        let mut report = empty_report();
+        report.health_score = Some(crate::health_types::HealthScore {
+            score: 100.0,
+            grade: "A",
+            penalties: crate::health_types::HealthScorePenalties {
+                dead_files: Some(0.0),
+                dead_exports: Some(0.0),
+                complexity: 0.0,
+                p90_complexity: 0.0,
+                maintainability: Some(0.0),
+                hotspots: Some(0.0),
+                unused_deps: Some(0.0),
+                circular_deps: Some(0.0),
+            },
+        });
+        let lines = build_health_human_lines(&report, &root);
+        let text = plain(&lines);
+        // No penalty line when all are zero
+        assert!(!text.contains("dead files"));
+        assert!(!text.contains("complexity -"));
+    }
+
+    // ── render_health_trend ──────────────────────────────────────
+
+    #[test]
+    fn health_trend_improving_display() {
+        let root = PathBuf::from("/project");
+        let mut report = empty_report();
+        report.health_trend = Some(crate::health_types::HealthTrend {
+            compared_to: crate::health_types::TrendPoint {
+                timestamp: "2026-03-25T14:30:00Z".into(),
+                git_sha: Some("abc1234".into()),
+                score: Some(72.0),
+                grade: Some("B".into()),
+            },
+            metrics: vec![
+                crate::health_types::TrendMetric {
+                    name: "score",
+                    label: "Health Score",
+                    previous: 72.0,
+                    current: 85.0,
+                    delta: 13.0,
+                    direction: crate::health_types::TrendDirection::Improving,
+                    unit: "",
+                    previous_count: None,
+                    current_count: None,
+                },
+                crate::health_types::TrendMetric {
+                    name: "dead_file_pct",
+                    label: "Dead Files",
+                    previous: 10.0,
+                    current: 5.0,
+                    delta: -5.0,
+                    direction: crate::health_types::TrendDirection::Improving,
+                    unit: "%",
+                    previous_count: None,
+                    current_count: None,
+                },
+            ],
+            snapshots_loaded: 2,
+            overall_direction: crate::health_types::TrendDirection::Improving,
+        });
+        let lines = build_health_human_lines(&report, &root);
+        let text = plain(&lines);
+        assert!(text.contains("Trend:"));
+        assert!(text.contains("improving"));
+        assert!(text.contains("vs 2026-03-25"));
+        assert!(text.contains("abc1234"));
+        assert!(text.contains("Health Score"));
+        assert!(text.contains("+13"));
+        assert!(text.contains("Dead Files"));
+        assert!(text.contains("-5.0%"));
+    }
+
+    #[test]
+    fn health_trend_declining_display() {
+        let root = PathBuf::from("/project");
+        let mut report = empty_report();
+        report.health_trend = Some(crate::health_types::HealthTrend {
+            compared_to: crate::health_types::TrendPoint {
+                timestamp: "2026-03-20T10:00:00Z".into(),
+                git_sha: None,
+                score: None,
+                grade: None,
+            },
+            metrics: vec![crate::health_types::TrendMetric {
+                name: "unused_deps",
+                label: "Unused Deps",
+                previous: 5.0,
+                current: 10.0,
+                delta: 5.0,
+                direction: crate::health_types::TrendDirection::Declining,
+                unit: "",
+                previous_count: None,
+                current_count: None,
+            }],
+            snapshots_loaded: 1,
+            overall_direction: crate::health_types::TrendDirection::Declining,
+        });
+        let lines = build_health_human_lines(&report, &root);
+        let text = plain(&lines);
+        assert!(text.contains("declining"));
+        assert!(text.contains("Unused Deps"));
+    }
+
+    #[test]
+    fn health_trend_all_stable_collapsed() {
+        let root = PathBuf::from("/project");
+        let mut report = empty_report();
+        report.health_trend = Some(crate::health_types::HealthTrend {
+            compared_to: crate::health_types::TrendPoint {
+                timestamp: "2026-03-25T14:30:00Z".into(),
+                git_sha: Some("def5678".into()),
+                score: Some(80.0),
+                grade: Some("B".into()),
+            },
+            metrics: vec![
+                crate::health_types::TrendMetric {
+                    name: "score",
+                    label: "Health Score",
+                    previous: 80.0,
+                    current: 80.0,
+                    delta: 0.0,
+                    direction: crate::health_types::TrendDirection::Stable,
+                    unit: "",
+                    previous_count: None,
+                    current_count: None,
+                },
+                crate::health_types::TrendMetric {
+                    name: "avg_cyclomatic",
+                    label: "Avg Cyclomatic",
+                    previous: 2.0,
+                    current: 2.0,
+                    delta: 0.0,
+                    direction: crate::health_types::TrendDirection::Stable,
+                    unit: "",
+                    previous_count: None,
+                    current_count: None,
+                },
+            ],
+            snapshots_loaded: 3,
+            overall_direction: crate::health_types::TrendDirection::Stable,
+        });
+        let lines = build_health_human_lines(&report, &root);
+        let text = plain(&lines);
+        assert!(text.contains("stable"));
+        assert!(text.contains("All 2 metrics unchanged"));
+        // Individual metric rows should NOT appear
+        assert!(!text.contains("Health Score"));
+    }
+
+    #[test]
+    fn health_trend_without_sha() {
+        let root = PathBuf::from("/project");
+        let mut report = empty_report();
+        report.health_trend = Some(crate::health_types::HealthTrend {
+            compared_to: crate::health_types::TrendPoint {
+                timestamp: "2026-03-20T10:00:00Z".into(),
+                git_sha: None,
+                score: None,
+                grade: None,
+            },
+            metrics: vec![crate::health_types::TrendMetric {
+                name: "score",
+                label: "Health Score",
+                previous: 80.0,
+                current: 82.0,
+                delta: 2.0,
+                direction: crate::health_types::TrendDirection::Improving,
+                unit: "",
+                previous_count: None,
+                current_count: None,
+            }],
+            snapshots_loaded: 1,
+            overall_direction: crate::health_types::TrendDirection::Improving,
+        });
+        let lines = build_health_human_lines(&report, &root);
+        let text = plain(&lines);
+        // No SHA in output
+        assert!(text.contains("vs 2026-03-20"));
+        assert!(!text.contains("\u{00b7}"));
+    }
+
+    // ── render_vital_signs ───────────────────────────────────────
+
+    #[test]
+    fn vital_signs_shown_without_trend() {
+        let root = PathBuf::from("/project");
+        let mut report = empty_report();
+        report.vital_signs = Some(crate::health_types::VitalSigns {
+            dead_file_pct: Some(3.2),
+            dead_export_pct: Some(8.1),
+            avg_cyclomatic: 4.7,
+            p90_cyclomatic: 12,
+            duplication_pct: None,
+            hotspot_count: Some(2),
+            maintainability_avg: Some(72.4),
+            unused_dep_count: Some(3),
+            circular_dep_count: Some(1),
+        });
+        let lines = build_health_human_lines(&report, &root);
+        let text = plain(&lines);
+        assert!(text.contains("dead files 3.2%"));
+        assert!(text.contains("dead exports 8.1%"));
+        assert!(text.contains("avg cyclomatic 4.7"));
+        assert!(text.contains("p90 cyclomatic 12"));
+        assert!(text.contains("MI 72.4"));
+        assert!(text.contains("2 hotspots"));
+        assert!(text.contains("3 unused deps"));
+        assert!(text.contains("1 circular dep"));
+    }
+
+    #[test]
+    fn vital_signs_suppressed_when_trend_active() {
+        let root = PathBuf::from("/project");
+        let mut report = empty_report();
+        report.vital_signs = Some(crate::health_types::VitalSigns {
+            dead_file_pct: Some(3.2),
+            dead_export_pct: Some(8.1),
+            avg_cyclomatic: 4.7,
+            p90_cyclomatic: 12,
+            duplication_pct: None,
+            hotspot_count: Some(2),
+            maintainability_avg: Some(72.4),
+            unused_dep_count: None,
+            circular_dep_count: None,
+        });
+        report.health_trend = Some(crate::health_types::HealthTrend {
+            compared_to: crate::health_types::TrendPoint {
+                timestamp: "2026-03-25T14:30:00Z".into(),
+                git_sha: None,
+                score: None,
+                grade: None,
+            },
+            metrics: vec![],
+            snapshots_loaded: 1,
+            overall_direction: crate::health_types::TrendDirection::Stable,
+        });
+        let lines = build_health_human_lines(&report, &root);
+        let text = plain(&lines);
+        // vital signs should be suppressed when trend is active
+        assert!(!text.contains("dead files"));
+        assert!(!text.contains("avg cyclomatic"));
+    }
+
+    #[test]
+    fn vital_signs_optional_fields_omitted_when_none() {
+        let root = PathBuf::from("/project");
+        let mut report = empty_report();
+        report.vital_signs = Some(crate::health_types::VitalSigns {
+            dead_file_pct: None,
+            dead_export_pct: None,
+            avg_cyclomatic: 2.0,
+            p90_cyclomatic: 5,
+            duplication_pct: None,
+            hotspot_count: None,
+            maintainability_avg: None,
+            unused_dep_count: None,
+            circular_dep_count: None,
+        });
+        let lines = build_health_human_lines(&report, &root);
+        let text = plain(&lines);
+        assert!(!text.contains("dead files"));
+        assert!(!text.contains("dead exports"));
+        assert!(!text.contains("MI "));
+        assert!(!text.contains("hotspot"));
+        assert!(text.contains("avg cyclomatic 2.0"));
+        assert!(text.contains("p90 cyclomatic 5"));
+    }
+
+    #[test]
+    fn vital_signs_zero_counts_suppressed() {
+        let root = PathBuf::from("/project");
+        let mut report = empty_report();
+        report.vital_signs = Some(crate::health_types::VitalSigns {
+            dead_file_pct: None,
+            dead_export_pct: None,
+            avg_cyclomatic: 1.0,
+            p90_cyclomatic: 2,
+            duplication_pct: None,
+            hotspot_count: None,
+            maintainability_avg: None,
+            unused_dep_count: Some(0),
+            circular_dep_count: Some(0),
+        });
+        let lines = build_health_human_lines(&report, &root);
+        let text = plain(&lines);
+        // Zero counts should not appear
+        assert!(!text.contains("unused dep"));
+        assert!(!text.contains("circular dep"));
+    }
+
+    #[test]
+    fn vital_signs_plural_vs_singular() {
+        let root = PathBuf::from("/project");
+        let mut report = empty_report();
+        report.vital_signs = Some(crate::health_types::VitalSigns {
+            dead_file_pct: None,
+            dead_export_pct: None,
+            avg_cyclomatic: 1.0,
+            p90_cyclomatic: 2,
+            duplication_pct: None,
+            hotspot_count: Some(1),
+            maintainability_avg: None,
+            unused_dep_count: Some(1),
+            circular_dep_count: Some(2),
+        });
+        let lines = build_health_human_lines(&report, &root);
+        let text = plain(&lines);
+        assert!(text.contains("1 hotspot"));
+        assert!(!text.contains("1 hotspots"));
+        assert!(text.contains("1 unused dep"));
+        assert!(!text.contains("1 unused deps"));
+        assert!(text.contains("2 circular deps"));
+    }
+
+    // ── render_file_scores ───────────────────────────────────────
+
+    #[test]
+    fn file_scores_single_entry() {
+        let root = PathBuf::from("/project");
+        let mut report = empty_report();
+        report.file_scores = vec![crate::health_types::FileHealthScore {
+            path: root.join("src/utils.ts"),
+            fan_in: 5,
+            fan_out: 3,
+            dead_code_ratio: 0.15,
+            complexity_density: 0.42,
+            maintainability_index: 85.3,
+            total_cyclomatic: 12,
+            total_cognitive: 8,
+            function_count: 4,
+            lines: 200,
+        }];
+        let lines = build_health_human_lines(&report, &root);
+        let text = plain(&lines);
+        assert!(text.contains("File health scores (1 files)"));
+        assert!(text.contains("85.3"));
+        assert!(text.contains("src/utils.ts"));
+        assert!(text.contains("5 fan-in"));
+        assert!(text.contains("3 fan-out"));
+        assert!(text.contains("15% dead"));
+        assert!(text.contains("0.42 density"));
+    }
+
+    #[test]
+    fn file_scores_mi_color_thresholds() {
+        let root = PathBuf::from("/project");
+        let mut report = empty_report();
+        report.file_scores = vec![
+            crate::health_types::FileHealthScore {
+                path: root.join("src/good.ts"),
+                fan_in: 1,
+                fan_out: 1,
+                dead_code_ratio: 0.0,
+                complexity_density: 0.1,
+                maintainability_index: 90.0, // green: >= 80
+                total_cyclomatic: 2,
+                total_cognitive: 1,
+                function_count: 1,
+                lines: 50,
+            },
+            crate::health_types::FileHealthScore {
+                path: root.join("src/okay.ts"),
+                fan_in: 2,
+                fan_out: 3,
+                dead_code_ratio: 0.1,
+                complexity_density: 0.3,
+                maintainability_index: 65.0, // yellow: >= 50
+                total_cyclomatic: 8,
+                total_cognitive: 5,
+                function_count: 3,
+                lines: 100,
+            },
+            crate::health_types::FileHealthScore {
+                path: root.join("src/bad.ts"),
+                fan_in: 8,
+                fan_out: 12,
+                dead_code_ratio: 0.5,
+                complexity_density: 0.9,
+                maintainability_index: 30.0, // red: < 50
+                total_cyclomatic: 40,
+                total_cognitive: 30,
+                function_count: 10,
+                lines: 500,
+            },
+        ];
+        let lines = build_health_human_lines(&report, &root);
+        let text = plain(&lines);
+        assert!(text.contains("File health scores (3 files)"));
+        assert!(text.contains("90.0"));
+        assert!(text.contains("65.0"));
+        assert!(text.contains("30.0"));
+    }
+
+    #[test]
+    fn file_scores_truncation_above_max_flat_items() {
+        let root = PathBuf::from("/project");
+        let mut report = empty_report();
+        // Create 12 file scores (MAX_FLAT_ITEMS = 10)
+        for i in 0..12 {
+            report
+                .file_scores
+                .push(crate::health_types::FileHealthScore {
+                    path: root.join(format!("src/file{i}.ts")),
+                    fan_in: 1,
+                    fan_out: 1,
+                    dead_code_ratio: 0.0,
+                    complexity_density: 0.1,
+                    maintainability_index: 80.0,
+                    total_cyclomatic: 2,
+                    total_cognitive: 1,
+                    function_count: 1,
+                    lines: 50,
+                });
+        }
+        let lines = build_health_human_lines(&report, &root);
+        let text = plain(&lines);
+        assert!(text.contains("File health scores (12 files)"));
+        assert!(text.contains("... and 2 more files"));
+        // First 10 should be shown
+        assert!(text.contains("file0.ts"));
+        assert!(text.contains("file9.ts"));
+        // 11th and 12th should not
+        assert!(!text.contains("file10.ts"));
+        assert!(!text.contains("file11.ts"));
+    }
+
+    #[test]
+    fn file_scores_docs_link() {
+        let root = PathBuf::from("/project");
+        let mut report = empty_report();
+        report.file_scores = vec![crate::health_types::FileHealthScore {
+            path: root.join("src/a.ts"),
+            fan_in: 1,
+            fan_out: 1,
+            dead_code_ratio: 0.0,
+            complexity_density: 0.1,
+            maintainability_index: 80.0,
+            total_cyclomatic: 2,
+            total_cognitive: 1,
+            function_count: 1,
+            lines: 50,
+        }];
+        let lines = build_health_human_lines(&report, &root);
+        let text = plain(&lines);
+        assert!(text.contains("docs.fallow.tools/explanations/health#file-health-scores"));
+    }
+
+    // ── render_hotspots ──────────────────────────────────────────
+
+    #[test]
+    fn hotspots_accelerating_trend() {
+        let root = PathBuf::from("/project");
+        let mut report = empty_report();
+        report.hotspots = vec![crate::health_types::HotspotEntry {
+            path: root.join("src/core.ts"),
+            score: 75.0,
+            commits: 42,
+            weighted_commits: 30.0,
+            lines_added: 500,
+            lines_deleted: 200,
+            complexity_density: 0.85,
+            fan_in: 10,
+            trend: fallow_core::churn::ChurnTrend::Accelerating,
+        }];
+        let lines = build_health_human_lines(&report, &root);
+        let text = plain(&lines);
+        assert!(text.contains("Hotspots (1 files)"));
+        assert!(text.contains("75.0"));
+        assert!(text.contains("src/core.ts"));
+        assert!(text.contains("42 commits"));
+        assert!(text.contains("700 churn"));
+        assert!(text.contains("0.85 density"));
+        assert!(text.contains("10 fan-in"));
+        assert!(text.contains("accelerating"));
+    }
+
+    #[test]
+    fn hotspots_cooling_trend() {
+        let root = PathBuf::from("/project");
+        let mut report = empty_report();
+        report.hotspots = vec![crate::health_types::HotspotEntry {
+            path: root.join("src/old.ts"),
+            score: 20.0,
+            commits: 5,
+            weighted_commits: 2.0,
+            lines_added: 50,
+            lines_deleted: 30,
+            complexity_density: 0.3,
+            fan_in: 2,
+            trend: fallow_core::churn::ChurnTrend::Cooling,
+        }];
+        let lines = build_health_human_lines(&report, &root);
+        let text = plain(&lines);
+        assert!(text.contains("20.0"));
+        assert!(text.contains("cooling"));
+    }
+
+    #[test]
+    fn hotspots_stable_trend() {
+        let root = PathBuf::from("/project");
+        let mut report = empty_report();
+        report.hotspots = vec![crate::health_types::HotspotEntry {
+            path: root.join("src/mid.ts"),
+            score: 45.0,
+            commits: 15,
+            weighted_commits: 10.0,
+            lines_added: 200,
+            lines_deleted: 100,
+            complexity_density: 0.5,
+            fan_in: 5,
+            trend: fallow_core::churn::ChurnTrend::Stable,
+        }];
+        let lines = build_health_human_lines(&report, &root);
+        let text = plain(&lines);
+        assert!(text.contains("45.0"));
+        assert!(text.contains("stable"));
+    }
+
+    #[test]
+    fn hotspots_with_summary_and_since() {
+        let root = PathBuf::from("/project");
+        let mut report = empty_report();
+        report.hotspots = vec![crate::health_types::HotspotEntry {
+            path: root.join("src/a.ts"),
+            score: 50.0,
+            commits: 10,
+            weighted_commits: 8.0,
+            lines_added: 100,
+            lines_deleted: 50,
+            complexity_density: 0.4,
+            fan_in: 3,
+            trend: fallow_core::churn::ChurnTrend::Stable,
+        }];
+        report.hotspot_summary = Some(crate::health_types::HotspotSummary {
+            since: "6 months".to_string(),
+            min_commits: 3,
+            files_analyzed: 50,
+            files_excluded: 20,
+            shallow_clone: false,
+        });
+        let lines = build_health_human_lines(&report, &root);
+        let text = plain(&lines);
+        assert!(text.contains("Hotspots (1 files, since 6 months)"));
+        assert!(text.contains("20 files excluded (< 3 commits)"));
+    }
+
+    #[test]
+    fn hotspots_summary_no_exclusions() {
+        let root = PathBuf::from("/project");
+        let mut report = empty_report();
+        report.hotspots = vec![crate::health_types::HotspotEntry {
+            path: root.join("src/a.ts"),
+            score: 50.0,
+            commits: 10,
+            weighted_commits: 8.0,
+            lines_added: 100,
+            lines_deleted: 50,
+            complexity_density: 0.4,
+            fan_in: 3,
+            trend: fallow_core::churn::ChurnTrend::Stable,
+        }];
+        report.hotspot_summary = Some(crate::health_types::HotspotSummary {
+            since: "3 months".to_string(),
+            min_commits: 2,
+            files_analyzed: 50,
+            files_excluded: 0,
+            shallow_clone: false,
+        });
+        let lines = build_health_human_lines(&report, &root);
+        let text = plain(&lines);
+        // No exclusion line when files_excluded == 0
+        assert!(!text.contains("files excluded"));
+    }
+
+    #[test]
+    fn hotspots_docs_link() {
+        let root = PathBuf::from("/project");
+        let mut report = empty_report();
+        report.hotspots = vec![crate::health_types::HotspotEntry {
+            path: root.join("src/a.ts"),
+            score: 50.0,
+            commits: 10,
+            weighted_commits: 8.0,
+            lines_added: 100,
+            lines_deleted: 50,
+            complexity_density: 0.4,
+            fan_in: 3,
+            trend: fallow_core::churn::ChurnTrend::Stable,
+        }];
+        let lines = build_health_human_lines(&report, &root);
+        let text = plain(&lines);
+        assert!(text.contains("docs.fallow.tools/explanations/health#hotspot-metrics"));
+    }
+
+    // ── render_refactoring_targets ───────────────────────────────
+
+    #[test]
+    fn refactoring_targets_single_low_effort() {
+        let root = PathBuf::from("/project");
+        let mut report = empty_report();
+        report.targets = vec![crate::health_types::RefactoringTarget {
+            path: root.join("src/legacy.ts"),
+            priority: 65.0,
+            efficiency: 65.0,
+            recommendation: "Extract complex logic into helper functions".to_string(),
+            category: crate::health_types::RecommendationCategory::ExtractComplexFunctions,
+            effort: crate::health_types::EffortEstimate::Low,
+            confidence: crate::health_types::Confidence::High,
+            factors: vec![],
+            evidence: None,
+        }];
+        let lines = build_health_human_lines(&report, &root);
+        let text = plain(&lines);
+        assert!(text.contains("Refactoring targets (1)"));
+        assert!(text.contains("1 low effort"));
+        assert!(text.contains("65.0"));
+        assert!(text.contains("pri:65.0"));
+        assert!(text.contains("src/legacy.ts"));
+        assert!(text.contains("complexity"));
+        assert!(text.contains("effort:low"));
+        assert!(text.contains("confidence:high"));
+        assert!(text.contains("Extract complex logic into helper functions"));
+    }
+
+    #[test]
+    fn refactoring_targets_mixed_effort() {
+        let root = PathBuf::from("/project");
+        let mut report = empty_report();
+        report.targets = vec![
+            crate::health_types::RefactoringTarget {
+                path: root.join("src/a.ts"),
+                priority: 80.0,
+                efficiency: 80.0,
+                recommendation: "Remove dead exports".to_string(),
+                category: crate::health_types::RecommendationCategory::RemoveDeadCode,
+                effort: crate::health_types::EffortEstimate::Low,
+                confidence: crate::health_types::Confidence::High,
+                factors: vec![],
+                evidence: None,
+            },
+            crate::health_types::RefactoringTarget {
+                path: root.join("src/b.ts"),
+                priority: 60.0,
+                efficiency: 30.0,
+                recommendation: "Split into smaller modules".to_string(),
+                category: crate::health_types::RecommendationCategory::SplitHighImpact,
+                effort: crate::health_types::EffortEstimate::Medium,
+                confidence: crate::health_types::Confidence::Medium,
+                factors: vec![],
+                evidence: None,
+            },
+            crate::health_types::RefactoringTarget {
+                path: root.join("src/c.ts"),
+                priority: 50.0,
+                efficiency: 16.7,
+                recommendation: "Break circular dependency".to_string(),
+                category: crate::health_types::RecommendationCategory::BreakCircularDependency,
+                effort: crate::health_types::EffortEstimate::High,
+                confidence: crate::health_types::Confidence::Low,
+                factors: vec![],
+                evidence: None,
+            },
+        ];
+        let lines = build_health_human_lines(&report, &root);
+        let text = plain(&lines);
+        assert!(text.contains("Refactoring targets (3)"));
+        assert!(text.contains("1 low effort"));
+        assert!(text.contains("1 medium"));
+        assert!(text.contains("1 high"));
+        assert!(text.contains("effort:low"));
+        assert!(text.contains("effort:medium"));
+        assert!(text.contains("effort:high"));
+        assert!(text.contains("confidence:high"));
+        assert!(text.contains("confidence:medium"));
+        assert!(text.contains("confidence:low"));
+    }
+
+    #[test]
+    fn refactoring_targets_truncation_above_max_flat_items() {
+        let root = PathBuf::from("/project");
+        let mut report = empty_report();
+        for i in 0..12 {
+            report.targets.push(crate::health_types::RefactoringTarget {
+                path: root.join(format!("src/target{i}.ts")),
+                priority: 50.0,
+                efficiency: 25.0,
+                recommendation: format!("Fix target {i}"),
+                category: crate::health_types::RecommendationCategory::ExtractComplexFunctions,
+                effort: crate::health_types::EffortEstimate::Medium,
+                confidence: crate::health_types::Confidence::Medium,
+                factors: vec![],
+                evidence: None,
+            });
+        }
+        let lines = build_health_human_lines(&report, &root);
+        let text = plain(&lines);
+        assert!(text.contains("Refactoring targets (12)"));
+        assert!(text.contains("... and 2 more targets"));
+        assert!(text.contains("target0.ts"));
+        assert!(text.contains("target9.ts"));
+        assert!(!text.contains("target10.ts"));
+    }
+
+    #[test]
+    fn refactoring_targets_docs_link() {
+        let root = PathBuf::from("/project");
+        let mut report = empty_report();
+        report.targets = vec![crate::health_types::RefactoringTarget {
+            path: root.join("src/a.ts"),
+            priority: 50.0,
+            efficiency: 50.0,
+            recommendation: "Fix it".to_string(),
+            category: crate::health_types::RecommendationCategory::ExtractDependencies,
+            effort: crate::health_types::EffortEstimate::Low,
+            confidence: crate::health_types::Confidence::High,
+            factors: vec![],
+            evidence: None,
+        }];
+        let lines = build_health_human_lines(&report, &root);
+        let text = plain(&lines);
+        assert!(text.contains("docs.fallow.tools/explanations/health#refactoring-targets"));
+    }
+
+    #[test]
+    fn refactoring_targets_all_categories() {
+        let root = PathBuf::from("/project");
+        let mut report = empty_report();
+        let categories = [
+            (
+                crate::health_types::RecommendationCategory::UrgentChurnComplexity,
+                "churn+complexity",
+            ),
+            (
+                crate::health_types::RecommendationCategory::BreakCircularDependency,
+                "circular dep",
+            ),
+            (
+                crate::health_types::RecommendationCategory::SplitHighImpact,
+                "high impact",
+            ),
+            (
+                crate::health_types::RecommendationCategory::RemoveDeadCode,
+                "dead code",
+            ),
+            (
+                crate::health_types::RecommendationCategory::ExtractComplexFunctions,
+                "complexity",
+            ),
+            (
+                crate::health_types::RecommendationCategory::ExtractDependencies,
+                "coupling",
+            ),
+        ];
+        for (i, (cat, _label)) in categories.iter().enumerate() {
+            report.targets.push(crate::health_types::RefactoringTarget {
+                path: root.join(format!("src/cat{i}.ts")),
+                priority: 50.0,
+                efficiency: 50.0,
+                recommendation: format!("Fix cat{i}"),
+                category: cat.clone(),
+                effort: crate::health_types::EffortEstimate::Low,
+                confidence: crate::health_types::Confidence::High,
+                factors: vec![],
+                evidence: None,
+            });
+        }
+        let lines = build_health_human_lines(&report, &root);
+        let text = plain(&lines);
+        for (_cat, label) in &categories {
+            assert!(
+                text.contains(label),
+                "Expected category label '{label}' in output"
+            );
+        }
+    }
+
+    #[test]
+    fn refactoring_targets_efficiency_color_thresholds() {
+        let root = PathBuf::from("/project");
+        let mut report = empty_report();
+        report.targets = vec![
+            crate::health_types::RefactoringTarget {
+                path: root.join("src/high.ts"),
+                priority: 50.0,
+                efficiency: 50.0, // green: >= 40
+                recommendation: "High eff".to_string(),
+                category: crate::health_types::RecommendationCategory::RemoveDeadCode,
+                effort: crate::health_types::EffortEstimate::Low,
+                confidence: crate::health_types::Confidence::High,
+                factors: vec![],
+                evidence: None,
+            },
+            crate::health_types::RefactoringTarget {
+                path: root.join("src/mid.ts"),
+                priority: 50.0,
+                efficiency: 25.0, // yellow: >= 20
+                recommendation: "Mid eff".to_string(),
+                category: crate::health_types::RecommendationCategory::RemoveDeadCode,
+                effort: crate::health_types::EffortEstimate::Medium,
+                confidence: crate::health_types::Confidence::Medium,
+                factors: vec![],
+                evidence: None,
+            },
+            crate::health_types::RefactoringTarget {
+                path: root.join("src/low.ts"),
+                priority: 50.0,
+                efficiency: 10.0, // dimmed: < 20
+                recommendation: "Low eff".to_string(),
+                category: crate::health_types::RecommendationCategory::RemoveDeadCode,
+                effort: crate::health_types::EffortEstimate::High,
+                confidence: crate::health_types::Confidence::Low,
+                factors: vec![],
+                evidence: None,
+            },
+        ];
+        let lines = build_health_human_lines(&report, &root);
+        let text = plain(&lines);
+        assert!(text.contains("50.0"));
+        assert!(text.contains("25.0"));
+        assert!(text.contains("10.0"));
+    }
+
+    // ── Combined sections ────────────────────────────────────────
+
+    #[test]
+    fn all_sections_combined() {
+        let root = PathBuf::from("/project");
+        let mut report = empty_report();
+        report.summary.functions_above_threshold = 1;
+        report.findings = vec![crate::health_types::HealthFinding {
+            path: root.join("src/complex.ts"),
+            name: "bigFn".to_string(),
+            line: 10,
+            col: 0,
+            cyclomatic: 25,
+            cognitive: 20,
+            line_count: 80,
+            exceeded: crate::health_types::ExceededThreshold::Both,
+        }];
+        report.health_score = Some(crate::health_types::HealthScore {
+            score: 75.0,
+            grade: "B",
+            penalties: crate::health_types::HealthScorePenalties {
+                dead_files: Some(5.0),
+                dead_exports: Some(5.0),
+                complexity: 5.0,
+                p90_complexity: 2.0,
+                maintainability: Some(3.0),
+                hotspots: Some(2.0),
+                unused_deps: Some(2.0),
+                circular_deps: Some(1.0),
+            },
+        });
+        report.file_scores = vec![crate::health_types::FileHealthScore {
+            path: root.join("src/complex.ts"),
+            fan_in: 5,
+            fan_out: 3,
+            dead_code_ratio: 0.1,
+            complexity_density: 0.5,
+            maintainability_index: 60.0,
+            total_cyclomatic: 15,
+            total_cognitive: 10,
+            function_count: 3,
+            lines: 200,
+        }];
+        report.hotspots = vec![crate::health_types::HotspotEntry {
+            path: root.join("src/complex.ts"),
+            score: 65.0,
+            commits: 20,
+            weighted_commits: 15.0,
+            lines_added: 300,
+            lines_deleted: 100,
+            complexity_density: 0.5,
+            fan_in: 5,
+            trend: fallow_core::churn::ChurnTrend::Accelerating,
+        }];
+        report.targets = vec![crate::health_types::RefactoringTarget {
+            path: root.join("src/complex.ts"),
+            priority: 70.0,
+            efficiency: 70.0,
+            recommendation: "Extract complex functions".to_string(),
+            category: crate::health_types::RecommendationCategory::ExtractComplexFunctions,
+            effort: crate::health_types::EffortEstimate::Low,
+            confidence: crate::health_types::Confidence::High,
+            factors: vec![],
+            evidence: None,
+        }];
+        let lines = build_health_human_lines(&report, &root);
+        let text = plain(&lines);
+        // All sections present
+        assert!(text.contains("Health score:"));
+        assert!(text.contains("High complexity functions"));
+        assert!(text.contains("File health scores"));
+        assert!(text.contains("Hotspots"));
+        assert!(text.contains("Refactoring targets"));
+    }
+
+    #[test]
+    fn completely_empty_report_produces_no_lines() {
+        let root = PathBuf::from("/project");
+        let report = empty_report();
+        let lines = build_health_human_lines(&report, &root);
+        assert!(lines.is_empty());
+    }
+
+    // ── Finding threshold coloring ───────────────────────────────
+
+    #[test]
+    fn finding_only_cyclomatic_exceeds() {
+        let root = PathBuf::from("/project");
+        let mut report = empty_report();
+        report.summary.functions_above_threshold = 1;
+        report.findings = vec![crate::health_types::HealthFinding {
+            path: root.join("src/a.ts"),
+            name: "fn1".to_string(),
+            line: 1,
+            col: 0,
+            cyclomatic: 25, // exceeds 20
+            cognitive: 10,  // does not exceed 15
+            line_count: 50,
+            exceeded: crate::health_types::ExceededThreshold::Cyclomatic,
+        }];
+        let lines = build_health_human_lines(&report, &root);
+        let text = plain(&lines);
+        assert!(text.contains("25 cyclomatic"));
+        assert!(text.contains("10 cognitive"));
+    }
+
+    #[test]
+    fn finding_only_cognitive_exceeds() {
+        let root = PathBuf::from("/project");
+        let mut report = empty_report();
+        report.summary.functions_above_threshold = 1;
+        report.findings = vec![crate::health_types::HealthFinding {
+            path: root.join("src/a.ts"),
+            name: "fn1".to_string(),
+            line: 1,
+            col: 0,
+            cyclomatic: 10, // does not exceed 20
+            cognitive: 25,  // exceeds 15
+            line_count: 50,
+            exceeded: crate::health_types::ExceededThreshold::Cognitive,
+        }];
+        let lines = build_health_human_lines(&report, &root);
+        let text = plain(&lines);
+        assert!(text.contains("10 cyclomatic"));
+        assert!(text.contains("25 cognitive"));
+    }
+
+    #[test]
+    fn findings_across_multiple_files() {
+        let root = PathBuf::from("/project");
+        let mut report = empty_report();
+        report.summary.functions_above_threshold = 2;
+        report.findings = vec![
+            crate::health_types::HealthFinding {
+                path: root.join("src/a.ts"),
+                name: "fn1".to_string(),
+                line: 1,
+                col: 0,
+                cyclomatic: 25,
+                cognitive: 20,
+                line_count: 50,
+                exceeded: crate::health_types::ExceededThreshold::Both,
+            },
+            crate::health_types::HealthFinding {
+                path: root.join("src/b.ts"),
+                name: "fn2".to_string(),
+                line: 5,
+                col: 0,
+                cyclomatic: 22,
+                cognitive: 18,
+                line_count: 40,
+                exceeded: crate::health_types::ExceededThreshold::Both,
+            },
+        ];
+        let lines = build_health_human_lines(&report, &root);
+        let text = plain(&lines);
+        // Both file paths should appear
+        assert!(text.contains("src/a.ts"));
+        assert!(text.contains("src/b.ts"));
+    }
+
+    #[test]
+    fn findings_docs_link() {
+        let root = PathBuf::from("/project");
+        let mut report = empty_report();
+        report.summary.functions_above_threshold = 1;
+        report.findings = vec![crate::health_types::HealthFinding {
+            path: root.join("src/a.ts"),
+            name: "fn1".to_string(),
+            line: 1,
+            col: 0,
+            cyclomatic: 25,
+            cognitive: 20,
+            line_count: 50,
+            exceeded: crate::health_types::ExceededThreshold::Both,
+        }];
+        let lines = build_health_human_lines(&report, &root);
+        let text = plain(&lines);
+        assert!(text.contains("docs.fallow.tools/explanations/health#complexity-metrics"));
+    }
+
+    // ── Hotspot score color thresholds ────────────────────────────
+
+    #[test]
+    fn hotspot_score_high_medium_low() {
+        let root = PathBuf::from("/project");
+        let mut report = empty_report();
+        report.hotspots = vec![
+            crate::health_types::HotspotEntry {
+                path: root.join("src/high.ts"),
+                score: 80.0, // red: >= 70
+                commits: 30,
+                weighted_commits: 25.0,
+                lines_added: 400,
+                lines_deleted: 200,
+                complexity_density: 0.9,
+                fan_in: 8,
+                trend: fallow_core::churn::ChurnTrend::Accelerating,
+            },
+            crate::health_types::HotspotEntry {
+                path: root.join("src/medium.ts"),
+                score: 45.0, // yellow: >= 30
+                commits: 15,
+                weighted_commits: 10.0,
+                lines_added: 200,
+                lines_deleted: 100,
+                complexity_density: 0.5,
+                fan_in: 4,
+                trend: fallow_core::churn::ChurnTrend::Stable,
+            },
+            crate::health_types::HotspotEntry {
+                path: root.join("src/low.ts"),
+                score: 15.0, // green: < 30
+                commits: 5,
+                weighted_commits: 3.0,
+                lines_added: 50,
+                lines_deleted: 20,
+                complexity_density: 0.2,
+                fan_in: 1,
+                trend: fallow_core::churn::ChurnTrend::Cooling,
+            },
+        ];
+        let lines = build_health_human_lines(&report, &root);
+        let text = plain(&lines);
+        assert!(text.contains("80.0"));
+        assert!(text.contains("45.0"));
+        assert!(text.contains("15.0"));
+        assert!(text.contains("Hotspots (3 files)"));
+    }
 }
