@@ -209,17 +209,17 @@ pub fn compute_health_score(vs: &VitalSigns, total_files: usize) -> HealthScore 
 
 /// Build the raw counts for a snapshot.
 pub fn build_counts(input: &VitalSignsInput<'_>) -> VitalSignsCounts {
-    let (total_exports, dead_files, dead_exports, total_deps) =
-        if let Some(ref counts) = input.analysis_counts {
+    let (total_exports, dead_files, dead_exports, total_deps) = input
+        .analysis_counts
+        .as_ref()
+        .map_or((0, 0, 0, 0), |counts| {
             (
                 counts.total_exports,
                 counts.dead_files,
                 counts.dead_exports,
                 counts.total_deps,
             )
-        } else {
-            (0, 0, 0, 0)
-        };
+        });
 
     VitalSignsCounts {
         total_files: input.total_files,
@@ -329,14 +329,15 @@ pub fn save_snapshot(
     root: &Path,
     explicit_path: Option<&Path>,
 ) -> Result<PathBuf, String> {
-    let path = if let Some(p) = explicit_path {
-        p.to_path_buf()
-    } else {
-        let dir = root.join(".fallow").join("snapshots");
-        // Use the snapshot timestamp for the filename (replace colons for Windows compat)
-        let filename = snapshot.timestamp.replace(':', "-");
-        dir.join(format!("{filename}.json"))
-    };
+    let path = explicit_path.map_or_else(
+        || {
+            let dir = root.join(".fallow").join("snapshots");
+            // Use the snapshot timestamp for the filename (replace colons for Windows compat)
+            let filename = snapshot.timestamp.replace(':', "-");
+            dir.join(format!("{filename}.json"))
+        },
+        Path::to_path_buf,
+    );
 
     // Ensure parent directory exists
     if let Some(parent) = path.parent() {

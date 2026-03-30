@@ -36,10 +36,8 @@ pub fn relative_path<'a>(path: &'a Path, root: &Path) -> &'a Path {
 /// Split a path string into (directory, filename) for display.
 /// Directory includes the trailing `/`. If no directory, returns `("", filename)`.
 pub fn split_dir_filename(path: &str) -> (&str, &str) {
-    match path.rfind('/') {
-        Some(pos) => (&path[..=pos], &path[pos + 1..]),
-        None => ("", path),
-    }
+    path.rfind('/')
+        .map_or(("", path), |pos| (&path[..=pos], &path[pos + 1..]))
 }
 
 /// Return `"s"` for plural or `""` for singular.

@@ -572,15 +572,16 @@ pub fn build_health_markdown(report: &crate::health_types::HealthReport, root: &
     // Hotspot table
     if !report.hotspots.is_empty() {
         out.push('\n');
-        let header = if let Some(ref summary) = report.hotspot_summary {
-            format!(
-                "### Hotspots ({} files, since {})\n",
-                report.hotspots.len(),
-                summary.since,
-            )
-        } else {
-            format!("### Hotspots ({} files)\n", report.hotspots.len())
-        };
+        let header = report.hotspot_summary.as_ref().map_or_else(
+            || format!("### Hotspots ({} files)\n", report.hotspots.len()),
+            |summary| {
+                format!(
+                    "### Hotspots ({} files, since {})\n",
+                    report.hotspots.len(),
+                    summary.since,
+                )
+            },
+        );
         let _ = writeln!(out, "{header}");
         out.push_str("| File | Score | Commits | Churn | Density | Fan-in | Trend |\n");
         out.push_str("|:-----|:------|:--------|:------|:--------|:-------|:------|\n");

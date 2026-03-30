@@ -452,12 +452,11 @@ pub fn is_package_listed_for_file(
 ///
 /// For scoped packages like `@scope/pkg`, the DefinitelyTyped convention is `@types/scope__pkg`.
 fn has_types_package(package_name: &str, all_workspace_deps: &FxHashSet<String>) -> bool {
-    let types_name = if let Some(scoped) = package_name.strip_prefix('@') {
+    let types_name = package_name.strip_prefix('@').map_or_else(
+        || format!("@types/{package_name}"),
         // @scope/pkg -> @types/scope__pkg
-        format!("@types/{}", scoped.replacen('/', "__", 1))
-    } else {
-        format!("@types/{package_name}")
-    };
+        |scoped| format!("@types/{}", scoped.replacen('/', "__", 1)),
+    );
     all_workspace_deps.contains(&types_name)
 }
 

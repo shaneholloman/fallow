@@ -147,13 +147,10 @@ pub(super) fn resolve_specifier(
                 // Try plugin-provided path aliases before giving up.
                 // These substitute import prefixes (e.g., `~/` → `app/`) and re-resolve
                 // as relative imports from the project root.
-                if let Some(resolved) = try_path_alias_fallback(ctx, specifier) {
-                    resolved
-                } else {
-                    // Path aliases that fail resolution are unresolvable, not npm packages.
-                    // Classifying them as NpmPackage would cause false "unlisted dependency" reports.
-                    ResolveResult::Unresolvable(specifier.to_string())
-                }
+                // Path aliases that fail resolution are unresolvable, not npm packages.
+                // Classifying them as NpmPackage would cause false "unlisted dependency" reports.
+                try_path_alias_fallback(ctx, specifier)
+                    .unwrap_or_else(|| ResolveResult::Unresolvable(specifier.to_string()))
             } else if is_bare {
                 let pkg_name = extract_package_name(specifier);
                 ResolveResult::NpmPackage(pkg_name)

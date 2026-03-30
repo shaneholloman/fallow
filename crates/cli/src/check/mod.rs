@@ -250,14 +250,13 @@ pub fn execute_check(opts: &CheckOptions<'_>) -> Result<CheckResult, ExitCode> {
         }
         regression::SaveRegressionTarget::Config => {
             let counts = regression::CheckCounts::from_results(&results);
-            let config_path = if let Some(explicit) = opts.config_path {
-                explicit.clone()
-            } else {
-                match fallow_config::FallowConfig::find_config_path(opts.root) {
-                    Some(p) => p,
-                    None => opts.root.join(".fallowrc.json"),
-                }
-            };
+            let config_path = opts.config_path.as_ref().map_or_else(
+                || {
+                    fallow_config::FallowConfig::find_config_path(opts.root)
+                        .unwrap_or_else(|| opts.root.join(".fallowrc.json"))
+                },
+                |explicit| explicit.clone(),
+            );
             regression::save_baseline_to_config(&config_path, &counts)?;
             Some(counts)
         }

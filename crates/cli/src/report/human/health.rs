@@ -481,15 +481,16 @@ fn render_hotspots(
         return;
     }
 
-    let header = if let Some(ref summary) = report.hotspot_summary {
-        format!(
-            "Hotspots ({} files, since {})",
-            report.hotspots.len(),
-            summary.since,
-        )
-    } else {
-        format!("Hotspots ({} files)", report.hotspots.len())
-    };
+    let header = report.hotspot_summary.as_ref().map_or_else(
+        || format!("Hotspots ({} files)", report.hotspots.len()),
+        |summary| {
+            format!(
+                "Hotspots ({} files, since {})",
+                report.hotspots.len(),
+                summary.since,
+            )
+        },
+    );
     lines.push(format!("{} {}", "\u{25cf}".red(), header.red().bold()));
     lines.push(String::new());
 

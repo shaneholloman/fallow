@@ -78,21 +78,24 @@ fn push_sarif_results<T>(
 /// Build a SARIF rule definition with optional `fullDescription` and `helpUri`
 /// sourced from the centralized explain module.
 fn sarif_rule(id: &str, fallback_short: &str, level: &str) -> serde_json::Value {
-    if let Some(def) = explain::rule_by_id(id) {
-        serde_json::json!({
-            "id": id,
-            "shortDescription": { "text": def.short },
-            "fullDescription": { "text": def.full },
-            "helpUri": explain::rule_docs_url(def),
-            "defaultConfiguration": { "level": level }
-        })
-    } else {
-        serde_json::json!({
-            "id": id,
-            "shortDescription": { "text": fallback_short },
-            "defaultConfiguration": { "level": level }
-        })
-    }
+    explain::rule_by_id(id).map_or_else(
+        || {
+            serde_json::json!({
+                "id": id,
+                "shortDescription": { "text": fallback_short },
+                "defaultConfiguration": { "level": level }
+            })
+        },
+        |def| {
+            serde_json::json!({
+                "id": id,
+                "shortDescription": { "text": def.short },
+                "fullDescription": { "text": def.full },
+                "helpUri": explain::rule_docs_url(def),
+                "defaultConfiguration": { "level": level }
+            })
+        },
+    )
 }
 
 /// Extract SARIF fields for an unused export or type export.

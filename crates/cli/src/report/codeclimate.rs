@@ -52,10 +52,10 @@ fn cc_issue(
     begin_line: Option<u32>,
     fingerprint: &str,
 ) -> serde_json::Value {
-    let lines = match begin_line {
-        Some(line) => serde_json::json!({ "begin": line }),
-        None => serde_json::json!({ "begin": 1 }),
-    };
+    let lines = begin_line.map_or_else(
+        || serde_json::json!({ "begin": 1 }),
+        |line| serde_json::json!({ "begin": line }),
+    );
 
     serde_json::json!({
         "type": "issue",

@@ -227,11 +227,9 @@ pub(super) fn compute_file_scores(
         // Fan-out: number of files this file imports (from edge_range)
         let fan_out = node.edge_range.len();
 
-        let (total_cyclomatic, total_cognitive, function_count, lines) =
-            match module_by_id.get(&node.file_id) {
-                Some(module) => aggregate_complexity(module),
-                None => (0, 0, 0, 0),
-            };
+        let (total_cyclomatic, total_cognitive, function_count, lines) = module_by_id
+            .get(&node.file_id)
+            .map_or((0, 0, 0, 0), |module| aggregate_complexity(module));
 
         // Track value export count for dead code gate
         let value_exports = node.exports.iter().filter(|e| !e.is_type_only).count();
