@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.7.2] - 2026-03-31
+
+### Added
+
+- **Badge generation** (`--format badge`) -- generates a self-contained shields.io-compatible flat SVG badge showing the health score and letter grade. Grade-first message format (`B (76)`) matches quality dashboard conventions. Color-coded by grade: A=brightgreen, B=green, C=yellow, D=orange, F=red. Unique SVG element IDs prevent collisions when multiple badges are inlined on one page. Also available via `FALLOW_FORMAT=badge` environment variable.
+
 ## [2.7.1] - 2026-03-30
 
 ### Fixed
@@ -630,7 +636,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--changed-since` and `--fail-on-issues` for CI
 - Cross-workspace resolution for npm/yarn/pnpm workspaces
 
-[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.7.1...HEAD
+[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.7.2...HEAD
+[2.7.2]: https://github.com/fallow-rs/fallow/compare/v2.7.1...v2.7.2
 [2.7.1]: https://github.com/fallow-rs/fallow/compare/v2.7.0...v2.7.1
 [2.7.0]: https://github.com/fallow-rs/fallow/compare/v2.6.0...v2.7.0
 [2.6.0]: https://github.com/fallow-rs/fallow/compare/v2.5.5...v2.6.0
