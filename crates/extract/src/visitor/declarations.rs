@@ -111,30 +111,15 @@ impl ModuleInfoExtractor {
         pattern: &BindingPattern<'_>,
         is_type_only: bool,
     ) {
-        match pattern {
-            BindingPattern::BindingIdentifier(id) => {
-                self.exports.push(ExportInfo {
-                    name: ExportName::Named(id.name.to_string()),
-                    local_name: Some(id.name.to_string()),
-                    is_type_only,
-                    is_public: false,
-                    span: id.span,
-                    members: vec![],
-                });
-            }
-            BindingPattern::ObjectPattern(obj) => {
-                for prop in &obj.properties {
-                    self.extract_binding_pattern_names(&prop.value, is_type_only);
-                }
-            }
-            BindingPattern::ArrayPattern(arr) => {
-                for elem in arr.elements.iter().flatten() {
-                    self.extract_binding_pattern_names(elem, is_type_only);
-                }
-            }
-            BindingPattern::AssignmentPattern(assign) => {
-                self.extract_binding_pattern_names(&assign.left, is_type_only);
-            }
+        for id in pattern.get_binding_identifiers() {
+            self.exports.push(ExportInfo {
+                name: ExportName::Named(id.name.to_string()),
+                local_name: Some(id.name.to_string()),
+                is_type_only,
+                is_public: false,
+                span: id.span,
+                members: vec![],
+            });
         }
     }
 

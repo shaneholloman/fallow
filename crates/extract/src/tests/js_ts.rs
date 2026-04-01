@@ -2511,6 +2511,26 @@ fn array_destructured_export_with_skip() {
 }
 
 #[test]
+fn object_destructured_export_with_rest() {
+    let info = parse_source("export const { a, b, ...rest } = obj;");
+    assert_eq!(info.exports.len(), 3);
+    assert_eq!(info.exports[0].name, ExportName::Named("a".to_string()));
+    assert_eq!(info.exports[1].name, ExportName::Named("b".to_string()));
+    assert_eq!(info.exports[2].name, ExportName::Named("rest".to_string()));
+}
+
+#[test]
+fn array_destructured_export_with_rest() {
+    let info = parse_source("export const [first, ...remaining] = arr;");
+    assert_eq!(info.exports.len(), 2);
+    assert_eq!(info.exports[0].name, ExportName::Named("first".to_string()));
+    assert_eq!(
+        info.exports[1].name,
+        ExportName::Named("remaining".to_string())
+    );
+}
+
+#[test]
 fn export_local_name_matches_for_simple_declarations() {
     let info = parse_source("export const foo = 1;");
     assert_eq!(info.exports.len(), 1);
