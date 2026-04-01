@@ -15,6 +15,7 @@ mod rules;
 
 pub use filtering::get_changed_files;
 pub use filtering::resolve_workspace_filter;
+pub use rules::has_error_severity_issues;
 
 // ── Issue type filters ──────────────────────────────────────────
 

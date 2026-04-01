@@ -489,3 +489,46 @@ fn project_info_params_ignores_unknown_fields() {
     let params: ProjectInfoParams = serde_json::from_str(json).unwrap();
     assert_eq!(params.root.as_deref(), Some("/app"));
 }
+
+// ── AuditParams ─────────────────────────────────────────────────
+
+#[test]
+fn audit_params_deserialize() {
+    let json = r#"{"root":"/tmp/project","base":"main","production":true}"#;
+    let params: AuditParams = serde_json::from_str(json).unwrap();
+    assert_eq!(params.root.as_deref(), Some("/tmp/project"));
+    assert_eq!(params.base.as_deref(), Some("main"));
+    assert_eq!(params.production, Some(true));
+}
+
+#[test]
+fn audit_params_minimal() {
+    let params: AuditParams = serde_json::from_str("{}").unwrap();
+    assert!(params.root.is_none());
+    assert!(params.base.is_none());
+    assert!(params.production.is_none());
+    assert!(params.workspace.is_none());
+    assert!(params.no_cache.is_none());
+    assert!(params.threads.is_none());
+}
+
+#[test]
+fn audit_params_with_all_fields() {
+    let json = r#"{
+        "root": "/project",
+        "config": ".fallowrc.json",
+        "base": "develop",
+        "production": true,
+        "workspace": "@app/core",
+        "no_cache": true,
+        "threads": 8
+    }"#;
+    let params: AuditParams = serde_json::from_str(json).unwrap();
+    assert_eq!(params.root.as_deref(), Some("/project"));
+    assert_eq!(params.config.as_deref(), Some(".fallowrc.json"));
+    assert_eq!(params.base.as_deref(), Some("develop"));
+    assert_eq!(params.production, Some(true));
+    assert_eq!(params.workspace.as_deref(), Some("@app/core"));
+    assert_eq!(params.no_cache, Some(true));
+    assert_eq!(params.threads, Some(8));
+}

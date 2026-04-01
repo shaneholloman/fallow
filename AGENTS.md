@@ -59,7 +59,7 @@ These flags work with any subcommand:
 | `--quiet` / `-q` | Suppress progress and timing on stderr |
 | `--production` | Exclude test/story/dev files |
 | `--workspace <NAME>` / `-w` | Scope to a workspace package |
-| `--changed-since <REF>` | Only analyze files changed since a git ref |
+| `--changed-since <REF>` / `--base` | Only analyze files changed since a git ref |
 | `--baseline <PATH>` | Compare against a saved baseline (report only new issues) |
 | `--save-baseline <PATH>` | Save current results as a baseline file |
 | `--no-cache` | Disable incremental parse cache (force full re-parse) |
@@ -91,6 +91,22 @@ fallow --skip health --format json        # check + dupes only
 - `--skip <dead-code,dupes,health>` -- skip these analyses (comma-separated)
 - `--ci` -- CI mode: sarif + quiet + fail-on-issues
 - `--fail-on-issues` -- exit 1 if any issues are found
+
+### `audit`
+
+Audit changed files for dead code, complexity, and duplication. Purpose-built for reviewing AI-generated code. Combines all three analyses scoped to changed files and returns a verdict (pass/warn/fail). Auto-detects the base branch if `--base` is not set.
+
+```bash
+fallow audit --format json --quiet              # auto-detect base branch
+fallow audit --base main --format json --quiet   # explicit base
+fallow audit --base HEAD~3 --format json --quiet # last 3 commits
+```
+
+**JSON output:** includes `verdict` (pass/warn/fail), `summary` (per-category counts), and full `dead_code`, `complexity`, `duplication` sub-results with `actions` arrays.
+
+**Exit codes:** 0 = pass or warn, 1 = fail (error-severity issues), 2 = error.
+
+**MCP tool:** `audit` — wraps `fallow audit --format json --quiet --explain`.
 
 ### `dead-code`
 

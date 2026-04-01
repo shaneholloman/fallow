@@ -10,6 +10,7 @@ use std::process::ExitCode;
 use clap::{Parser, Subcommand};
 use fallow_config::FallowConfig;
 
+mod audit;
 mod baseline;
 mod check;
 mod combined;
@@ -77,7 +78,7 @@ struct Cli {
     threads: Option<usize>,
 
     /// Only report issues in files changed since this git ref (e.g., main, HEAD~5)
-    #[arg(long, global = true)]
+    #[arg(long, visible_alias = "base", global = true)]
     changed_since: Option<String>,
 
     /// Compare against a previously saved baseline file
@@ -387,6 +388,14 @@ enum Command {
         #[arg(long)]
         trend: bool,
     },
+
+    /// Audit changed files for dead code, complexity, and duplication.
+    ///
+    /// Purpose-built for reviewing AI-generated code and PR quality gates.
+    /// Combines dead-code + complexity + duplication scoped to changed files
+    /// and returns a verdict (pass/warn/fail).
+    /// Auto-detects the base branch if --changed-since/--base is not set.
+    Audit,
 
     /// Dump the CLI interface as machine-readable JSON for agent introspection
     Schema,
@@ -1070,6 +1079,19 @@ fn dispatch_subcommand(
             save_snapshot.as_ref(),
             trend,
         ),
+        Command::Audit => audit::run_audit(&audit::AuditOptions {
+            root,
+            config_path: &cli.config,
+            output,
+            no_cache: cli.no_cache,
+            threads,
+            quiet,
+            changed_since: cli.changed_since.as_deref(),
+            production: cli.production,
+            workspace: cli.workspace.as_deref(),
+            explain: cli.explain,
+            performance: cli.performance,
+        }),
         Command::Schema => unreachable!("handled above"),
         Command::Migrate {
             toml,

@@ -1,8 +1,8 @@
 use crate::params::*;
 use crate::tools::{
-    ISSUE_TYPE_FLAGS, VALID_DUPES_MODES, build_analyze_args, build_check_changed_args,
-    build_find_dupes_args, build_fix_apply_args, build_fix_preview_args, build_health_args,
-    build_project_info_args,
+    ISSUE_TYPE_FLAGS, VALID_DUPES_MODES, build_analyze_args, build_audit_args,
+    build_check_changed_args, build_find_dupes_args, build_fix_apply_args, build_fix_preview_args,
+    build_health_args, build_project_info_args,
 };
 
 // ── Helper: minimal CheckChangedParams ────────────────────────────
@@ -584,6 +584,7 @@ fn all_arg_builders_include_format_json_and_quiet() {
     let fix_apply = build_fix_apply_args(&FixParams::default());
     let project_info = build_project_info_args(&ProjectInfoParams::default());
     let health = build_health_args(&HealthParams::default());
+    let audit = build_audit_args(&AuditParams::default());
 
     for (name, args) in [
         ("analyze", &analyze),
@@ -593,6 +594,7 @@ fn all_arg_builders_include_format_json_and_quiet() {
         ("fix_apply", &fix_apply),
         ("project_info", &project_info),
         ("health", &health),
+        ("audit", &audit),
     ] {
         assert!(
             args.contains(&"--format".to_string()),
@@ -739,4 +741,53 @@ fn no_cache_false_is_omitted_across_all_tools() {
         ..Default::default()
     });
     assert!(!fix_apply.contains(&"--no-cache".to_string()));
+
+    let audit = build_audit_args(&AuditParams {
+        no_cache: Some(false),
+        ..Default::default()
+    });
+    assert!(!audit.contains(&"--no-cache".to_string()));
+}
+
+// ── Argument building: audit ─────────────────────────────────────
+
+#[test]
+fn audit_args_minimal_produces_base_args() {
+    let args = build_audit_args(&AuditParams::default());
+    assert_eq!(args, ["audit", "--format", "json", "--quiet", "--explain"]);
+}
+
+#[test]
+fn audit_args_with_base() {
+    let args = build_audit_args(&AuditParams {
+        base: Some("main".to_string()),
+        ..Default::default()
+    });
+    assert!(args.contains(&"--base".to_string()));
+    assert!(args.contains(&"main".to_string()));
+}
+
+#[test]
+fn audit_args_with_all_options() {
+    let args = build_audit_args(&AuditParams {
+        root: Some("/project".to_string()),
+        config: Some(".fallowrc.json".to_string()),
+        base: Some("develop".to_string()),
+        production: Some(true),
+        workspace: Some("@app/core".to_string()),
+        no_cache: Some(true),
+        threads: Some(4),
+    });
+    assert!(args.contains(&"--root".to_string()));
+    assert!(args.contains(&"/project".to_string()));
+    assert!(args.contains(&"--config".to_string()));
+    assert!(args.contains(&".fallowrc.json".to_string()));
+    assert!(args.contains(&"--base".to_string()));
+    assert!(args.contains(&"develop".to_string()));
+    assert!(args.contains(&"--production".to_string()));
+    assert!(args.contains(&"--workspace".to_string()));
+    assert!(args.contains(&"@app/core".to_string()));
+    assert!(args.contains(&"--no-cache".to_string()));
+    assert!(args.contains(&"--threads".to_string()));
+    assert!(args.contains(&"4".to_string()));
 }

@@ -244,3 +244,28 @@ pub struct HealthParams {
     /// Implies --score. Reads from `.fallow/snapshots/`.
     pub trend: Option<bool>,
 }
+
+#[derive(Default, Deserialize, JsonSchema)]
+pub struct AuditParams {
+    /// Root directory of the project to analyze. Defaults to current working directory.
+    pub root: Option<String>,
+
+    /// Path to fallow config file (.fallowrc.json or fallow.toml).
+    pub config: Option<String>,
+
+    /// Git ref to compare against (e.g., "main", "HEAD~5").
+    /// Auto-detects the default branch if not specified.
+    pub base: Option<String>,
+
+    /// Only analyze production code (excludes tests, stories, dev files).
+    pub production: Option<bool>,
+
+    /// Scope analysis to a specific workspace package name.
+    pub workspace: Option<String>,
+
+    /// Disable the incremental parse cache. Forces a full re-parse of all files.
+    pub no_cache: Option<bool>,
+
+    /// Number of parser threads. Defaults to available CPU cores.
+    pub threads: Option<usize>,
+}

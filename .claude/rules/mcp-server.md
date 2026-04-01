@@ -12,6 +12,7 @@ MCP server exposing fallow analysis as tools for AI agents. Stdio transport, wra
 - `check_changed` — incremental analysis (`fallow dead-code --changed-since`)
 - `find_dupes` — code duplication (`fallow dupes --format json`)
 - `check_health` — complexity metrics (`fallow health --format json`), supports `file_scores`, `hotspots`, `targets`, `since`, `min_commits` params
+- `audit` — combined dead-code + complexity + duplication for changed files, returns verdict (`fallow audit --format json`)
 - `fix_preview` — dry-run auto-fix (`fallow fix --dry-run --format json`)
 - `fix_apply` — apply auto-fixes (`fallow fix --yes --format json`) — destructive
 - `project_info` — project metadata (`fallow list --format json`)

@@ -7,6 +7,7 @@ paths:
 
 Key modules:
 - `main.rs` — CLI definition (clap) + command dispatch
+- `audit.rs` — Audit command: combined dead-code + complexity + duplication for changed files, verdict (pass/warn/fail)
 - `check.rs` — Analysis pipeline, tracing, filtering, output
 - `dupes.rs` — Duplication detection, baseline, cross-reference
 - `health/` — Complexity analysis: `mod.rs` (orchestration), `scoring.rs`, `hotspots.rs`, `targets.rs`

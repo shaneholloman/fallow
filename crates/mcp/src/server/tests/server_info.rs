@@ -24,7 +24,8 @@ fn all_tools_registered() {
     assert!(names.contains(&"fix_apply".to_string()));
     assert!(names.contains(&"project_info".to_string()));
     assert!(names.contains(&"check_health".to_string()));
-    assert_eq!(tools.len(), 7);
+    assert!(names.contains(&"audit".to_string()));
+    assert_eq!(tools.len(), 8);
 }
 
 #[test]
@@ -38,6 +39,7 @@ fn read_only_tools_have_annotations() {
         "fix_preview",
         "project_info",
         "check_health",
+        "audit",
     ];
     for tool in &tools {
         let name = tool.name.to_string();
@@ -96,6 +98,7 @@ fn open_world_hint_on_analysis_tools() {
         "fix_preview",
         "project_info",
         "check_health",
+        "audit",
     ];
     for tool in &tools {
         let name = tool.name.to_string();
@@ -146,6 +149,7 @@ fn server_instructions_mention_all_tools() {
     assert!(instructions.contains("fix_apply"));
     assert!(instructions.contains("project_info"));
     assert!(instructions.contains("check_health"));
+    assert!(instructions.contains("audit"));
 }
 
 #[test]
@@ -349,6 +353,28 @@ fn check_health_schema_contains_expected_properties() {
         assert!(
             schema.contains(prop),
             "check_health schema should contain property '{prop}'"
+        );
+    }
+}
+
+#[test]
+fn audit_schema_contains_expected_properties() {
+    let server = FallowMcp::new();
+    let tools = server.tool_router.list_all();
+    let tool = tools.iter().find(|t| t.name == "audit").unwrap();
+    let schema = serde_json::to_string(&tool.input_schema).unwrap();
+    for prop in [
+        "root",
+        "config",
+        "base",
+        "production",
+        "workspace",
+        "no_cache",
+        "threads",
+    ] {
+        assert!(
+            schema.contains(prop),
+            "audit schema should contain property '{prop}'"
         );
     }
 }

@@ -4,11 +4,13 @@ use rmcp::model::{CallToolResult, Content, Implementation, ServerCapabilities, S
 use rmcp::{ErrorData as McpError, ServerHandler, tool, tool_router};
 
 use crate::params::{
-    AnalyzeParams, CheckChangedParams, FindDupesParams, FixParams, HealthParams, ProjectInfoParams,
+    AnalyzeParams, AuditParams, CheckChangedParams, FindDupesParams, FixParams, HealthParams,
+    ProjectInfoParams,
 };
 use crate::tools::{
-    build_analyze_args, build_check_changed_args, build_find_dupes_args, build_fix_apply_args,
-    build_fix_preview_args, build_health_args, build_project_info_args, run_fallow,
+    build_analyze_args, build_audit_args, build_check_changed_args, build_find_dupes_args,
+    build_fix_apply_args, build_fix_preview_args, build_health_args, build_project_info_args,
+    run_fallow,
 };
 
 #[cfg(test)]
@@ -136,6 +138,15 @@ impl FallowMcp {
         let args = build_health_args(&params.0);
         run_fallow(&self.binary, &args).await
     }
+
+    #[tool(
+        description = "Audit changed files for dead code, complexity, and duplication. Purpose-built for reviewing AI-generated code. Combines dead-code + complexity + duplication scoped to changed files and returns a verdict (pass/warn/fail). Auto-detects the base branch if not specified. Returns JSON with verdict, summary counts per category, and full issue details with actions array for auto-correction. Use this after generating code to verify quality before committing.",
+        annotations(read_only_hint = true, open_world_hint = true)
+    )]
+    async fn audit(&self, params: Parameters<AuditParams>) -> Result<CallToolResult, McpError> {
+        let args = build_audit_args(&params.0);
+        run_fallow(&self.binary, &args).await
+    }
 }
 
 // ── ServerHandler ──────────────────────────────────────────────────
@@ -153,7 +164,8 @@ impl ServerHandler for FallowMcp {
                  Tools: analyze (full analysis), check_changed (incremental/PR analysis), \
                  find_dupes (code duplication), fix_preview/fix_apply (auto-fix), \
                  project_info (plugins, files, entry points), \
-                 check_health (code complexity metrics).",
+                 check_health (code complexity metrics), \
+                 audit (combined dead-code + complexity + duplication for changed files, returns verdict).",
             )
     }
 }

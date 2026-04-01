@@ -1,13 +1,14 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Fallow JSON Output Schemas",
-  "description": "Schemas for the JSON output of fallow commands. Bare `fallow --format json` produces a combined envelope with `check`, `dupes`, and `health` keys. Individual commands (`fallow dead-code --format json`, `fallow health --format json`, `fallow dupes --format json`) produce their own top-level structure.",
+  "description": "Schemas for the JSON output of fallow commands. Bare `fallow --format json` produces a combined envelope with `check`, `dupes`, and `health` keys. Individual commands (`fallow dead-code --format json`, `fallow health --format json`, `fallow dupes --format json`, `fallow audit --format json`) produce their own top-level structure.",
 
   "oneOf": [
     { "$ref": "#/definitions/CombinedOutput" },
     { "$ref": "#/definitions/CheckOutput" },
     { "$ref": "#/definitions/HealthOutput" },
-    { "$ref": "#/definitions/DupesOutput" }
+    { "$ref": "#/definitions/DupesOutput" },
+    { "$ref": "#/definitions/AuditOutput" }
   ],
 
   "definitions": {
@@ -24,6 +25,49 @@
         "check": { "$ref": "#/definitions/CheckOutput", "description": "Dead code analysis results (omitted if --skip check)" },
         "dupes": { "$ref": "#/definitions/DupesOutput", "description": "Duplication analysis results (omitted if --skip dupes)" },
         "health": { "$ref": "#/definitions/HealthOutput", "description": "Health/complexity analysis results (omitted if --skip health)" }
+      }
+    },
+
+    "AuditOutput": {
+      "title": "fallow audit --format json",
+      "description": "Audit output combining dead code, complexity, and duplication scoped to changed files. Returns a verdict (pass/warn/fail) with per-category summary and full sub-results.",
+      "type": "object",
+      "required": ["schema_version", "version", "command", "verdict", "changed_files_count", "base_ref", "elapsed_ms", "summary"],
+      "properties": {
+        "schema_version": { "$ref": "#/definitions/SchemaVersion" },
+        "version": { "$ref": "#/definitions/ToolVersion" },
+        "command": { "type": "string", "const": "audit" },
+        "verdict": {
+          "type": "string",
+          "enum": ["pass", "warn", "fail"],
+          "description": "pass = no issues, warn = warn-severity only (exit 0), fail = error-severity issues (exit 1)"
+        },
+        "changed_files_count": {
+          "type": "integer",
+          "description": "Number of files changed between base ref and HEAD"
+        },
+        "base_ref": {
+          "type": "string",
+          "description": "Git ref used as comparison base (explicit or auto-detected)"
+        },
+        "head_sha": {
+          "type": "string",
+          "description": "Short SHA of HEAD (omitted if git unavailable)"
+        },
+        "elapsed_ms": { "$ref": "#/definitions/ElapsedMs" },
+        "summary": {
+          "type": "object",
+          "properties": {
+            "dead_code_issues": { "type": "integer" },
+            "dead_code_has_errors": { "type": "boolean" },
+            "complexity_findings": { "type": "integer" },
+            "max_cyclomatic": { "type": ["integer", "null"] },
+            "duplication_clone_groups": { "type": "integer" }
+          }
+        },
+        "dead_code": { "$ref": "#/definitions/CheckOutput", "description": "Full dead code results (omitted if no changed files)" },
+        "duplication": { "$ref": "#/definitions/DupesOutput", "description": "Full duplication results (omitted if no changed files)" },
+        "complexity": { "$ref": "#/definitions/HealthOutput", "description": "Full complexity results (omitted if no changed files)" }
       }
     },
 

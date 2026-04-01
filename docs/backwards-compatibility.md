@@ -23,10 +23,10 @@ These interfaces are covered by semver — breaking changes only happen in major
 
 ### CLI interface
 
-- **Subcommands**: `dead-code` (legacy alias: `check`), `dupes`, `health`, `fix`, `watch`, `init`, `migrate`, `list`, `schema`, `config-schema`, `plugin-schema`
+- **Subcommands**: `dead-code` (legacy alias: `check`), `dupes`, `health`, `audit`, `fix`, `watch`, `init`, `migrate`, `list`, `schema`, `config-schema`, `plugin-schema`
 - **Default behavior**: bare `fallow` (no subcommand) runs dead-code + dupes + health combined
 - **Exit codes**: 0 (success/no errors), 1 (issues with error severity found), 2 (runtime error)
-- **Global flags**: `--format`, `--config`, `--workspace`, `--production`, `--baseline`, `--save-baseline`, `--no-cache`, `--threads`, `--changed-since`, `--performance`, `--explain`, `--ci`, `--fail-on-issues`, `--sarif-file`, `--fail-on-regression`, `--tolerance`, `--regression-baseline`, `--save-regression-baseline`
+- **Global flags**: `--format`, `--config`, `--workspace`, `--production`, `--baseline`, `--save-baseline`, `--no-cache`, `--threads`, `--changed-since` (alias: `--base`), `--performance`, `--explain`, `--ci`, `--fail-on-issues`, `--sarif-file`, `--fail-on-regression`, `--tolerance`, `--regression-baseline`, `--save-regression-baseline`
 - **Bare command flags**: `--only`, `--skip` (select which analyses to run)
 - **Health flags**: `--score` (project health score 0-100 with letter grade), `--min-score` (CI quality gate), `--targets` (refactoring recommendations), `--save-snapshot` (saves vital signs snapshot for trend tracking), `--trend` (compare against most recent snapshot)
 - **Init flags**: `--toml`, `--hooks` (scaffold pre-commit git hook), `--base` (base branch for hook)

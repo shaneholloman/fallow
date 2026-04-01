@@ -50,6 +50,7 @@ fallow                      # Run all three analyses
 fallow dead-code            # Dead code only
 fallow dupes                # Duplication only
 fallow health               # Complexity only
+fallow audit                # Audit changed files (verdict: pass/warn/fail)
 fallow fix --dry-run        # Preview auto-removal of dead exports and deps
 fallow watch                # Re-analyze on file changes
 ```
@@ -94,6 +95,19 @@ fallow health --targets                   # Ranked refactoring recommendations
 fallow health --trend                     # Compare against saved snapshot
 fallow health --changed-since main        # Only changed files
 ```
+
+## Audit
+
+Quality gate for AI-generated code and PRs. Combines dead code + complexity + duplication scoped to changed files.
+
+```bash
+fallow audit                              # Auto-detects base branch
+fallow audit --base main                  # Explicit base ref
+fallow audit --base HEAD~3               # Audit last 3 commits
+fallow audit --format json                # Structured output with verdict
+```
+
+Returns a verdict: **pass** (exit 0), **warn** (exit 0, warn-severity only), or **fail** (exit 1). JSON output includes a `verdict` field for CI and agent integration.
 
 ## CI integration
 

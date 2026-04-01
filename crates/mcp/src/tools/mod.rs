@@ -1,4 +1,5 @@
 mod analyze;
+mod audit;
 mod check_changed;
 mod dupes;
 mod fix;
@@ -6,6 +7,7 @@ mod health;
 mod project_info;
 
 pub use analyze::build_analyze_args;
+pub use audit::build_audit_args;
 pub use check_changed::build_check_changed_args;
 pub use dupes::build_find_dupes_args;
 pub use fix::{build_fix_apply_args, build_fix_preview_args};
