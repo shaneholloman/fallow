@@ -32,6 +32,7 @@ pub const ISSUE_TYPE_FLAGS: &[(&str, &str)] = &[
     ("unlisted-deps", "--unlisted-deps"),
     ("duplicate-exports", "--duplicate-exports"),
     ("circular-deps", "--circular-deps"),
+    ("boundary-violations", "--boundary-violations"),
 ];
 
 /// Valid detection modes for the `find_dupes` tool.

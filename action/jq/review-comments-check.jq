@@ -78,6 +78,12 @@ def footer(rule): "\n\n---\n<sub><a href=\"https://docs.fallow.tools/explanation
     line: (if .line > 0 then .line else 1 end),
     body: ":warning: **Circular dependency**\n\nCircular import chain detected:\n\n```\n\(.files | join(" \u2192 ")) \u2192 \(.files[0])\n```\n\n<details>\n<summary>Why this matters</summary>\n\nCircular dependencies can cause:\n- **Runtime crashes** \u2014 modules may be `undefined` because they haven\u2019t finished initializing when first imported\n- **Import-order bugs** \u2014 behavior changes depending on which file is loaded first\n- **Broken code splitting** \u2014 bundlers may merge circular modules into a single chunk, defeating lazy loading\n</details>\n\n**Action:** Extract shared logic into a separate module that both files can import.\(footer("circular-dependencies"))"
   }),
+  (.boundary_violations[]? | {
+    type: "other",
+    path: (prefix + .from_path),
+    line: (if .line > 0 then .line else 1 end),
+    body: ":no_entry_sign: **Boundary violation**\n\nImport from zone `\(.from_zone)` to zone `\(.to_zone)` is not allowed:\n\n`\(.from_path)` \u2192 `\(.to_path)`\n\n<details>\n<summary>Why this matters</summary>\n\nArchitecture boundaries enforce separation of concerns. Crossing them can:\n- **Create hidden coupling** \u2014 changes in one layer break another\n- **Defeat modularity** \u2014 zones become entangled and hard to refactor independently\n</details>\n\n**Action:** Route the import through an allowed zone, or restructure the dependency.\(footer("boundary-violations"))"
+  }),
   (.type_only_dependencies[]? | {
     type: "other",
     path: (prefix + .path),

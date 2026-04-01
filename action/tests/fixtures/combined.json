@@ -102,7 +102,8 @@
     "unlisted_dependencies": [],
     "duplicate_exports": [],
     "type_only_dependencies": [],
-    "circular_dependencies": []
+    "circular_dependencies": [],
+    "boundary_violations": []
   },
   "dupes": {
     "clone_groups": [

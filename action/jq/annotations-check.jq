@@ -28,6 +28,8 @@ def add_cmd(pkg): if pm == "pnpm" then "pnpm add \(pkg)" elif pm == "yarn" then 
     "::warning file=\(.path | san),line=\(.line),col=\(.col + 1),title=Duplicate export::Export '\($name)' is defined in \($locs | length) modules:\(nl)\($locs | map("  \u2022 " + (.path | san) + ":" + (.line | tostring)) | join(nl))\(nl)\(nl)This causes ambiguity for consumers. Keep one canonical location."),
   (.circular_dependencies[]? |
     "::warning file=\(.files[0] | san)\(if .line > 0 then ",line=\(.line),col=\(.col + 1)" else "" end),title=Circular dependency::Circular import chain detected:\(nl)\(.files | map(san) | join(" \u2192 ")) \u2192 \(.files[0] | san)\(nl)\(nl)Circular dependencies can cause initialization bugs and make code harder to reason about.\(nl)Consider extracting shared logic into a separate module."),
+  (.boundary_violations[]? |
+    "::warning file=\(.from_path | san)\(if .line > 0 then ",line=\(.line),col=\(.col + 1)" else "" end),title=Boundary violation::Import from zone '\(.from_zone | san)' to zone '\(.to_zone | san)' is not allowed.\(nl)\(.from_path | san) -> \(.to_path | san)\(nl)\(nl)Route the import through an allowed zone or restructure the dependency."),
   (.type_only_dependencies[]? |
     "::warning file=\(.path | san)\(if .line > 0 then ",line=\(.line)" else "" end),title=Type-only dependency::Package '\(.package_name | san)' is only used via type imports.\(nl)\(nl)Move it from dependencies to devDependencies to reduce production bundle size.")
 ] | .[]

@@ -36,6 +36,7 @@ else
       (if (.check.unused_dependencies | length) > 0 then "| Unused dependencies | \(.check.unused_dependencies | length) |" else null end),
       (if (.check.unresolved_imports | length) > 0 then "| Unresolved imports | \(.check.unresolved_imports | length) |" else null end),
       (if (.check.circular_dependencies | length) > 0 then "| Circular dependencies | \(.check.circular_dependencies | length) |" else null end),
+      (if (.check.boundary_violations | length) > 0 then "| Boundary violations | \(.check.boundary_violations | length) |" else null end),
       (if (.check.type_only_dependencies | length) > 0 then "| Type-only dependencies | \(.check.type_only_dependencies | length) |" else null end)
     ] | map(select(. != null)) | join("\n")) +
     "\n\n</details>\n\n"

@@ -36,6 +36,7 @@ else
     table_row("Unlisted dependencies"; "unlisted_dependencies"),
     table_row("Duplicate exports"; "duplicate_exports"),
     table_row("Circular dependencies"; "circular_dependencies"),
+    table_row("Boundary violations"; "boundary_violations"),
     table_row("Type-only dependencies"; "type_only_dependencies")
   ] | join("\n")) +
   "\n\n---\n" +
@@ -75,6 +76,9 @@ else
   section("Circular dependencies"; "circular_dependencies";
     "Import cycles degrade tree-shaking and can cause runtime issues.\n\n| Cycle | Length |\n|-------|-------:|\n";
     "| \(.files | join(" \u2192 ")) | \(.length) |") +
+  section("Boundary violations"; "boundary_violations";
+    "Imports that cross architecture zone boundaries.\n\n| From | To | Zones |\n|------|-----|-------|\n";
+    "| `\(.from_path):\(.line)` | `\(.to_path)` | \(.from_zone) \u2192 \(.to_zone) |") +
   section("Type-only dependencies"; "type_only_dependencies";
     "Production deps only used via `import type` \u2014 consider moving to `devDependencies`.\n\n| Package |\n|---------|\n";
     "| `\(.package_name)` |") +
