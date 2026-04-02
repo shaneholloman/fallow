@@ -1,3 +1,9 @@
+   Compiling fallow-config v2.9.1 (/Users/bartwaardenburg/Sites/fallow/crates/config)
+   Compiling fallow-graph v2.9.1 (/Users/bartwaardenburg/Sites/fallow/crates/graph)
+   Compiling fallow-core v2.9.1 (/Users/bartwaardenburg/Sites/fallow/crates/core)
+   Compiling fallow-cli v2.9.1 (/Users/bartwaardenburg/Sites/fallow/crates/cli)
+    Finished `dev` profile [unoptimized] target(s) in 4.54s
+     Running `target/debug/fallow config-schema`
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "FallowConfig",
@@ -5,7 +11,7 @@
   "type": "object",
   "properties": {
     "extends": {
-      "description": "Paths to base config files to extend from.\nPaths are resolved relative to the config file containing the `extends`.\nBase configs are loaded first, then this config's values override them.\nLater entries in the array override earlier ones.",
+      "description": "Base config files to extend from.\n\nSupports two resolution strategies:\n- **Relative paths**: resolved relative to the config file containing the `extends`.\n- **npm packages**: prefixed with `npm:`, resolved by walking up `node_modules/`.\n  Package resolution checks `package.json` `exports`/`main` first, then falls back\n  to standard config file names. Subpaths are supported (e.g., `npm:@co/config/strict.json`).\n\nBase configs are loaded first, then this config's values override them.\nLater entries in the array override earlier ones.\n\n**Note:** `npm:` resolution uses `node_modules/` directory walk-up and is\nincompatible with Yarn Plug'n'Play (PnP), which has no `node_modules/`.",
       "type": "array",
       "items": {
         "type": "string"

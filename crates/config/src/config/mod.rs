@@ -52,10 +52,19 @@ pub struct FallowConfig {
     #[schemars(skip)]
     pub schema: Option<String>,
 
-    /// Paths to base config files to extend from.
-    /// Paths are resolved relative to the config file containing the `extends`.
+    /// Base config files to extend from.
+    ///
+    /// Supports two resolution strategies:
+    /// - **Relative paths**: resolved relative to the config file containing the `extends`.
+    /// - **npm packages**: prefixed with `npm:`, resolved by walking up `node_modules/`.
+    ///   Package resolution checks `package.json` `exports`/`main` first, then falls back
+    ///   to standard config file names. Subpaths are supported (e.g., `npm:@co/config/strict.json`).
+    ///
     /// Base configs are loaded first, then this config's values override them.
     /// Later entries in the array override earlier ones.
+    ///
+    /// **Note:** `npm:` resolution uses `node_modules/` directory walk-up and is
+    /// incompatible with Yarn Plug'n'Play (PnP), which has no `node_modules/`.
     #[serde(default, skip_serializing)]
     pub extends: Vec<String>,
 

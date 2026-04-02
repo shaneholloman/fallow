@@ -13,6 +13,9 @@ pub(super) const CONFIG_NAMES: &[&str] = &[".fallowrc.json", "fallow.toml", ".fa
 
 pub(super) const MAX_EXTENDS_DEPTH: usize = 10;
 
+/// Prefix for npm package specifiers in the `extends` field.
+const NPM_PREFIX: &str = "npm:";
+
 /// Detect config format from file extension.
 pub(super) enum ConfigFormat {
     Toml,
@@ -78,6 +81,242 @@ pub(super) fn parse_config_to_value(path: &Path) -> Result<serde_json::Value, mi
     }
 }
 
+/// Verify that `resolved` stays within `base_dir` after canonicalization.
+///
+/// Prevents path traversal attacks where a subpath or `package.json` field
+/// like `../../etc/passwd` escapes the intended directory.
+fn resolve_confined(
+    base_dir: &Path,
+    resolved: &Path,
+    context: &str,
+    source_config: &Path,
+) -> Result<PathBuf, miette::Report> {
+    let canonical_base = base_dir
+        .canonicalize()
+        .map_err(|e| miette::miette!("Failed to resolve base dir {}: {}", base_dir.display(), e))?;
+    let canonical_file = resolved.canonicalize().map_err(|e| {
+        miette::miette!(
+            "Config file not found: {} ({}, referenced from {}): {}",
+            resolved.display(),
+            context,
+            source_config.display(),
+            e
+        )
+    })?;
+    if !canonical_file.starts_with(&canonical_base) {
+        return Err(miette::miette!(
+            "Path traversal detected: {} escapes package directory {} ({}, referenced from {})",
+            resolved.display(),
+            base_dir.display(),
+            context,
+            source_config.display()
+        ));
+    }
+    Ok(canonical_file)
+}
+
+/// Validate that a parsed package name is a legal npm package name.
+fn validate_npm_package_name(name: &str, source_config: &Path) -> Result<(), miette::Report> {
+    if name.starts_with('@') && !name.contains('/') {
+        return Err(miette::miette!(
+            "Invalid scoped npm package name '{}': must be '@scope/name' (referenced from {})",
+            name,
+            source_config.display()
+        ));
+    }
+    if name.split('/').any(|c| c == ".." || c == ".") {
+        return Err(miette::miette!(
+            "Invalid npm package name '{}': path traversal components not allowed (referenced from {})",
+            name,
+            source_config.display()
+        ));
+    }
+    Ok(())
+}
+
+/// Parse an npm specifier into `(package_name, optional_subpath)`.
+///
+/// Scoped: `@scope/name` → `("@scope/name", None)`,
+///         `@scope/name/strict.json` → `("@scope/name", Some("strict.json"))`.
+/// Unscoped: `name` → `("name", None)`,
+///           `name/strict.json` → `("name", Some("strict.json"))`.
+fn parse_npm_specifier(specifier: &str) -> (&str, Option<&str>) {
+    if specifier.starts_with('@') {
+        // Scoped: @scope/name[/subpath]
+        // Find the second '/' which separates name from subpath.
+        let mut slashes = 0;
+        for (i, ch) in specifier.char_indices() {
+            if ch == '/' {
+                slashes += 1;
+                if slashes == 2 {
+                    return (&specifier[..i], Some(&specifier[i + 1..]));
+                }
+            }
+        }
+        // No subpath — entire string is the package name.
+        (specifier, None)
+    } else if let Some(slash) = specifier.find('/') {
+        (&specifier[..slash], Some(&specifier[slash + 1..]))
+    } else {
+        (specifier, None)
+    }
+}
+
+/// Resolve the default export path from a `package.json` `exports` field.
+///
+/// Handles the common patterns:
+/// - `"exports": "./config.json"` (string shorthand)
+/// - `"exports": {".": "./config.json"}` (object with default entry point)
+/// - `"exports": {".": {"default": "./config.json"}}` (conditional exports)
+fn resolve_package_exports(pkg: &serde_json::Value, package_dir: &Path) -> Option<PathBuf> {
+    let exports = pkg.get("exports")?;
+    match exports {
+        serde_json::Value::String(s) => Some(package_dir.join(s.as_str())),
+        serde_json::Value::Object(map) => {
+            let dot_export = map.get(".")?;
+            match dot_export {
+                serde_json::Value::String(s) => Some(package_dir.join(s.as_str())),
+                serde_json::Value::Object(conditions) => {
+                    for key in ["default", "node", "import", "require"] {
+                        if let Some(serde_json::Value::String(s)) = conditions.get(key) {
+                            return Some(package_dir.join(s.as_str()));
+                        }
+                    }
+                    None
+                }
+                _ => None,
+            }
+        }
+        // Array export fallback form (e.g., `[\"./config.json\", null]`) is not supported;
+        // falls through to main/config name scan.
+        _ => None,
+    }
+}
+
+/// Find a fallow config file inside an npm package directory.
+///
+/// Resolution order:
+/// 1. `package.json` `exports` field (default entry point)
+/// 2. `package.json` `main` field
+/// 3. Standard config file names (`.fallowrc.json`, `fallow.toml`, `.fallow.toml`)
+///
+/// Paths from `exports`/`main` are confined to the package directory to prevent
+/// path traversal attacks from malicious packages.
+fn find_config_in_npm_package(
+    package_dir: &Path,
+    source_config: &Path,
+) -> Result<PathBuf, miette::Report> {
+    let pkg_json_path = package_dir.join("package.json");
+    if pkg_json_path.exists() {
+        let content = std::fs::read_to_string(&pkg_json_path)
+            .map_err(|e| miette::miette!("Failed to read {}: {}", pkg_json_path.display(), e))?;
+        let pkg: serde_json::Value = serde_json::from_str(&content)
+            .map_err(|e| miette::miette!("Failed to parse {}: {}", pkg_json_path.display(), e))?;
+        if let Some(config_path) = resolve_package_exports(&pkg, package_dir)
+            && config_path.exists()
+        {
+            return resolve_confined(
+                package_dir,
+                &config_path,
+                "package.json exports",
+                source_config,
+            );
+        }
+        if let Some(main) = pkg.get("main").and_then(|v| v.as_str()) {
+            let main_path = package_dir.join(main);
+            if main_path.exists() {
+                return resolve_confined(
+                    package_dir,
+                    &main_path,
+                    "package.json main",
+                    source_config,
+                );
+            }
+        }
+    }
+
+    for config_name in CONFIG_NAMES {
+        let config_path = package_dir.join(config_name);
+        if config_path.exists() {
+            return resolve_confined(
+                package_dir,
+                &config_path,
+                "config name fallback",
+                source_config,
+            );
+        }
+    }
+
+    Err(miette::miette!(
+        "No fallow config found in npm package at {}. \
+         Expected package.json with main/exports pointing to a config file, \
+         or one of: {}",
+        package_dir.display(),
+        CONFIG_NAMES.join(", ")
+    ))
+}
+
+/// Resolve an npm package specifier to a config file path.
+///
+/// Walks up from `config_dir` looking for `node_modules/<package_name>`.
+/// If a subpath is given (e.g., `@scope/name/strict.json`), resolves that file directly.
+/// Otherwise, finds the config file inside the package via [`find_config_in_npm_package`].
+fn resolve_npm_package(
+    config_dir: &Path,
+    specifier: &str,
+    source_config: &Path,
+) -> Result<PathBuf, miette::Report> {
+    let specifier = specifier.trim();
+    if specifier.is_empty() {
+        return Err(miette::miette!(
+            "Empty npm specifier in extends (in {})",
+            source_config.display()
+        ));
+    }
+
+    let (package_name, subpath) = parse_npm_specifier(specifier);
+    validate_npm_package_name(package_name, source_config)?;
+
+    let mut dir = Some(config_dir);
+    while let Some(d) = dir {
+        let candidate = d.join("node_modules").join(package_name);
+        if candidate.is_dir() {
+            return if let Some(sub) = subpath {
+                let file = candidate.join(sub);
+                if file.exists() {
+                    resolve_confined(
+                        &candidate,
+                        &file,
+                        &format!("subpath '{sub}'"),
+                        source_config,
+                    )
+                } else {
+                    Err(miette::miette!(
+                        "File not found in npm package: {} (looked for '{}' in {}, referenced from {})",
+                        file.display(),
+                        sub,
+                        candidate.display(),
+                        source_config.display()
+                    ))
+                }
+            } else {
+                find_config_in_npm_package(&candidate, source_config)
+            };
+        }
+        dir = d.parent();
+    }
+
+    Err(miette::miette!(
+        "npm package '{}' not found. \
+         Searched for node_modules/{} in ancestor directories of {} (referenced from {}). \
+         If this package should be available, install it and ensure it is listed in your project's dependencies",
+        package_name,
+        package_name,
+        config_dir.display(),
+        source_config.display()
+    ))
+}
+
 pub(super) fn resolve_extends(
     path: &Path,
     visited: &mut FxHashSet<PathBuf>,
@@ -129,21 +368,26 @@ pub(super) fn resolve_extends(
     let mut merged = serde_json::Value::Object(serde_json::Map::new());
 
     for extend_path_str in &extends {
-        if Path::new(extend_path_str).is_absolute() {
-            return Err(miette::miette!(
-                "extends paths must be relative, got absolute path: {} (in {})",
-                extend_path_str,
-                path.display()
-            ));
-        }
-        let extend_path = config_dir.join(extend_path_str);
-        if !extend_path.exists() {
-            return Err(miette::miette!(
-                "Extended config file not found: {} (referenced from {})",
-                extend_path.display(),
-                path.display()
-            ));
-        }
+        let extend_path = if let Some(npm_specifier) = extend_path_str.strip_prefix(NPM_PREFIX) {
+            resolve_npm_package(config_dir, npm_specifier, path)?
+        } else {
+            if Path::new(extend_path_str).is_absolute() {
+                return Err(miette::miette!(
+                    "extends paths must be relative, got absolute path: {} (in {})",
+                    extend_path_str,
+                    path.display()
+                ));
+            }
+            let p = config_dir.join(extend_path_str);
+            if !p.exists() {
+                return Err(miette::miette!(
+                    "Extended config file not found: {} (referenced from {})",
+                    p.display(),
+                    path.display()
+                ));
+            }
+            p
+        };
         let base = resolve_extends(&extend_path, visited, depth + 1)?;
         deep_merge_json(&mut merged, base);
     }
@@ -801,6 +1045,566 @@ unknown_field = true
         let config = FallowConfig::load(&dir.path().join(".fallowrc.json")).unwrap();
         // Arrays are replaced, not merged (overlay replaces base)
         assert_eq!(config.entry, vec!["src/b.ts"]);
+    }
+
+    // ── npm extends tests ────────────────────────────────────────────
+
+    /// Set up a fake npm package in `node_modules/<name>` under `root`.
+    fn create_npm_package(root: &Path, name: &str, config_json: &str) {
+        let pkg_dir = root.join("node_modules").join(name);
+        std::fs::create_dir_all(&pkg_dir).unwrap();
+        std::fs::write(pkg_dir.join(".fallowrc.json"), config_json).unwrap();
+    }
+
+    /// Set up a fake npm package with `package.json` `main` field.
+    fn create_npm_package_with_main(root: &Path, name: &str, main: &str, config_json: &str) {
+        let pkg_dir = root.join("node_modules").join(name);
+        std::fs::create_dir_all(&pkg_dir).unwrap();
+        std::fs::write(
+            pkg_dir.join("package.json"),
+            format!(r#"{{"name": "{name}", "main": "{main}"}}"#),
+        )
+        .unwrap();
+        std::fs::write(pkg_dir.join(main), config_json).unwrap();
+    }
+
+    #[test]
+    fn extends_npm_basic_unscoped() {
+        let dir = test_dir("npm-basic");
+        create_npm_package(
+            dir.path(),
+            "fallow-config-acme",
+            r#"{"rules": {"unused-files": "warn"}}"#,
+        );
+        std::fs::write(
+            dir.path().join(".fallowrc.json"),
+            r#"{"extends": "npm:fallow-config-acme"}"#,
+        )
+        .unwrap();
+
+        let config = FallowConfig::load(&dir.path().join(".fallowrc.json")).unwrap();
+        assert_eq!(config.rules.unused_files, Severity::Warn);
+    }
+
+    #[test]
+    fn extends_npm_scoped_package() {
+        let dir = test_dir("npm-scoped");
+        create_npm_package(
+            dir.path(),
+            "@company/fallow-config",
+            r#"{"rules": {"unused-exports": "off"}, "ignorePatterns": ["generated/**"]}"#,
+        );
+        std::fs::write(
+            dir.path().join(".fallowrc.json"),
+            r#"{"extends": "npm:@company/fallow-config"}"#,
+        )
+        .unwrap();
+
+        let config = FallowConfig::load(&dir.path().join(".fallowrc.json")).unwrap();
+        assert_eq!(config.rules.unused_exports, Severity::Off);
+        assert_eq!(config.ignore_patterns, vec!["generated/**"]);
+    }
+
+    #[test]
+    fn extends_npm_with_subpath() {
+        let dir = test_dir("npm-subpath");
+        let pkg_dir = dir.path().join("node_modules/@company/fallow-config");
+        std::fs::create_dir_all(&pkg_dir).unwrap();
+        std::fs::write(
+            pkg_dir.join("strict.json"),
+            r#"{"rules": {"unused-files": "error", "unused-exports": "error"}}"#,
+        )
+        .unwrap();
+
+        std::fs::write(
+            dir.path().join(".fallowrc.json"),
+            r#"{"extends": "npm:@company/fallow-config/strict.json"}"#,
+        )
+        .unwrap();
+
+        let config = FallowConfig::load(&dir.path().join(".fallowrc.json")).unwrap();
+        assert_eq!(config.rules.unused_files, Severity::Error);
+        assert_eq!(config.rules.unused_exports, Severity::Error);
+    }
+
+    #[test]
+    fn extends_npm_package_json_main() {
+        let dir = test_dir("npm-main");
+        create_npm_package_with_main(
+            dir.path(),
+            "fallow-config-acme",
+            "config.json",
+            r#"{"rules": {"unused-types": "off"}}"#,
+        );
+        std::fs::write(
+            dir.path().join(".fallowrc.json"),
+            r#"{"extends": "npm:fallow-config-acme"}"#,
+        )
+        .unwrap();
+
+        let config = FallowConfig::load(&dir.path().join(".fallowrc.json")).unwrap();
+        assert_eq!(config.rules.unused_types, Severity::Off);
+    }
+
+    #[test]
+    fn extends_npm_package_json_exports_string() {
+        let dir = test_dir("npm-exports-str");
+        let pkg_dir = dir.path().join("node_modules/fallow-config-co");
+        std::fs::create_dir_all(&pkg_dir).unwrap();
+        std::fs::write(
+            pkg_dir.join("package.json"),
+            r#"{"name": "fallow-config-co", "exports": "./base.json"}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            pkg_dir.join("base.json"),
+            r#"{"rules": {"circular-dependencies": "warn"}}"#,
+        )
+        .unwrap();
+
+        std::fs::write(
+            dir.path().join(".fallowrc.json"),
+            r#"{"extends": "npm:fallow-config-co"}"#,
+        )
+        .unwrap();
+
+        let config = FallowConfig::load(&dir.path().join(".fallowrc.json")).unwrap();
+        assert_eq!(config.rules.circular_dependencies, Severity::Warn);
+    }
+
+    #[test]
+    fn extends_npm_package_json_exports_object() {
+        let dir = test_dir("npm-exports-obj");
+        let pkg_dir = dir.path().join("node_modules/@co/cfg");
+        std::fs::create_dir_all(&pkg_dir).unwrap();
+        std::fs::write(
+            pkg_dir.join("package.json"),
+            r#"{"name": "@co/cfg", "exports": {".": {"default": "./fallow.json"}}}"#,
+        )
+        .unwrap();
+        std::fs::write(pkg_dir.join("fallow.json"), r#"{"entry": ["src/app.ts"]}"#).unwrap();
+
+        std::fs::write(
+            dir.path().join(".fallowrc.json"),
+            r#"{"extends": "npm:@co/cfg"}"#,
+        )
+        .unwrap();
+
+        let config = FallowConfig::load(&dir.path().join(".fallowrc.json")).unwrap();
+        assert_eq!(config.entry, vec!["src/app.ts"]);
+    }
+
+    #[test]
+    fn extends_npm_exports_takes_priority_over_main() {
+        let dir = test_dir("npm-exports-prio");
+        let pkg_dir = dir.path().join("node_modules/my-config");
+        std::fs::create_dir_all(&pkg_dir).unwrap();
+        std::fs::write(
+            pkg_dir.join("package.json"),
+            r#"{"name": "my-config", "main": "./old.json", "exports": "./new.json"}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            pkg_dir.join("old.json"),
+            r#"{"rules": {"unused-files": "off"}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            pkg_dir.join("new.json"),
+            r#"{"rules": {"unused-files": "warn"}}"#,
+        )
+        .unwrap();
+
+        std::fs::write(
+            dir.path().join(".fallowrc.json"),
+            r#"{"extends": "npm:my-config"}"#,
+        )
+        .unwrap();
+
+        let config = FallowConfig::load(&dir.path().join(".fallowrc.json")).unwrap();
+        // exports takes priority over main
+        assert_eq!(config.rules.unused_files, Severity::Warn);
+    }
+
+    #[test]
+    fn extends_npm_walk_up_directories() {
+        let dir = test_dir("npm-walkup");
+        // node_modules at root level
+        create_npm_package(
+            dir.path(),
+            "shared-config",
+            r#"{"rules": {"unused-files": "warn"}}"#,
+        );
+        // Config in a nested subdirectory
+        let sub = dir.path().join("packages/app");
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::write(
+            sub.join(".fallowrc.json"),
+            r#"{"extends": "npm:shared-config"}"#,
+        )
+        .unwrap();
+
+        let config = FallowConfig::load(&sub.join(".fallowrc.json")).unwrap();
+        assert_eq!(config.rules.unused_files, Severity::Warn);
+    }
+
+    #[test]
+    fn extends_npm_overlay_overrides_base() {
+        let dir = test_dir("npm-overlay");
+        create_npm_package(
+            dir.path(),
+            "@company/base",
+            r#"{"rules": {"unused-files": "warn", "unused-exports": "off"}, "entry": ["src/base.ts"]}"#,
+        );
+        std::fs::write(
+            dir.path().join(".fallowrc.json"),
+            r#"{"extends": "npm:@company/base", "rules": {"unused-files": "error"}, "entry": ["src/app.ts"]}"#,
+        )
+        .unwrap();
+
+        let config = FallowConfig::load(&dir.path().join(".fallowrc.json")).unwrap();
+        assert_eq!(config.rules.unused_files, Severity::Error);
+        assert_eq!(config.rules.unused_exports, Severity::Off);
+        assert_eq!(config.entry, vec!["src/app.ts"]);
+    }
+
+    #[test]
+    fn extends_npm_chained_with_relative() {
+        let dir = test_dir("npm-chained");
+        // npm package extends a relative file inside itself
+        let pkg_dir = dir.path().join("node_modules/my-config");
+        std::fs::create_dir_all(&pkg_dir).unwrap();
+        std::fs::write(
+            pkg_dir.join("base.json"),
+            r#"{"rules": {"unused-files": "warn"}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            pkg_dir.join(".fallowrc.json"),
+            r#"{"extends": ["base.json"], "rules": {"unused-exports": "off"}}"#,
+        )
+        .unwrap();
+
+        std::fs::write(
+            dir.path().join(".fallowrc.json"),
+            r#"{"extends": "npm:my-config"}"#,
+        )
+        .unwrap();
+
+        let config = FallowConfig::load(&dir.path().join(".fallowrc.json")).unwrap();
+        assert_eq!(config.rules.unused_files, Severity::Warn);
+        assert_eq!(config.rules.unused_exports, Severity::Off);
+    }
+
+    #[test]
+    fn extends_npm_mixed_with_relative_paths() {
+        let dir = test_dir("npm-mixed");
+        create_npm_package(
+            dir.path(),
+            "shared-base",
+            r#"{"rules": {"unused-files": "off"}}"#,
+        );
+        std::fs::write(
+            dir.path().join("local-overrides.json"),
+            r#"{"rules": {"unused-files": "warn"}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join(".fallowrc.json"),
+            r#"{"extends": ["npm:shared-base", "local-overrides.json"]}"#,
+        )
+        .unwrap();
+
+        let config = FallowConfig::load(&dir.path().join(".fallowrc.json")).unwrap();
+        // local-overrides is later in the array, so it wins
+        assert_eq!(config.rules.unused_files, Severity::Warn);
+    }
+
+    #[test]
+    fn extends_npm_missing_package_errors() {
+        let dir = test_dir("npm-missing");
+        std::fs::write(
+            dir.path().join(".fallowrc.json"),
+            r#"{"extends": "npm:nonexistent-package"}"#,
+        )
+        .unwrap();
+
+        let result = FallowConfig::load(&dir.path().join(".fallowrc.json"));
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(
+            err_msg.contains("not found"),
+            "Expected 'not found' error, got: {err_msg}"
+        );
+        assert!(
+            err_msg.contains("nonexistent-package"),
+            "Expected package name in error, got: {err_msg}"
+        );
+        assert!(
+            err_msg.contains("install it"),
+            "Expected install hint in error, got: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn extends_npm_no_config_in_package_errors() {
+        let dir = test_dir("npm-no-config");
+        let pkg_dir = dir.path().join("node_modules/empty-pkg");
+        std::fs::create_dir_all(&pkg_dir).unwrap();
+        // Package exists but has no config files and no package.json
+        std::fs::write(pkg_dir.join("README.md"), "# empty").unwrap();
+
+        std::fs::write(
+            dir.path().join(".fallowrc.json"),
+            r#"{"extends": "npm:empty-pkg"}"#,
+        )
+        .unwrap();
+
+        let result = FallowConfig::load(&dir.path().join(".fallowrc.json"));
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(
+            err_msg.contains("No fallow config found"),
+            "Expected 'No fallow config found' error, got: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn extends_npm_missing_subpath_errors() {
+        let dir = test_dir("npm-missing-sub");
+        let pkg_dir = dir.path().join("node_modules/@co/config");
+        std::fs::create_dir_all(&pkg_dir).unwrap();
+
+        std::fs::write(
+            dir.path().join(".fallowrc.json"),
+            r#"{"extends": "npm:@co/config/nonexistent.json"}"#,
+        )
+        .unwrap();
+
+        let result = FallowConfig::load(&dir.path().join(".fallowrc.json"));
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(
+            err_msg.contains("nonexistent.json"),
+            "Expected subpath in error, got: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn extends_npm_empty_specifier_errors() {
+        let dir = test_dir("npm-empty");
+        std::fs::write(dir.path().join(".fallowrc.json"), r#"{"extends": "npm:"}"#).unwrap();
+
+        let result = FallowConfig::load(&dir.path().join(".fallowrc.json"));
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(
+            err_msg.contains("Empty npm specifier"),
+            "Expected 'Empty npm specifier' error, got: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn extends_npm_space_after_colon_trimmed() {
+        let dir = test_dir("npm-space");
+        create_npm_package(
+            dir.path(),
+            "fallow-config-acme",
+            r#"{"rules": {"unused-files": "warn"}}"#,
+        );
+        // Space after npm: — should be trimmed and resolve correctly
+        std::fs::write(
+            dir.path().join(".fallowrc.json"),
+            r#"{"extends": "npm: fallow-config-acme"}"#,
+        )
+        .unwrap();
+
+        let config = FallowConfig::load(&dir.path().join(".fallowrc.json")).unwrap();
+        assert_eq!(config.rules.unused_files, Severity::Warn);
+    }
+
+    #[test]
+    fn extends_npm_exports_node_condition() {
+        let dir = test_dir("npm-node-cond");
+        let pkg_dir = dir.path().join("node_modules/node-config");
+        std::fs::create_dir_all(&pkg_dir).unwrap();
+        std::fs::write(
+            pkg_dir.join("package.json"),
+            r#"{"name": "node-config", "exports": {".": {"node": "./node.json"}}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            pkg_dir.join("node.json"),
+            r#"{"rules": {"unused-files": "off"}}"#,
+        )
+        .unwrap();
+
+        std::fs::write(
+            dir.path().join(".fallowrc.json"),
+            r#"{"extends": "npm:node-config"}"#,
+        )
+        .unwrap();
+
+        let config = FallowConfig::load(&dir.path().join(".fallowrc.json")).unwrap();
+        assert_eq!(config.rules.unused_files, Severity::Off);
+    }
+
+    // ── parse_npm_specifier unit tests ──────────────────────────────
+
+    #[test]
+    fn parse_npm_specifier_unscoped() {
+        assert_eq!(parse_npm_specifier("my-config"), ("my-config", None));
+    }
+
+    #[test]
+    fn parse_npm_specifier_unscoped_with_subpath() {
+        assert_eq!(
+            parse_npm_specifier("my-config/strict.json"),
+            ("my-config", Some("strict.json"))
+        );
+    }
+
+    #[test]
+    fn parse_npm_specifier_scoped() {
+        assert_eq!(
+            parse_npm_specifier("@company/fallow-config"),
+            ("@company/fallow-config", None)
+        );
+    }
+
+    #[test]
+    fn parse_npm_specifier_scoped_with_subpath() {
+        assert_eq!(
+            parse_npm_specifier("@company/fallow-config/strict.json"),
+            ("@company/fallow-config", Some("strict.json"))
+        );
+    }
+
+    #[test]
+    fn parse_npm_specifier_scoped_with_nested_subpath() {
+        assert_eq!(
+            parse_npm_specifier("@company/fallow-config/presets/strict.json"),
+            ("@company/fallow-config", Some("presets/strict.json"))
+        );
+    }
+
+    // ── npm extends security tests ──────────────────────────────────
+
+    #[test]
+    fn extends_npm_subpath_traversal_rejected() {
+        let dir = test_dir("npm-traversal-sub");
+        let pkg_dir = dir.path().join("node_modules/evil-pkg");
+        std::fs::create_dir_all(&pkg_dir).unwrap();
+        // Create a file outside the package that the traversal would reach
+        std::fs::write(
+            dir.path().join("secret.json"),
+            r#"{"entry": ["stolen.ts"]}"#,
+        )
+        .unwrap();
+
+        std::fs::write(
+            dir.path().join(".fallowrc.json"),
+            r#"{"extends": "npm:evil-pkg/../../secret.json"}"#,
+        )
+        .unwrap();
+
+        let result = FallowConfig::load(&dir.path().join(".fallowrc.json"));
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(
+            err_msg.contains("traversal") || err_msg.contains("not found"),
+            "Expected traversal or not-found error, got: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn extends_npm_dotdot_package_name_rejected() {
+        let dir = test_dir("npm-dotdot-name");
+        std::fs::write(
+            dir.path().join(".fallowrc.json"),
+            r#"{"extends": "npm:../relative"}"#,
+        )
+        .unwrap();
+
+        let result = FallowConfig::load(&dir.path().join(".fallowrc.json"));
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(
+            err_msg.contains("path traversal"),
+            "Expected 'path traversal' error, got: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn extends_npm_scoped_without_name_rejected() {
+        let dir = test_dir("npm-scope-only");
+        std::fs::write(
+            dir.path().join(".fallowrc.json"),
+            r#"{"extends": "npm:@scope"}"#,
+        )
+        .unwrap();
+
+        let result = FallowConfig::load(&dir.path().join(".fallowrc.json"));
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(
+            err_msg.contains("@scope/name"),
+            "Expected scoped name format error, got: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn extends_npm_malformed_package_json_errors() {
+        let dir = test_dir("npm-bad-pkgjson");
+        let pkg_dir = dir.path().join("node_modules/bad-pkg");
+        std::fs::create_dir_all(&pkg_dir).unwrap();
+        std::fs::write(pkg_dir.join("package.json"), "{ not valid json }").unwrap();
+
+        std::fs::write(
+            dir.path().join(".fallowrc.json"),
+            r#"{"extends": "npm:bad-pkg"}"#,
+        )
+        .unwrap();
+
+        let result = FallowConfig::load(&dir.path().join(".fallowrc.json"));
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(
+            err_msg.contains("Failed to parse"),
+            "Expected parse error, got: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn extends_npm_exports_traversal_rejected() {
+        let dir = test_dir("npm-exports-escape");
+        let pkg_dir = dir.path().join("node_modules/evil-exports");
+        std::fs::create_dir_all(&pkg_dir).unwrap();
+        std::fs::write(
+            pkg_dir.join("package.json"),
+            r#"{"name": "evil-exports", "exports": "../../secret.json"}"#,
+        )
+        .unwrap();
+        // Create the target file outside the package
+        std::fs::write(
+            dir.path().join("secret.json"),
+            r#"{"entry": ["stolen.ts"]}"#,
+        )
+        .unwrap();
+
+        std::fs::write(
+            dir.path().join(".fallowrc.json"),
+            r#"{"extends": "npm:evil-exports"}"#,
+        )
+        .unwrap();
+
+        let result = FallowConfig::load(&dir.path().join(".fallowrc.json"));
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(
+            err_msg.contains("traversal"),
+            "Expected traversal error, got: {err_msg}"
+        );
     }
 
     // ── deep_merge_json unit tests ───────────────────────────────────

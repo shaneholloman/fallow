@@ -11,7 +11,7 @@ These interfaces are covered by semver — breaking changes only happen in major
 - **Config file names**: `.fallowrc.json`, `fallow.toml`, `.fallow.toml`
 - **All documented config fields**: `extends`, `ignorePatterns`, `rules`, `overrides`, `entry`, `ignoreDependencies`, `ignoreExports`, `duplicates`, `production`, `framework`, `workspaces`, `plugins`, `boundaries` (including `boundaries.preset`)
 - **Rule names and severity values**: `unused-files`, `unused-exports`, etc. with `error`/`warn`/`off`
-- **Extends and overrides semantics**: merge behavior, glob matching, override precedence
+- **Extends and overrides semantics**: merge behavior, glob matching, override precedence, `npm:` prefix resolution
 - **Inline suppression comment syntax**: `fallow-ignore-next-line`, `fallow-ignore-file`
 
 ### JSON output schema
