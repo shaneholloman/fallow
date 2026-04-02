@@ -1,4 +1,12 @@
 //! Resolution of re-export sources (`export { x } from './y'`).
+//!
+//! Maps each re-export's source specifier to a resolution target, producing
+//! [`ResolvedReExport`] entries. These are consumed by the graph builder to
+//! construct re-export edges, which are later propagated through barrel file
+//! chains in the graph's re-export resolution phase.
+//!
+//! Like `static_imports`, this is a direct 1:1 mapping — the interesting
+//! chain resolution logic lives in `graph/re_exports.rs`, not here.
 
 use std::path::Path;
 

@@ -1,4 +1,12 @@
 //! Resolution of CommonJS `require()` calls.
+//!
+//! Converts `require()` calls into the same [`ResolvedImport`] representation used
+//! for ES module imports, allowing the graph builder to treat all import kinds uniformly.
+//!
+//! Destructured requires (`const { a, b } = require('./x')`) become named imports.
+//! Non-destructured requires (`const mod = require('./x')`) become namespace imports
+//! as a conservative default — the entire module binding may be used in ways that
+//! cannot be statically determined.
 
 use std::path::Path;
 

@@ -1,4 +1,12 @@
 //! Resolution of static ES module imports (`import x from './y'`).
+//!
+//! Handles standard ES module `import` declarations by delegating each specifier
+//! to the specifier resolver. Each [`ImportInfo`] is paired with its resolution
+//! result to produce a [`ResolvedImport`].
+//!
+//! This is the simplest resolution submodule — a direct 1:1 mapping from extracted
+//! imports to resolved imports. Called from [`super::resolve_all_imports`] as the
+//! first resolution step for each module.
 
 use std::path::Path;
 

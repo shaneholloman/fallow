@@ -1,9 +1,19 @@
 //! Import specifier resolution using `oxc_resolver`.
 //!
-//! Resolves all import specifiers across all modules in parallel, mapping each to
-//! an internal file, npm package, or unresolvable target. Includes support for
-//! tsconfig path aliases, pnpm virtual store paths, React Native platform extensions,
-//! and dynamic import pattern matching via glob.
+//! Orchestrates the resolution pipeline: for every extracted module, resolves all
+//! import specifiers in parallel (via rayon) to an [`ResolveResult`] — internal file,
+//! npm package, external file, or unresolvable. The entry point is [`resolve_all_imports`].
+//!
+//! Resolution is split into submodules by import kind:
+//! - `static_imports` — ES `import`/`export` statements
+//! - `dynamic_imports` — `import()` expressions and glob-based dynamic patterns
+//! - `require_imports` — CommonJS `require()` calls
+//! - `re_exports` — `export { x } from './y'` re-export sources
+//! - `upgrades` — post-resolution pass fixing non-deterministic bare specifier results
+//!
+//! Handles tsconfig path aliases (auto-discovered per file), pnpm virtual store paths,
+//! React Native platform extensions, and package.json `exports` subpath resolution with
+//! output-to-source directory fallback.
 
 mod dynamic_imports;
 pub(crate) mod fallbacks;

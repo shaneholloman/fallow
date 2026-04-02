@@ -1,4 +1,16 @@
-//! Resolution of dynamic `import()` calls and dynamic import patterns.
+//! Resolution of dynamic `import()` calls and glob-based dynamic import patterns.
+//!
+//! Handles two distinct forms of dynamic imports:
+//!
+//! 1. **Concrete dynamic imports** (`import('./foo')`) — resolved via the standard
+//!    specifier resolver. Destructured awaits (`const { a } = await import(...)`)
+//!    expand into individual named imports; assigned awaits become namespace imports;
+//!    bare calls become side-effect imports.
+//!
+//! 2. **Dynamic import patterns** (`import(\`./routes/${name}\`)`) — resolved via
+//!    glob matching against the discovered file set. The template literal is converted
+//!    to a glob pattern and matched against file paths relative to the importing
+//!    directory, producing a list of candidate `FileId`s.
 
 use std::path::{Path, PathBuf};
 

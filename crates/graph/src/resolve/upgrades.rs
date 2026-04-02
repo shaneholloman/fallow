@@ -1,4 +1,18 @@
 //! Post-resolution specifier upgrade pass.
+//!
+//! Fixes non-deterministic resolution of bare specifiers that arises from per-file
+//! tsconfig path alias discovery (`TsconfigDiscovery::Auto`). The same specifier
+//! (e.g., `preact/hooks`) may resolve to `InternalModule` in files under a tsconfig
+//! with matching path aliases, but to `NpmPackage` in files without such aliases.
+//!
+//! This pass scans all resolved imports and re-exports to find bare specifiers where
+//! at least one file resolved to `InternalModule`, then upgrades all `NpmPackage`
+//! results for that specifier to `InternalModule`. This is correct because if any
+//! tsconfig maps a specifier to a project source file, that file is the canonical
+//! origin.
+//!
+//! Run once after all parallel resolution completes, as the final step in
+//! [`super::resolve_all_imports`].
 
 use rustc_hash::FxHashMap;
 
