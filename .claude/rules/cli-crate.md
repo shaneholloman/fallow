@@ -20,6 +20,7 @@ Key modules:
 - `schema.rs` — `schema`, `config-schema`, `plugin-schema` commands
 - `explain.rs` — Metric/rule definitions, JSON `_meta` builders, SARIF `fullDescription`/`helpUri` source, docs URLs
 - `validate.rs` — Input validation (control characters, path sanitization)
+- `regression/` — Regression testing: `tolerance.rs` (thresholds), `counts.rs` (baselines), `outcome.rs` (verdict), `baseline.rs` (save/load/compare)
 
 ## Environment variables
 - `FALLOW_FORMAT` — default output format

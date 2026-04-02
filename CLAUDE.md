@@ -15,11 +15,11 @@ crates/
     plugins/    — Plugin system + tooling.rs (general tooling dependency detection)
     duplicates/ — Clone detection (families, normalize, tokenize)
   cli/      — CLI binary, split into per-command modules
-    audit.rs, check.rs, dupes.rs, health/, watch.rs, fix/, init.rs, list.rs, schema.rs, validate.rs
+    audit.rs, check.rs, dupes.rs, health/, watch.rs, fix/, init.rs, list.rs, schema.rs, validate.rs, regression/
     report/     — Output formatting (mod.rs dispatch, human/, json.rs, sarif.rs, compact.rs, markdown.rs)
     migrate/    — Config migration (mod.rs, knip.rs, jscpd.rs)
   lsp/      — LSP server, split into modules
-    main.rs, diagnostics.rs, code_actions.rs, code_lens.rs, hover.rs
+    main.rs, diagnostics/, code_actions.rs, code_lens.rs, hover.rs
   mcp/      — MCP server for AI agent integration (stdio transport, wraps CLI)
 editors/
   vscode/   — VS Code extension (LSP client, tree views, status bar, auto-download)

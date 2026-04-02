@@ -188,9 +188,10 @@ pub fn execute_health(opts: &HealthOptions<'_>) -> Result<HealthResult, ExitCode
         None
     };
 
-    if opts.save_snapshot.is_some() {
+    if let Some(ref snapshot_path) = opts.save_snapshot {
         save_snapshot(
             opts,
+            snapshot_path,
             &vital_signs,
             &counts,
             hotspot_summary.as_ref(),
@@ -350,12 +351,12 @@ fn compute_vital_signs_and_counts(
 /// Save a vital signs snapshot to disk if requested.
 fn save_snapshot(
     opts: &HealthOptions<'_>,
+    snapshot_path: &std::path::Path,
     vital_signs: &crate::health_types::VitalSigns,
     counts: &crate::health_types::VitalSignsCounts,
     hotspot_summary: Option<&crate::health_types::HotspotSummary>,
     health_score: Option<&crate::health_types::HealthScore>,
 ) -> Result<(), ExitCode> {
-    let snapshot_path = opts.save_snapshot.as_ref().expect("caller checked is_some");
     let shallow = hotspot_summary.is_some_and(|s| s.shallow_clone);
     let snapshot = vital_signs::build_snapshot(
         vital_signs.clone(),
@@ -367,7 +368,7 @@ fn save_snapshot(
     let explicit = if snapshot_path.as_os_str().is_empty() {
         None
     } else {
-        Some(snapshot_path.as_path())
+        Some(snapshot_path)
     };
     match vital_signs::save_snapshot(&snapshot, opts.root, explicit) {
         Ok(saved_path) => {

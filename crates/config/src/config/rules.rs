@@ -211,6 +211,7 @@ mod tests {
         assert_eq!(rules.unused_types, Severity::Error);
         assert_eq!(rules.unused_dependencies, Severity::Error);
         assert_eq!(rules.unused_dev_dependencies, Severity::Error);
+        assert_eq!(rules.unused_optional_dependencies, Severity::Error);
         assert_eq!(rules.unused_enum_members, Severity::Error);
         assert_eq!(rules.unused_class_members, Severity::Error);
         assert_eq!(rules.unresolved_imports, Severity::Error);

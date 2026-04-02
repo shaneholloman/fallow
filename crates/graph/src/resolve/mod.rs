@@ -5,7 +5,7 @@
 //! npm package, external file, or unresolvable. The entry point is [`resolve_all_imports`].
 //!
 //! Resolution is split into submodules by import kind:
-//! - `static_imports` — ES `import`/`export` statements
+//! - `static_imports` — ES `import` declarations
 //! - `dynamic_imports` — `import()` expressions and glob-based dynamic patterns
 //! - `require_imports` — CommonJS `require()` calls
 //! - `re_exports` — `export { x } from './y'` re-export sources
