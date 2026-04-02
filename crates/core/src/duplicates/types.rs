@@ -87,6 +87,55 @@ pub struct DuplicationReport {
     pub stats: DuplicationStats,
 }
 
+impl DuplicationReport {
+    /// Sort all result arrays for deterministic output ordering.
+    ///
+    /// Clone groups are sorted by their first instance's file path and line,
+    /// and instances within each group are sorted by file path then line.
+    /// Clone families are sorted by their file set.
+    pub fn sort(&mut self) {
+        // Sort instances within each clone group
+        for group in &mut self.clone_groups {
+            group
+                .instances
+                .sort_by(|a, b| a.file.cmp(&b.file).then(a.start_line.cmp(&b.start_line)));
+        }
+        // Sort clone groups by first instance
+        self.clone_groups
+            .sort_by(|a, b| match (a.instances.first(), b.instances.first()) {
+                (Some(ai), Some(bi)) => ai
+                    .file
+                    .cmp(&bi.file)
+                    .then(ai.start_line.cmp(&bi.start_line)),
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => std::cmp::Ordering::Equal,
+            });
+
+        // Sort instances within each family's groups
+        for family in &mut self.clone_families {
+            for group in &mut family.groups {
+                group
+                    .instances
+                    .sort_by(|a, b| a.file.cmp(&b.file).then(a.start_line.cmp(&b.start_line)));
+            }
+            family
+                .groups
+                .sort_by(|a, b| match (a.instances.first(), b.instances.first()) {
+                    (Some(ai), Some(bi)) => ai
+                        .file
+                        .cmp(&bi.file)
+                        .then(ai.start_line.cmp(&bi.start_line)),
+                    (Some(_), None) => std::cmp::Ordering::Less,
+                    (None, Some(_)) => std::cmp::Ordering::Greater,
+                    (None, None) => std::cmp::Ordering::Equal,
+                });
+        }
+        // Sort families by their file set
+        self.clone_families.sort_by(|a, b| a.files.cmp(&b.files));
+    }
+}
+
 /// Aggregate duplication statistics.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct DuplicationStats {

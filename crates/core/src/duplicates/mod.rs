@@ -133,6 +133,10 @@ pub fn find_duplicates(
     // Step 6: Group into families with refactoring suggestions
     report.clone_families = families::group_into_families(&report.clone_groups, root);
 
+    // Sort all result arrays for deterministic output ordering.
+    // Parallel tokenization (par_iter) doesn't guarantee collection order.
+    report.sort();
+
     report
 }
 

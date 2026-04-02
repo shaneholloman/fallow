@@ -115,6 +115,121 @@ impl AnalysisResults {
     pub const fn has_issues(&self) -> bool {
         self.total_issues() > 0
     }
+
+    /// Sort all result arrays for deterministic output ordering.
+    ///
+    /// Parallel collection (rayon, `FxHashMap` iteration) does not guarantee
+    /// insertion order, so the same project can produce different orderings
+    /// across runs. This method canonicalises every result list by sorting on
+    /// (path, line, col, name) so that JSON/SARIF/human output is stable.
+    pub fn sort(&mut self) {
+        self.unused_files.sort_by(|a, b| a.path.cmp(&b.path));
+
+        self.unused_exports.sort_by(|a, b| {
+            a.path
+                .cmp(&b.path)
+                .then(a.line.cmp(&b.line))
+                .then(a.export_name.cmp(&b.export_name))
+        });
+
+        self.unused_types.sort_by(|a, b| {
+            a.path
+                .cmp(&b.path)
+                .then(a.line.cmp(&b.line))
+                .then(a.export_name.cmp(&b.export_name))
+        });
+
+        self.unused_dependencies.sort_by(|a, b| {
+            a.path
+                .cmp(&b.path)
+                .then(a.line.cmp(&b.line))
+                .then(a.package_name.cmp(&b.package_name))
+        });
+
+        self.unused_dev_dependencies.sort_by(|a, b| {
+            a.path
+                .cmp(&b.path)
+                .then(a.line.cmp(&b.line))
+                .then(a.package_name.cmp(&b.package_name))
+        });
+
+        self.unused_optional_dependencies.sort_by(|a, b| {
+            a.path
+                .cmp(&b.path)
+                .then(a.line.cmp(&b.line))
+                .then(a.package_name.cmp(&b.package_name))
+        });
+
+        self.unused_enum_members.sort_by(|a, b| {
+            a.path
+                .cmp(&b.path)
+                .then(a.line.cmp(&b.line))
+                .then(a.parent_name.cmp(&b.parent_name))
+                .then(a.member_name.cmp(&b.member_name))
+        });
+
+        self.unused_class_members.sort_by(|a, b| {
+            a.path
+                .cmp(&b.path)
+                .then(a.line.cmp(&b.line))
+                .then(a.parent_name.cmp(&b.parent_name))
+                .then(a.member_name.cmp(&b.member_name))
+        });
+
+        self.unresolved_imports.sort_by(|a, b| {
+            a.path
+                .cmp(&b.path)
+                .then(a.line.cmp(&b.line))
+                .then(a.col.cmp(&b.col))
+                .then(a.specifier.cmp(&b.specifier))
+        });
+
+        self.unlisted_dependencies
+            .sort_by(|a, b| a.package_name.cmp(&b.package_name));
+        for dep in &mut self.unlisted_dependencies {
+            dep.imported_from
+                .sort_by(|a, b| a.path.cmp(&b.path).then(a.line.cmp(&b.line)));
+        }
+
+        self.duplicate_exports
+            .sort_by(|a, b| a.export_name.cmp(&b.export_name));
+        for dup in &mut self.duplicate_exports {
+            dup.locations
+                .sort_by(|a, b| a.path.cmp(&b.path).then(a.line.cmp(&b.line)));
+        }
+
+        self.type_only_dependencies.sort_by(|a, b| {
+            a.path
+                .cmp(&b.path)
+                .then(a.line.cmp(&b.line))
+                .then(a.package_name.cmp(&b.package_name))
+        });
+
+        self.test_only_dependencies.sort_by(|a, b| {
+            a.path
+                .cmp(&b.path)
+                .then(a.line.cmp(&b.line))
+                .then(a.package_name.cmp(&b.package_name))
+        });
+
+        self.circular_dependencies
+            .sort_by(|a, b| a.length.cmp(&b.length).then_with(|| a.files.cmp(&b.files)));
+
+        self.boundary_violations.sort_by(|a, b| {
+            a.from_path
+                .cmp(&b.from_path)
+                .then(a.line.cmp(&b.line))
+                .then(a.col.cmp(&b.col))
+                .then(a.to_path.cmp(&b.to_path))
+        });
+
+        self.export_usages.sort_by(|a, b| {
+            a.path
+                .cmp(&b.path)
+                .then(a.line.cmp(&b.line))
+                .then(a.export_name.cmp(&b.export_name))
+        });
+    }
 }
 
 /// A file that is not reachable from any entry point.

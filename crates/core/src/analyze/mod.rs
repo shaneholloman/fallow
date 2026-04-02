@@ -279,6 +279,11 @@ pub fn find_dead_code_full(
         results.export_usages = collect_export_usages(graph, &line_offsets_by_file);
     }
 
+    // Sort all result arrays for deterministic output ordering.
+    // Parallel collection and FxHashMap iteration don't guarantee order,
+    // so without sorting the same project can produce different orderings.
+    results.sort();
+
     results
 }
 
