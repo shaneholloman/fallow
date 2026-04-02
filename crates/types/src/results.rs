@@ -213,7 +213,7 @@ impl AnalysisResults {
         });
 
         self.circular_dependencies
-            .sort_by(|a, b| a.length.cmp(&b.length).then_with(|| a.files.cmp(&b.files)));
+            .sort_by(|a, b| a.files.cmp(&b.files).then(a.length.cmp(&b.length)));
 
         self.boundary_violations.sort_by(|a, b| {
             a.from_path
@@ -223,6 +223,14 @@ impl AnalysisResults {
                 .then(a.to_path.cmp(&b.to_path))
         });
 
+        for usage in &mut self.export_usages {
+            usage.reference_locations.sort_by(|a, b| {
+                a.path
+                    .cmp(&b.path)
+                    .then(a.line.cmp(&b.line))
+                    .then(a.col.cmp(&b.col))
+            });
+        }
         self.export_usages.sort_by(|a, b| {
             a.path
                 .cmp(&b.path)
