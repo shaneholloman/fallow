@@ -1,6 +1,6 @@
 {
   "name": "fallow",
-  "version": "2.9.3",
+  "version": "2.10.0",
   "description": "Codebase analyzer for TypeScript/JavaScript — unused code, circular dependencies, code duplication, complexity hotspots, and architecture boundary violations",
   "license": "MIT",
   "repository": {
@@ -39,12 +39,12 @@
     "detect-libc": "^2.0.0"
   },
   "optionalDependencies": {
-    "@fallow-cli/darwin-arm64": "2.9.3",
-    "@fallow-cli/darwin-x64": "2.9.3",
-    "@fallow-cli/linux-x64-gnu": "2.9.3",
-    "@fallow-cli/linux-arm64-gnu": "2.9.3",
-    "@fallow-cli/linux-x64-musl": "2.9.3",
-    "@fallow-cli/linux-arm64-musl": "2.9.3",
-    "@fallow-cli/win32-x64-msvc": "2.9.3"
+    "@fallow-cli/darwin-arm64": "2.10.0",
+    "@fallow-cli/darwin-x64": "2.10.0",
+    "@fallow-cli/linux-x64-gnu": "2.10.0",
+    "@fallow-cli/linux-arm64-gnu": "2.10.0",
+    "@fallow-cli/linux-x64-musl": "2.10.0",
+    "@fallow-cli/linux-arm64-musl": "2.10.0",
+    "@fallow-cli/win32-x64-msvc": "2.10.0"
   }
 }

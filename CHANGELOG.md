@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.10.0] - 2026-04-03
+
+### Added
+
+- **HTTPS URL extends** -- the `extends` field in `.fallowrc.json` now supports `https://` URLs alongside relative paths and `npm:` packages. Fetch remote shared configs without publishing an npm package. HTTPS-only, 5s default timeout (configurable via `FALLOW_EXTENDS_TIMEOUT_SECS`), 1 MB body limit, URL normalization for cycle detection. URL-sourced configs may extend other URLs or `npm:` packages but not relative paths.
+- **GitHub Action shallow clone resilience** -- PR comment, review, annotation, and summary scripts now detect shallow clones and fall back gracefully instead of failing.
+
 ## [2.9.3] - 2026-04-03
 
 ### Fixed
@@ -720,7 +727,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--changed-since` and `--fail-on-issues` for CI
 - Cross-workspace resolution for npm/yarn/pnpm workspaces
 
-[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.9.3...HEAD
+[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.10.0...HEAD
+[2.10.0]: https://github.com/fallow-rs/fallow/compare/v2.9.3...v2.10.0
 [2.9.3]: https://github.com/fallow-rs/fallow/compare/v2.9.2...v2.9.3
 [2.9.2]: https://github.com/fallow-rs/fallow/compare/v2.9.1...v2.9.2
 [2.9.1]: https://github.com/fallow-rs/fallow/compare/v2.9.0...v2.9.1
