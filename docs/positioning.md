@@ -28,7 +28,7 @@ Usage: directly below the tagline in README heroes. Lists what fallow finds with
 
 **Linters enforce style. Formatters enforce consistency. Fallow enforces relevance.**
 
-Usage: docs landing page, blog posts, conference talks, README explainer sections. Positions fallow as the third pillar alongside oxlint/Biome and Prettier.
+Usage: docs landing page, blog posts, conference talks, README explainer sections. Positions fallow as the third pillar alongside oxlint/Biome and Prettier. Full comparison page: [Fallow vs linters](https://docs.fallow.tools/explanations/fallow-vs-linters).
 
 ## One-Liners (per surface)
 
@@ -40,7 +40,7 @@ Usage: docs landing page, blog posts, conference talks, README explainer section
 
 ## Elevator Pitch
 
-> Fallow is a Rust-native codebase analyzer for TypeScript and JavaScript. It finds unused files, exports, types, and dependencies. It detects circular dependencies, duplicated code, complexity hotspots, and architecture boundary violations. It ships with 84 framework plugins, requires zero configuration, and typically finishes in under a second. Fast enough to run on every commit, not just in weekend CI jobs. Where linters enforce how you write code and formatters enforce how it looks, fallow tells you what shouldn't be there at all.
+> Fallow is a Rust-native codebase analyzer for TypeScript and JavaScript. It finds unused files, exports, types, and dependencies. It detects circular dependencies, duplicated code, complexity hotspots, and architecture boundary violations. It ships with 84 framework plugins, requires zero configuration, and typically finishes in under a second. Fast enough to run on every commit, not just in weekend CI jobs. Linters work file by file. TypeScript works type by type. Neither builds the full module graph, so neither can see what nothing depends on. Fallow does.
 
 ## AI Angle (narrative layer, NOT tagline)
 
