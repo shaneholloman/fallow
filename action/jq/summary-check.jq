@@ -36,7 +36,8 @@ else
     table_row("Duplicate exports"; "duplicate_exports"; "duplicate-exports"),
     table_row("Circular dependencies"; "circular_dependencies"; "circular-dependencies"),
     table_row("Boundary violations"; "boundary_violations"; "boundary-violations"),
-    table_row("Type-only dependencies"; "type_only_dependencies"; "type-only-dependencies")
+    table_row("Type-only dependencies"; "type_only_dependencies"; "type-only-dependencies"),
+    table_row("Test-only dependencies"; "test_only_dependencies"; "test-only-dependencies")
   ] | join("\n")) +
   "\n\n---\n" +
   section("Unused files"; "unused_files";
@@ -80,6 +81,9 @@ else
     "| `\(.from_path):\(.line)` | `\(.to_path)` | \(.from_zone) \u2192 \(.to_zone) |") +
   section("Type-only dependencies"; "type_only_dependencies";
     "Dependencies only used for type imports \u2014 consider moving to `devDependencies`.\n\n| Package |\n|---------|\n";
+    "| `\(.package_name)` |") +
+  section("Test-only dependencies"; "test_only_dependencies";
+    "Production dependencies only imported by test files \u2014 consider moving to `devDependencies`.\n\n| Package |\n|---------|\n";
     "| `\(.package_name)` |") +
   "\n\n> [!TIP]\n" +
   (if ((.unused_exports // []) + (.unused_dependencies // []) + (.unused_enum_members // [])) | length > 0 then
