@@ -4,6 +4,7 @@ use std::path::Path;
 use fallow_core::duplicates::DuplicationReport;
 use fallow_core::results::{AnalysisResults, UnusedExport, UnusedMember};
 
+use super::grouping::ResultGroup;
 use super::{normalize_uri, plural, relative_path};
 
 /// Escape backticks in user-controlled strings to prevent breaking markdown code spans.
@@ -195,6 +196,42 @@ pub fn build_markdown(results: &AnalysisResults, root: &Path) -> String {
     );
 
     out
+}
+
+/// Print grouped markdown output: each group gets an `## owner (N issues)` heading.
+pub(super) fn print_grouped_markdown(groups: &[ResultGroup], root: &Path) {
+    let total: usize = groups.iter().map(|g| g.results.total_issues()).sum();
+
+    if total == 0 {
+        println!("## Fallow: no issues found");
+        return;
+    }
+
+    println!(
+        "## Fallow: {total} issue{} found (grouped)\n",
+        plural(total)
+    );
+
+    for group in groups {
+        let count = group.results.total_issues();
+        if count == 0 {
+            continue;
+        }
+        println!(
+            "## {} ({count} issue{})\n",
+            escape_backticks(&group.key),
+            plural(count)
+        );
+        // build_markdown already emits its own `## Fallow: N issues found` header;
+        // we re-use the section-level rendering by extracting just the section body.
+        let body = build_markdown(&group.results, root);
+        // Skip the first `## Fallow: ...` line from build_markdown and print the rest.
+        let sections = body
+            .strip_prefix("## Fallow: no issues found\n")
+            .or_else(|| body.find("\n\n").map(|pos| &body[pos + 2..]))
+            .unwrap_or(&body);
+        print!("{sections}");
+    }
 }
 
 fn format_export(e: &UnusedExport) -> String {

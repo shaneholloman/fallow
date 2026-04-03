@@ -66,6 +66,8 @@ fallow dead-code --circular-deps          # Only circular dependencies
 fallow dead-code --boundary-violations    # Only boundary violations
 fallow dead-code --production             # Exclude test/dev files
 fallow dead-code --changed-since main     # Only changed files (for PRs)
+fallow dead-code --group-by owner         # Group by CODEOWNERS for team triage
+fallow dead-code --group-by directory     # Group by first directory component
 ```
 
 ## Duplication
@@ -128,6 +130,7 @@ fallow:
 
 `--ci` enables SARIF output, quiet mode, and non-zero exit on issues. Also supports:
 
+- `--group-by owner|directory` -- group output by CODEOWNERS ownership or directory for team-level triage
 - `--changed-since main` -- analyze only files touched in a PR
 - `--baseline` / `--save-baseline` -- fail only on **new** issues
 - `--fail-on-regression` / `--tolerance 2%` -- fail only if issues **grew** beyond tolerance
@@ -228,6 +231,25 @@ See the [full configuration reference](https://docs.fallow.tools/configuration/o
 - **LSP server** -- real-time diagnostics, hover info, code actions, Code Lens with reference counts
 - **MCP server** -- AI agent integration for Claude Code, Cursor, Windsurf ([fallow-skills](https://github.com/fallow-rs/fallow-skills))
 - **JSON `actions` array** -- every issue in `--format json` output includes fix suggestions with `auto_fixable` flag, so agents can self-correct
+
+## Fallow vs linters
+
+Linters enforce style. Formatters enforce consistency. Fallow enforces relevance.
+
+ESLint, Biome, and oxlint analyze one file at a time. They catch bad patterns within a file boundary. Fallow builds a module dependency graph across the entire project and finds issues that only appear when you see the whole picture.
+
+| What | Linter | Fallow |
+|---|---|---|
+| Unused variable in a function | yes | no |
+| Unused export that nothing imports | no | yes |
+| File that nothing imports | no | yes |
+| Circular dependency across modules | no | yes |
+| Duplicate code blocks across files | no | yes |
+| Dependency in package.json never imported | no | yes |
+
+They're complementary -- run your linter on every save, fallow on every commit.
+
+[Full comparison: fallow vs ESLint, Biome, knip, ts-prune](https://docs.fallow.tools/explanations/fallow-vs-linters)
 
 ## Performance
 

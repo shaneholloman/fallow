@@ -4,6 +4,9 @@
     reason = "CLI binary produces intentional terminal output"
 )]
 
+/// CODEOWNERS file parser and ownership lookup.
+pub mod codeowners;
+
 /// Metric and rule definitions for explainable CLI output.
 pub mod explain;
 

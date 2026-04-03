@@ -93,6 +93,7 @@ fn ignore_exports_wildcard() {
         plugins: vec![],
         overrides: vec![],
         regression: None,
+        codeowners: None,
     }
     .resolve(root, OutputFormat::Human, 4, true, true);
 
@@ -137,6 +138,7 @@ fn ignore_exports_specific() {
         plugins: vec![],
         overrides: vec![],
         regression: None,
+        codeowners: None,
     }
     .resolve(root, OutputFormat::Human, 4, true, true);
 
@@ -180,6 +182,7 @@ fn ignore_dependencies_config() {
         plugins: vec![],
         overrides: vec![],
         regression: None,
+        codeowners: None,
     }
     .resolve(root, OutputFormat::Human, 4, true, true);
 

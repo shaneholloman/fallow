@@ -13,6 +13,7 @@ use fallow_config::FallowConfig;
 mod audit;
 mod baseline;
 mod check;
+mod codeowners;
 mod combined;
 mod dupes;
 mod explain;
@@ -99,6 +100,11 @@ struct Cli {
     /// the specified package are reported.
     #[arg(short, long, global = true)]
     workspace: Option<String>,
+
+    /// Group output by owner (.github/CODEOWNERS) or by directory (no CODEOWNERS needed).
+    /// Partitions all issues into labeled sections for team-level triage and dashboards.
+    #[arg(long, global = true)]
+    group_by: Option<GroupBy>,
 
     /// Show pipeline performance timing breakdown
     #[arg(long, global = true)]
@@ -459,6 +465,16 @@ pub enum AnalysisKind {
     Health,
 }
 
+/// Grouping mode for `--group-by`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub enum GroupBy {
+    /// Group by CODEOWNERS file ownership (first owner, last matching rule).
+    #[value(alias = "team", alias = "codeowner")]
+    Owner,
+    /// Group by first directory component of the file path.
+    Directory,
+}
+
 // ── Structured error output ──────────────────────────────────────
 
 /// Emit an error as structured JSON on stdout when `--format json` is active,
@@ -501,6 +517,30 @@ fn quiet_from_env() -> bool {
     std::env::var("FALLOW_QUIET")
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false)
+}
+
+// ── Group-by resolver ────────────────────────────────────────────
+
+/// Build an `OwnershipResolver` from CLI `--group-by` and config settings.
+///
+/// Returns `None` when no grouping is requested. Returns `Err(ExitCode)` when
+/// `--group-by owner` is requested but no CODEOWNERS file can be found.
+fn build_ownership_resolver(
+    group_by: Option<GroupBy>,
+    root: &std::path::Path,
+    codeowners_path: Option<&str>,
+    output: fallow_config::OutputFormat,
+) -> Result<Option<report::OwnershipResolver>, ExitCode> {
+    let Some(mode) = group_by else {
+        return Ok(None);
+    };
+    match mode {
+        GroupBy::Owner => match codeowners::CodeOwners::load(root, codeowners_path) {
+            Ok(co) => Ok(Some(report::OwnershipResolver::Owner(co))),
+            Err(e) => Err(emit_error(&e, 2, output)),
+        },
+        GroupBy::Directory => Ok(Some(report::OwnershipResolver::Directory)),
+    }
 }
 
 // ── Config loading ───────────────────────────────────────────────
@@ -862,6 +902,7 @@ fn dispatch_bare_command(
         save_baseline: cli.save_baseline.as_deref(),
         production: cli.production,
         workspace: cli.workspace.as_deref(),
+        group_by: cli.group_by,
         explain: cli.explain,
         performance: cli.performance,
         run_check,
@@ -954,6 +995,7 @@ fn dispatch_subcommand(
                 sarif_file: cli.sarif_file.as_deref(),
                 production: cli.production,
                 workspace: cli.workspace.as_deref(),
+                group_by: cli.group_by,
                 include_dupes,
                 trace_opts: &trace_opts,
                 explain: cli.explain,
@@ -1056,6 +1098,7 @@ fn dispatch_subcommand(
                 trace: trace.as_deref(),
                 changed_since: cli.changed_since.as_deref(),
                 explain: cli.explain,
+                group_by: cli.group_by,
             })
         }
         Command::Health {
@@ -1107,6 +1150,7 @@ fn dispatch_subcommand(
             workspace: cli.workspace.as_deref(),
             explain: cli.explain,
             performance: cli.performance,
+            group_by: cli.group_by,
         }),
         Command::Schema => unreachable!("handled above"),
         Command::Migrate {
@@ -1191,6 +1235,7 @@ fn dispatch_health(
         explain: cli.explain,
         save_snapshot: save_snapshot.map(|opt| PathBuf::from(opt.as_deref().unwrap_or_default())),
         trend,
+        group_by: cli.group_by,
     })
 }
 

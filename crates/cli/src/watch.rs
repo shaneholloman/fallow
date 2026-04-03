@@ -107,6 +107,7 @@ fn analyze_and_report(config: &fallow_config::ResolvedConfig, opts: &WatchOption
         elapsed,
         quiet: opts.quiet,
         explain: opts.explain,
+        group_by: None,
     };
     let report_code = report::print_results(&results, &ctx, config.output, None);
     if report_code != ExitCode::SUCCESS {
@@ -384,6 +385,7 @@ mod tests {
             plugins: vec![],
             overrides: vec![],
             regression: None,
+            codeowners: None,
         }
         .resolve(root.to_path_buf(), output, threads, false, quiet)
     }

@@ -21,6 +21,7 @@ fn external_plugin_config(root: &std::path::Path) -> fallow_config::ResolvedConf
         plugins: vec![],
         overrides: vec![],
         regression: None,
+        codeowners: None,
     }
     .resolve(root.to_path_buf(), OutputFormat::Human, 4, true, true)
 }

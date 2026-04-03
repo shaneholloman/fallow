@@ -37,6 +37,7 @@ pub struct DupesOptions<'a> {
     pub trace: Option<&'a str>,
     pub changed_since: Option<&'a str>,
     pub explain: bool,
+    pub group_by: Option<crate::GroupBy>,
 }
 
 /// Parse a `--trace` spec string into (file_path, line_number).
@@ -228,6 +229,7 @@ pub fn print_dupes_result(result: &DupesResult, quiet: bool, explain: bool) -> E
         elapsed: result.elapsed,
         quiet,
         explain,
+        group_by: None,
     };
     let report_code = report::print_duplication_report(&result.report, &ctx, result.config.output);
     if report_code != ExitCode::SUCCESS {
@@ -246,10 +248,39 @@ pub fn print_dupes_result(result: &DupesResult, quiet: bool, explain: bool) -> E
 }
 
 pub fn run_dupes(opts: &DupesOptions<'_>) -> ExitCode {
-    match execute_dupes(opts) {
-        Ok(result) => print_dupes_result(&result, opts.quiet, opts.explain),
-        Err(code) => code,
-    }
+    let result = match execute_dupes(opts) {
+        Ok(r) => r,
+        Err(code) => return code,
+    };
+    // Build resolver for --group-by (validates the flag, loads CODEOWNERS if needed).
+    // Dupes grouped output is a follow-up — for now, validate and discard.
+    let _resolver = match crate::build_ownership_resolver(
+        opts.group_by,
+        opts.root,
+        result.config.codeowners.as_deref(),
+        opts.output,
+    ) {
+        Ok(r) => r,
+        Err(code) => return code,
+    };
+    print_dupes_result_with_grouping(&result, opts.quiet, opts.explain, None)
+}
+
+fn print_dupes_result_with_grouping(
+    result: &DupesResult,
+    quiet: bool,
+    explain: bool,
+    group_by: Option<report::OwnershipResolver>,
+) -> ExitCode {
+    let ctx = report::ReportContext {
+        root: &result.config.root,
+        rules: &result.config.rules,
+        elapsed: result.elapsed,
+        quiet,
+        explain,
+        group_by,
+    };
+    report::print_duplication_report(&result.report, &ctx, result.config.output)
 }
 
 #[cfg(test)]
@@ -325,6 +356,7 @@ mod tests {
             trace: None,
             changed_since: None,
             explain: false,
+            group_by: None,
         }
     }
 

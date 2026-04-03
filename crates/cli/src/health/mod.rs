@@ -53,6 +53,7 @@ pub struct HealthOptions<'a> {
     pub explain: bool,
     pub save_snapshot: Option<std::path::PathBuf>,
     pub trend: bool,
+    pub group_by: Option<crate::GroupBy>,
 }
 
 /// Run health analysis and return results without printing.
@@ -611,10 +612,22 @@ fn load_health_baseline(
 
 /// Run health analysis, print results, and return exit code.
 pub fn run_health(opts: &HealthOptions<'_>) -> ExitCode {
-    match execute_health(opts) {
-        Ok(result) => print_health_result(&result, opts.quiet, opts.explain, opts.min_score),
-        Err(code) => code,
-    }
+    let result = match execute_health(opts) {
+        Ok(r) => r,
+        Err(code) => return code,
+    };
+    // Build resolver for --group-by (passed through to report context)
+    let _resolver = match crate::build_ownership_resolver(
+        opts.group_by,
+        opts.root,
+        result.config.codeowners.as_deref(),
+        opts.output,
+    ) {
+        Ok(r) => r,
+        Err(code) => return code,
+    };
+    // Health grouping is a follow-up — for now, validate the flag and pass None
+    print_health_result(&result, opts.quiet, opts.explain, opts.min_score)
 }
 
 /// Result of executing health analysis without printing.
@@ -637,6 +650,7 @@ pub fn print_health_result(
         elapsed: result.elapsed,
         quiet,
         explain,
+        group_by: None,
     };
     let report_code = report::print_health_report(&result.report, &ctx, result.config.output);
     if report_code != ExitCode::SUCCESS {

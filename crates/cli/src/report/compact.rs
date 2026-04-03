@@ -3,6 +3,7 @@ use std::path::Path;
 use fallow_core::duplicates::DuplicationReport;
 use fallow_core::results::{AnalysisResults, UnusedExport, UnusedMember};
 
+use super::grouping::ResultGroup;
 use super::{normalize_uri, relative_path};
 
 pub(super) fn print_compact(results: &AnalysisResults, root: &Path) {
@@ -115,6 +116,17 @@ pub fn build_compact_lines(results: &AnalysisResults, root: &Path) -> Vec<String
     }
 
     lines
+}
+
+/// Print grouped compact output: each line is prefixed with the group key.
+///
+/// Format: `group-key\tissue-tag:details`
+pub(super) fn print_grouped_compact(groups: &[ResultGroup], root: &Path) {
+    for group in groups {
+        for line in build_compact_lines(&group.results, root) {
+            println!("{}\t{line}", group.key);
+        }
+    }
 }
 
 pub(super) fn print_health_compact(report: &crate::health_types::HealthReport, root: &Path) {

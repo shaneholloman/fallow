@@ -504,6 +504,87 @@ fn build_boundary_violations_section(
     lines.push(String::new());
 }
 
+/// Print analysis results grouped by owner or directory.
+///
+/// Each group gets a colored header with its key and issue count, followed by
+/// the same section output that `print_human` produces. Unowned groups get
+/// an advisory footer.
+pub(in crate::report) fn print_grouped_human(
+    groups: &[crate::report::grouping::ResultGroup],
+    root: &Path,
+    rules: &RulesConfig,
+    elapsed: Duration,
+    quiet: bool,
+) {
+    if !quiet {
+        eprintln!();
+    }
+
+    let mut grand_total: usize = 0;
+
+    for group in groups {
+        let total = group.results.total_issues();
+        if total == 0 {
+            continue;
+        }
+        grand_total += total;
+
+        // Group header: bold cyan key with issue count
+        let issue_word = if total == 1 { "issue" } else { "issues" };
+        println!(
+            "{}",
+            format!("{} ({total} {issue_word})", group.key)
+                .cyan()
+                .bold()
+        );
+
+        for line in build_human_lines(&group.results, root, rules) {
+            println!("{line}");
+        }
+
+        if group.key == crate::codeowners::UNOWNED_LABEL {
+            println!(
+                "  {}",
+                "Files with no CODEOWNERS entry \u{2014} add ownership or verify before removing"
+                    .dimmed()
+            );
+            println!();
+        }
+    }
+
+    if !quiet {
+        if grand_total == 0 {
+            eprintln!(
+                "{}",
+                format!("\u{2713} No issues found ({:.2}s)", elapsed.as_secs_f64())
+                    .green()
+                    .bold()
+            );
+        } else {
+            eprintln!(
+                "{}",
+                format!(
+                    "\u{2717} {grand_total} issue{} across {} group{} ({:.2}s)",
+                    plural(grand_total),
+                    groups
+                        .iter()
+                        .filter(|g| g.results.total_issues() > 0)
+                        .count(),
+                    plural(
+                        groups
+                            .iter()
+                            .filter(|g| g.results.total_issues() > 0)
+                            .count()
+                    ),
+                    elapsed.as_secs_f64()
+                )
+                .red()
+                .bold()
+            );
+        }
+    }
+}
+
 /// Build a one-line summary footer showing counts per issue type.
 fn build_summary_footer(results: &AnalysisResults) -> String {
     let mut parts = Vec::new();

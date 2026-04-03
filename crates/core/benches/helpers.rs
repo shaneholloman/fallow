@@ -27,6 +27,7 @@ pub fn make_config(root: PathBuf, no_cache: bool) -> fallow_config::ResolvedConf
         plugins: vec![],
         overrides: vec![],
         regression: None,
+        codeowners: None,
     }
     .resolve(root, OutputFormat::Human, 4, no_cache, true)
 }

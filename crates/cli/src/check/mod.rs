@@ -128,6 +128,7 @@ pub struct CheckOptions<'a> {
     pub sarif_file: Option<&'a std::path::Path>,
     pub production: bool,
     pub workspace: Option<&'a str>,
+    pub group_by: Option<crate::GroupBy>,
     pub include_dupes: bool,
     pub trace_opts: &'a TraceOptions,
     pub explain: bool,
@@ -299,6 +300,7 @@ pub fn print_check_result(
     quiet: bool,
     explain: bool,
     regression_json: bool,
+    group_by: Option<report::OwnershipResolver>,
 ) -> ExitCode {
     let effective_rules = if result.fail_on_issues {
         let mut r = result.config.rules.clone();
@@ -314,6 +316,7 @@ pub fn print_check_result(
         elapsed: result.elapsed,
         quiet,
         explain,
+        group_by,
     };
     let report_code = report::print_results(
         &result.results,
@@ -352,7 +355,16 @@ pub fn run_check(opts: &CheckOptions<'_>) -> ExitCode {
         Err(code) => return code,
     };
 
-    let exit = print_check_result(&result, opts.quiet, opts.explain, true);
+    let resolver = match crate::build_ownership_resolver(
+        opts.group_by,
+        opts.root,
+        result.config.codeowners.as_deref(),
+        opts.output,
+    ) {
+        Ok(r) => r,
+        Err(code) => return code,
+    };
+    let exit = print_check_result(&result, opts.quiet, opts.explain, true, resolver);
 
     // Cross-reference: run duplication analysis on the full results
     // (the combined command handles this separately)

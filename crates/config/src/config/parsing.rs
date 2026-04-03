@@ -762,6 +762,7 @@ ignoreDependencies = ["autoprefixer", "postcss"]
             plugins: vec![],
             overrides: vec![],
             regression: None,
+            codeowners: None,
         };
         let resolved = config.resolve(
             PathBuf::from("/tmp/test"),
@@ -800,6 +801,7 @@ ignoreDependencies = ["autoprefixer", "postcss"]
             plugins: vec![],
             overrides: vec![],
             regression: None,
+            codeowners: None,
         };
         let resolved = config.resolve(
             PathBuf::from("/tmp/test"),
@@ -834,6 +836,7 @@ ignoreDependencies = ["autoprefixer", "postcss"]
             plugins: vec![],
             overrides: vec![],
             regression: None,
+            codeowners: None,
         };
         let resolved = config.resolve(
             PathBuf::from("/tmp/project"),
@@ -2089,6 +2092,7 @@ minTokens = 100
             plugins: vec![],
             overrides: vec![],
             regression: None,
+            codeowners: None,
         };
         let resolved = config.resolve(
             PathBuf::from("/tmp/test"),

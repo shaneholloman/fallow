@@ -53,6 +53,7 @@ pub(super) fn test_config(root: PathBuf) -> ResolvedConfig {
         plugins: vec![],
         overrides: vec![],
         regression: None,
+        codeowners: None,
     }
     .resolve(root, OutputFormat::Human, 1, true, true)
 }

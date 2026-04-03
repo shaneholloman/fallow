@@ -5,6 +5,7 @@ use fallow_config::{RulesConfig, Severity};
 use fallow_core::duplicates::DuplicationReport;
 use fallow_core::results::AnalysisResults;
 
+use super::grouping::{self, OwnershipResolver};
 use super::{emit_json, normalize_uri, relative_path};
 use crate::health_types::{ExceededThreshold, HealthReport};
 
@@ -429,6 +430,36 @@ pub(super) fn print_codeclimate(
 ) -> ExitCode {
     let value = build_codeclimate(results, root, rules);
     emit_json(&value, "CodeClimate")
+}
+
+/// Print CodeClimate output with owner properties added to each issue.
+///
+/// Calls `build_codeclimate` to produce the standard CodeClimate JSON array,
+/// then post-processes each entry to add `"owner": "@team"` by resolving the
+/// issue's location path through the `OwnershipResolver`.
+pub(super) fn print_grouped_codeclimate(
+    results: &AnalysisResults,
+    root: &Path,
+    rules: &RulesConfig,
+    resolver: &OwnershipResolver,
+) {
+    let mut value = build_codeclimate(results, root, rules);
+
+    if let Some(issues) = value.as_array_mut() {
+        for issue in issues {
+            let path = issue
+                .pointer("/location/path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let owner = grouping::resolve_owner(Path::new(path), Path::new(""), resolver);
+            issue
+                .as_object_mut()
+                .expect("CodeClimate issue should be an object")
+                .insert("owner".to_string(), serde_json::Value::String(owner));
+        }
+    }
+
+    let _ = emit_json(&value, "CodeClimate");
 }
 
 /// Compute graduated severity for health findings based on threshold ratio.

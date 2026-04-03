@@ -138,6 +138,13 @@
       },
       "default": []
     },
+    "codeowners": {
+      "description": "Path to a CODEOWNERS file for `--group-by owner`.\n\nWhen unset, fallow auto-probes `CODEOWNERS`, `.github/CODEOWNERS`,\n`.gitlab/CODEOWNERS`, and `docs/CODEOWNERS`. Set this to use a\nnon-standard location.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "regression": {
       "description": "Regression detection baseline embedded in config.\nStores issue counts from a known-good state for CI regression checks.\nPopulated by `--save-regression-baseline` (no path), read by `--fail-on-regression`.",
       "anyOf": [

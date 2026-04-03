@@ -1,6 +1,7 @@
 mod badge;
 mod codeclimate;
 mod compact;
+pub mod grouping;
 mod human;
 mod json;
 mod markdown;
@@ -17,6 +18,8 @@ use fallow_core::duplicates::DuplicationReport;
 use fallow_core::results::AnalysisResults;
 use fallow_core::trace::{CloneTrace, DependencyTrace, ExportTrace, FileTrace, PipelineTimings};
 
+pub use grouping::OwnershipResolver;
+
 /// Shared context for all report dispatch functions.
 ///
 /// Bundles the common parameters that every format renderer needs,
@@ -27,6 +30,8 @@ pub struct ReportContext<'a> {
     pub elapsed: Duration,
     pub quiet: bool,
     pub explain: bool,
+    /// When set, group all output by this resolver.
+    pub group_by: Option<OwnershipResolver>,
 }
 
 /// Strip the project root prefix from a path for display, falling back to the full path.
@@ -129,6 +134,7 @@ pub const fn severity_to_level(s: Severity) -> Level {
 /// Returns exit code 2 if serialization fails, SUCCESS otherwise.
 ///
 /// When `regression` is `Some`, the JSON format includes a `regression` key in the output envelope.
+/// When `ctx.group_by` is `Some`, results are partitioned into labeled groups before rendering.
 #[must_use]
 pub fn print_results(
     results: &AnalysisResults,
@@ -136,6 +142,12 @@ pub fn print_results(
     output: OutputFormat,
     regression: Option<&crate::regression::RegressionOutcome>,
 ) -> ExitCode {
+    // Grouped output: partition results and render per-group
+    if let Some(ref resolver) = ctx.group_by {
+        let groups = grouping::group_analysis_results(results, ctx.root, resolver);
+        return print_grouped_results(&groups, results, ctx, output, resolver);
+    }
+
     match output {
         OutputFormat::Human => {
             human::print_human(results, ctx.root, ctx.rules, ctx.elapsed, ctx.quiet);
@@ -154,6 +166,51 @@ pub fn print_results(
             ExitCode::SUCCESS
         }
         OutputFormat::CodeClimate => codeclimate::print_codeclimate(results, ctx.root, ctx.rules),
+        OutputFormat::Badge => {
+            eprintln!("Error: badge format is only supported for the health command");
+            ExitCode::from(2)
+        }
+    }
+}
+
+/// Render grouped results across all output formats.
+#[must_use]
+fn print_grouped_results(
+    groups: &[grouping::ResultGroup],
+    original: &AnalysisResults,
+    ctx: &ReportContext<'_>,
+    output: OutputFormat,
+    resolver: &OwnershipResolver,
+) -> ExitCode {
+    match output {
+        OutputFormat::Human => {
+            human::print_grouped_human(groups, ctx.root, ctx.rules, ctx.elapsed, ctx.quiet);
+            ExitCode::SUCCESS
+        }
+        OutputFormat::Json => json::print_grouped_json(
+            groups,
+            original,
+            ctx.root,
+            ctx.elapsed,
+            ctx.explain,
+            resolver,
+        ),
+        OutputFormat::Compact => {
+            compact::print_grouped_compact(groups, ctx.root);
+            ExitCode::SUCCESS
+        }
+        OutputFormat::Markdown => {
+            markdown::print_grouped_markdown(groups, ctx.root);
+            ExitCode::SUCCESS
+        }
+        OutputFormat::Sarif => {
+            sarif::print_grouped_sarif(original, ctx.root, ctx.rules, resolver);
+            ExitCode::SUCCESS
+        }
+        OutputFormat::CodeClimate => {
+            codeclimate::print_grouped_codeclimate(original, ctx.root, ctx.rules, resolver);
+            ExitCode::SUCCESS
+        }
         OutputFormat::Badge => {
             eprintln!("Error: badge format is only supported for the health command");
             ExitCode::from(2)

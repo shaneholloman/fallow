@@ -54,6 +54,7 @@ fn analyze_args_with_all_options() {
         tolerance: Some("2%".to_string()),
         regression_baseline: Some("reg.json".to_string()),
         save_regression_baseline: Some("new-reg.json".to_string()),
+        group_by: Some("owner".to_string()),
         no_cache: Some(true),
         threads: Some(4),
     };
@@ -86,6 +87,8 @@ fn analyze_args_with_all_options() {
             "reg.json",
             "--save-regression-baseline",
             "new-reg.json",
+            "--group-by",
+            "owner",
             "--no-cache",
             "--threads",
             "4",

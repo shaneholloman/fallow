@@ -5,6 +5,7 @@ use fallow_config::{RulesConfig, Severity};
 use fallow_core::duplicates::DuplicationReport;
 use fallow_core::results::{AnalysisResults, UnusedDependency, UnusedExport, UnusedMember};
 
+use super::grouping::{self, OwnershipResolver};
 use super::{emit_json, relative_uri};
 use crate::explain;
 
@@ -500,6 +501,50 @@ pub fn build_sarif(
 pub(super) fn print_sarif(results: &AnalysisResults, root: &Path, rules: &RulesConfig) -> ExitCode {
     let sarif = build_sarif(results, root, rules);
     emit_json(&sarif, "SARIF")
+}
+
+/// Print SARIF output with owner properties added to each result.
+///
+/// Calls `build_sarif` to produce the standard SARIF JSON, then post-processes
+/// each result to add `"properties": { "owner": "@team" }` by resolving the
+/// artifact location URI through the `OwnershipResolver`.
+pub(super) fn print_grouped_sarif(
+    results: &AnalysisResults,
+    root: &Path,
+    rules: &RulesConfig,
+    resolver: &OwnershipResolver,
+) {
+    let mut sarif = build_sarif(results, root, rules);
+
+    // Post-process each result to inject the owner property.
+    if let Some(runs) = sarif.get_mut("runs").and_then(|r| r.as_array_mut()) {
+        for run in runs {
+            if let Some(results) = run.get_mut("results").and_then(|r| r.as_array_mut()) {
+                for result in results {
+                    let uri = result
+                        .pointer("/locations/0/physicalLocation/artifactLocation/uri")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    // Decode percent-encoded brackets before ownership lookup
+                    // (SARIF URIs encode `[`/`]` as `%5B`/`%5D`)
+                    let decoded = uri.replace("%5B", "[").replace("%5D", "]");
+                    let owner =
+                        grouping::resolve_owner(Path::new(&decoded), Path::new(""), resolver);
+                    let props = result
+                        .as_object_mut()
+                        .expect("SARIF result should be an object")
+                        .entry("properties")
+                        .or_insert_with(|| serde_json::json!({}));
+                    props
+                        .as_object_mut()
+                        .expect("properties should be an object")
+                        .insert("owner".to_string(), serde_json::Value::String(owner));
+                }
+            }
+        }
+    }
+
+    let _ = emit_json(&sarif, "SARIF");
 }
 
 #[expect(

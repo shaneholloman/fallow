@@ -462,6 +462,7 @@ mod tests {
             plugins: vec![],
             overrides: vec![],
             regression: None,
+            codeowners: None,
         }
         .resolve(
             PathBuf::from("/tmp/test"),
@@ -718,6 +719,7 @@ mod tests {
             plugins: vec![],
             overrides: vec![],
             regression: None,
+            codeowners: None,
         }
         .resolve(
             PathBuf::from("/tmp/test"),

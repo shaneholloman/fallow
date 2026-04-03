@@ -72,6 +72,9 @@ pub fn build_analyze_args(params: &AnalyzeParams) -> Result<Vec<String>, String>
             save_regression_baseline.clone(),
         ]);
     }
+    if let Some(ref gb) = params.group_by {
+        args.extend(["--group-by".to_string(), gb.clone()]);
+    }
     if params.no_cache == Some(true) {
         args.push("--no-cache".to_string());
     }

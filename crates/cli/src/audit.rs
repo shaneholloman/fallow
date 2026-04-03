@@ -61,6 +61,7 @@ pub struct AuditOptions<'a> {
     pub workspace: Option<&'a str>,
     pub explain: bool,
     pub performance: bool,
+    pub group_by: Option<crate::GroupBy>,
 }
 
 // ── Auto-detect base branch ──────────────────────────────────────
@@ -321,6 +322,7 @@ fn run_audit_check<'a>(
         sarif_file: None,
         production: opts.production,
         workspace: opts.workspace,
+        group_by: opts.group_by,
         include_dupes: false,
         trace_opts: &trace_opts,
         explain: opts.explain,
@@ -363,6 +365,7 @@ fn run_audit_dupes<'a>(
         trace: None,
         changed_since,
         explain: opts.explain,
+        group_by: opts.group_by,
     }) {
         Ok(r) => Ok(Some(r)),
         Err(code) => Err(code),
@@ -401,6 +404,7 @@ fn run_audit_health<'a>(
         explain: opts.explain,
         save_snapshot: None,
         trend: false,
+        group_by: opts.group_by,
     }) {
         Ok(r) => Ok(Some(r)),
         Err(code) => Err(code),
@@ -467,7 +471,7 @@ fn print_audit_human(result: &AuditResult, quiet: bool, explain: bool, output: O
                 eprintln!();
                 eprintln!("── Dead Code ──────────────────────────────────────");
             }
-            crate::check::print_check_result(check, quiet, explain, false);
+            crate::check::print_check_result(check, quiet, explain, false, None);
         }
 
         if has_dupe_groups && let Some(ref dupes) = result.dupes {

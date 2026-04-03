@@ -132,6 +132,7 @@ fn ignore_dependencies_config_filters_deps() {
         plugins: vec![],
         overrides: vec![],
         regression: None,
+        codeowners: None,
     }
     .resolve(
         PathBuf::from("/project"),

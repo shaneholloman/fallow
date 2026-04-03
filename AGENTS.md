@@ -74,6 +74,7 @@ These flags work with any subcommand:
 | `--regression-baseline <PATH>` | Path to regression baseline file (overrides config-embedded baseline) |
 | `--save-regression-baseline [PATH]` | Save current counts as regression baseline. No path = write into config file |
 | `--sarif-file <PATH>` | Write SARIF alongside primary output |
+| `--group-by owner\|directory` | Group output by CODEOWNERS ownership or first directory component |
 | `--performance` | Show pipeline timing breakdown |
 
 ## Commands
@@ -286,6 +287,8 @@ JSON output goes to **stdout**. Progress bars and timing go to **stderr** (suppr
 Compact format (`--format compact`) is grep-friendly: one issue per line. Format varies by issue type: `unused-export:path:line:name`, `unused-file:path`, `unused-dep:package_name`, `circular-dependency:path:0:chain`, etc.
 
 JSON output includes `schema_version`, `version`, `elapsed_ms`, and `total_issues` metadata alongside the issue arrays.
+
+When `--group-by` is active, the JSON envelope changes: the top-level object includes `grouped_by` (the grouping mode), `total_issues`, and a `groups` array where each group contains its label and the corresponding issue arrays.
 
 ## Common agent workflows
 

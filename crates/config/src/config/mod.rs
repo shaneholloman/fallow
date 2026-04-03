@@ -133,6 +133,14 @@ pub struct FallowConfig {
     #[serde(default)]
     pub overrides: Vec<ConfigOverride>,
 
+    /// Path to a CODEOWNERS file for `--group-by owner`.
+    ///
+    /// When unset, fallow auto-probes `CODEOWNERS`, `.github/CODEOWNERS`,
+    /// `.gitlab/CODEOWNERS`, and `docs/CODEOWNERS`. Set this to use a
+    /// non-standard location.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub codeowners: Option<String>,
+
     /// Regression detection baseline embedded in config.
     /// Stores issue counts from a known-good state for CI regression checks.
     /// Populated by `--save-regression-baseline` (no path), read by `--fail-on-regression`.

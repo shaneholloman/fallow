@@ -67,6 +67,8 @@ pub struct ResolvedConfig {
     pub overrides: Vec<ResolvedOverride>,
     /// Regression config (passed through from user config, not resolved).
     pub regression: Option<super::RegressionConfig>,
+    /// Optional CODEOWNERS file path (passed through for `--group-by owner`).
+    pub codeowners: Option<String>,
 }
 
 impl FallowConfig {
@@ -196,6 +198,7 @@ impl FallowConfig {
             external_plugins,
             overrides,
             regression: self.regression,
+            codeowners: self.codeowners,
         }
     }
 }
@@ -271,6 +274,7 @@ mod tests {
             plugins: vec![],
             overrides: vec![],
             regression: None,
+            codeowners: None,
         };
         let resolved = config.resolve(
             PathBuf::from("/project"),
@@ -308,6 +312,7 @@ mod tests {
                 },
             }],
             regression: None,
+            codeowners: None,
         };
         let resolved = config.resolve(
             PathBuf::from("/project"),
@@ -361,6 +366,7 @@ mod tests {
                 },
             ],
             regression: None,
+            codeowners: None,
         };
         let resolved = config.resolve(
             PathBuf::from("/project"),
@@ -398,6 +404,7 @@ mod tests {
             plugins: vec![],
             overrides: vec![],
             regression: None,
+            codeowners: None,
         }
     }
 

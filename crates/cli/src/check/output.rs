@@ -218,6 +218,7 @@ mod tests {
             external_plugins: vec![],
             overrides: vec![],
             regression: None,
+            codeowners: None,
         }
     }
 

@@ -7,6 +7,7 @@ use fallow_core::results::AnalysisResults;
 
 use super::emit_json;
 use crate::explain;
+use crate::report::grouping::{OwnershipResolver, ResultGroup};
 
 pub(super) fn print_json(
     results: &AnalysisResults,
@@ -32,6 +33,63 @@ pub(super) fn print_json(
             ExitCode::from(2)
         }
     }
+}
+
+/// Render grouped analysis results as a single JSON document.
+///
+/// Produces an envelope with `grouped_by` and `total_issues` at the top level,
+/// then a `groups` array where each element contains the group `key`,
+/// `total_issues`, and all the normal result fields with paths relativized.
+#[must_use]
+pub(super) fn print_grouped_json(
+    groups: &[ResultGroup],
+    original: &AnalysisResults,
+    root: &Path,
+    elapsed: Duration,
+    explain: bool,
+    resolver: &OwnershipResolver,
+) -> ExitCode {
+    let root_prefix = format!("{}/", root.display());
+
+    let group_values: Vec<serde_json::Value> = groups
+        .iter()
+        .filter_map(|group| {
+            let mut value = serde_json::to_value(&group.results).ok()?;
+            strip_root_prefix(&mut value, &root_prefix);
+            inject_actions(&mut value);
+
+            if let serde_json::Value::Object(ref mut map) = value {
+                // Insert key and total_issues at the front by rebuilding the map
+                let mut ordered = serde_json::Map::new();
+                ordered.insert("key".to_string(), serde_json::json!(group.key));
+                ordered.insert(
+                    "total_issues".to_string(),
+                    serde_json::json!(group.results.total_issues()),
+                );
+                for (k, v) in map.iter() {
+                    ordered.insert(k.clone(), v.clone());
+                }
+                Some(serde_json::Value::Object(ordered))
+            } else {
+                Some(value)
+            }
+        })
+        .collect();
+
+    let mut output = serde_json::json!({
+        "schema_version": SCHEMA_VERSION,
+        "version": env!("CARGO_PKG_VERSION"),
+        "elapsed_ms": elapsed.as_millis() as u64,
+        "grouped_by": resolver.mode_label(),
+        "total_issues": original.total_issues(),
+        "groups": group_values,
+    });
+
+    if explain {
+        insert_meta(&mut output, explain::check_meta());
+    }
+
+    emit_json(&output, "JSON")
 }
 
 /// JSON output schema version as an integer (independent of tool version).

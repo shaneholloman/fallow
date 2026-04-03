@@ -6,6 +6,7 @@
   "oneOf": [
     { "$ref": "#/definitions/CombinedOutput" },
     { "$ref": "#/definitions/CheckOutput" },
+    { "$ref": "#/definitions/CheckGroupedOutput" },
     { "$ref": "#/definitions/HealthOutput" },
     { "$ref": "#/definitions/DupesOutput" },
     { "$ref": "#/definitions/AuditOutput" }
@@ -148,6 +149,109 @@
           "description": "Regression check result. Only present when --fail-on-regression is used."
         },
         "_meta": { "$ref": "#/definitions/Meta" }
+      }
+    },
+
+    "CheckGroupedOutput": {
+      "title": "fallow dead-code --group-by <owner|directory> --format json",
+      "description": "Grouped dead code output produced when --group-by is active. Issues are partitioned into groups (by CODEOWNERS team or directory prefix) instead of flat arrays.",
+      "type": "object",
+      "required": ["schema_version", "version", "elapsed_ms", "grouped_by", "total_issues", "groups"],
+      "properties": {
+        "schema_version": { "$ref": "#/definitions/SchemaVersion" },
+        "version": { "$ref": "#/definitions/ToolVersion" },
+        "elapsed_ms": { "$ref": "#/definitions/ElapsedMs" },
+        "grouped_by": {
+          "type": "string",
+          "enum": ["owner", "directory"],
+          "description": "The grouping strategy used. 'owner' groups by CODEOWNERS team, 'directory' groups by top-level directory prefix."
+        },
+        "total_issues": {
+          "type": "integer",
+          "description": "Total number of issues across all groups."
+        },
+        "groups": {
+          "type": "array",
+          "description": "One entry per group, each containing the same issue arrays as the ungrouped CheckOutput.",
+          "items": { "$ref": "#/definitions/CheckGroupedEntry" }
+        },
+        "_meta": { "$ref": "#/definitions/Meta" }
+      }
+    },
+
+    "CheckGroupedEntry": {
+      "description": "A single group within grouped dead code output. Contains the group key, a per-group total, and the same issue arrays as CheckOutput.",
+      "type": "object",
+      "required": ["key", "total_issues", "unused_files", "unused_exports", "unused_types", "unused_dependencies", "unused_dev_dependencies", "unused_optional_dependencies", "unused_enum_members", "unused_class_members", "unresolved_imports", "unlisted_dependencies", "duplicate_exports", "type_only_dependencies", "test_only_dependencies", "circular_dependencies", "boundary_violations"],
+      "properties": {
+        "key": {
+          "type": "string",
+          "description": "Group identifier. For 'owner' grouping: the CODEOWNERS team (e.g., '@team-name'). For 'directory' grouping: the top-level directory prefix (e.g., 'src/components')."
+        },
+        "total_issues": {
+          "type": "integer",
+          "description": "Total number of issues in this group."
+        },
+        "unused_files": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/UnusedFile" }
+        },
+        "unused_exports": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/UnusedExport" }
+        },
+        "unused_types": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/UnusedExport" }
+        },
+        "unused_dependencies": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/UnusedDependency" }
+        },
+        "unused_dev_dependencies": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/UnusedDependency" }
+        },
+        "unused_optional_dependencies": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/UnusedDependency" }
+        },
+        "unused_enum_members": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/UnusedMember" }
+        },
+        "unused_class_members": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/UnusedMember" }
+        },
+        "unresolved_imports": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/UnresolvedImport" }
+        },
+        "unlisted_dependencies": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/UnlistedDependency" }
+        },
+        "duplicate_exports": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/DuplicateExport" }
+        },
+        "type_only_dependencies": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/TypeOnlyDependency" }
+        },
+        "test_only_dependencies": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/TestOnlyDependency" }
+        },
+        "circular_dependencies": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/CircularDependency" }
+        },
+        "boundary_violations": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/BoundaryViolation" }
+        }
       }
     },
 

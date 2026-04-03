@@ -24,6 +24,7 @@ pub struct CombinedOptions<'a> {
     pub save_baseline: Option<&'a std::path::Path>,
     pub production: bool,
     pub workspace: Option<&'a str>,
+    pub group_by: Option<crate::GroupBy>,
     pub explain: bool,
     pub performance: bool,
     pub run_check: bool,
@@ -84,6 +85,7 @@ pub fn run_combined(opts: &CombinedOptions<'_>) -> ExitCode {
             sarif_file: opts.sarif_file,
             production: opts.production,
             workspace: opts.workspace,
+            group_by: opts.group_by,
             include_dupes: false,
             trace_opts: &trace_opts,
             explain: opts.explain,
@@ -119,6 +121,7 @@ pub fn run_combined(opts: &CombinedOptions<'_>) -> ExitCode {
             trace: None,
             changed_since: opts.changed_since,
             explain: opts.explain,
+            group_by: opts.group_by,
         };
         match crate::dupes::execute_dupes(&dupes_opts) {
             Ok(result) => {
@@ -188,7 +191,7 @@ pub fn run_combined(opts: &CombinedOptions<'_>) -> ExitCode {
                     eprintln!("── Dead Code ──────────────────────────────────────");
                 }
                 let code =
-                    crate::check::print_check_result(result, opts.quiet, opts.explain, false);
+                    crate::check::print_check_result(result, opts.quiet, opts.explain, false, None);
                 max_exit = max_exit.max(exit_code_to_u8(code));
             }
 
@@ -467,6 +470,7 @@ fn build_health_opts<'a>(opts: &'a CombinedOptions<'a>) -> HealthOptions<'a> {
         explain: opts.explain,
         save_snapshot: None,
         trend: false,
+        group_by: opts.group_by,
     }
 }
 

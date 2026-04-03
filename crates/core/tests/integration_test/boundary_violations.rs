@@ -29,6 +29,7 @@ fn create_boundary_config(
         plugins: vec![],
         overrides: vec![],
         regression: None,
+        codeowners: None,
     }
     .resolve(root, OutputFormat::Human, 4, true, true)
 }
@@ -157,6 +158,7 @@ fn no_violations_when_rule_is_off() {
         plugins: vec![],
         overrides: vec![],
         regression: None,
+        codeowners: None,
     }
     .resolve(root, OutputFormat::Human, 4, true, true);
 
@@ -197,6 +199,7 @@ fn preset_detects_boundary_violation() {
         plugins: vec![],
         overrides: vec![],
         regression: None,
+        codeowners: None,
     }
     .resolve(root, OutputFormat::Human, 4, true, true);
     let results = fallow_core::analyze(&config).expect("analysis should succeed");
@@ -253,6 +256,7 @@ fn bulletproof_preset_detects_violation() {
         plugins: vec![],
         overrides: vec![],
         regression: None,
+        codeowners: None,
     }
     .resolve(root, OutputFormat::Human, 4, true, true);
     let results = fallow_core::analyze(&config).expect("analysis should succeed");

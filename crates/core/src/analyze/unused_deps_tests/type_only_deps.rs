@@ -161,6 +161,7 @@ fn type_only_dep_skips_ignored_deps() {
         plugins: vec![],
         overrides: vec![],
         regression: None,
+        codeowners: None,
     }
     .resolve(
         PathBuf::from("/project"),

@@ -44,6 +44,9 @@ pub struct AnalyzeParams {
     /// Save current results as a regression baseline file for future comparisons.
     pub save_regression_baseline: Option<String>,
 
+    /// Group results by owner (from CODEOWNERS) or directory. Values: "owner", "directory".
+    pub group_by: Option<String>,
+
     /// Disable the incremental parse cache. Forces a full re-parse of all files.
     pub no_cache: Option<bool>,
 

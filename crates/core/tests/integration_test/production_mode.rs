@@ -19,6 +19,7 @@ fn create_production_config(root: std::path::PathBuf) -> fallow_config::Resolved
         plugins: vec![],
         overrides: vec![],
         regression: None,
+        codeowners: None,
     }
     .resolve(root, OutputFormat::Human, 4, true, true)
 }
