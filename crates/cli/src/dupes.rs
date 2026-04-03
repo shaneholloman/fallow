@@ -230,6 +230,7 @@ pub fn print_dupes_result(result: &DupesResult, quiet: bool, explain: bool) -> E
         quiet,
         explain,
         group_by: None,
+        top: None,
     };
     let report_code = report::print_duplication_report(&result.report, &ctx, result.config.output);
     if report_code != ExitCode::SUCCESS {
@@ -279,6 +280,7 @@ fn print_dupes_result_with_grouping(
         quiet,
         explain,
         group_by,
+        top: None,
     };
     report::print_duplication_report(&result.report, &ctx, result.config.output)
 }

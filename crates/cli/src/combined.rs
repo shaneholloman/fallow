@@ -1,6 +1,7 @@
 use std::process::ExitCode;
 use std::time::Instant;
 
+use colored::Colorize;
 use fallow_config::OutputFormat;
 
 use crate::check::{CheckOptions, CheckResult, IssueFilters, TraceOptions};
@@ -89,6 +90,7 @@ pub fn run_combined(opts: &CombinedOptions<'_>) -> ExitCode {
             include_dupes: false,
             trace_opts: &trace_opts,
             explain: opts.explain,
+            top: None,
             regression_opts: opts.regression_opts,
         };
         match crate::check::execute_check(&check_opts) {
@@ -203,6 +205,11 @@ pub fn run_combined(opts: &CombinedOptions<'_>) -> ExitCode {
             // Human/Compact/Markdown: print each section sequentially
             let show_headers = matches!(opts.output, OutputFormat::Human) && !opts.quiet;
 
+            // Orientation header: vital signs + analysis scope + start-here nudge
+            if show_headers && let Some(ref result) = health_result {
+                print_orientation_header(result, check_result.as_ref());
+            }
+
             if let Some(ref result) = check_result {
                 if show_headers {
                     eprintln!();
@@ -214,6 +221,7 @@ pub fn run_combined(opts: &CombinedOptions<'_>) -> ExitCode {
                     opts.explain,
                     false,
                     resolver,
+                    None,
                 );
                 max_exit = max_exit.max(exit_code_to_u8(code));
             }
@@ -266,8 +274,27 @@ pub fn run_combined(opts: &CombinedOptions<'_>) -> ExitCode {
                 parts.push(format!("dupes ({groups} clone groups)"));
             }
         }
+        if let Some(ref r) = health_result {
+            let above = r.report.summary.functions_above_threshold;
+            if above > 0 {
+                parts.push(format!("health ({above} above threshold)"));
+            }
+        }
         if !parts.is_empty() {
-            eprintln!("\nFailed: {}", parts.join(", "));
+            // Repeat start-here nudge so it's visible at the bottom of scrolled output
+            let nudge = health_result
+                .as_ref()
+                .and_then(|r| r.report.targets.first())
+                .map(|t| {
+                    let name = t
+                        .path
+                        .file_name()
+                        .map(|f| f.to_string_lossy().to_string())
+                        .unwrap_or_default();
+                    format!(" \u{2014} start with {name}")
+                })
+                .unwrap_or_default();
+            eprintln!("\nFailed: {}{nudge}", parts.join(", "));
         }
     }
 
@@ -494,6 +521,106 @@ fn build_health_opts<'a>(opts: &'a CombinedOptions<'a>) -> HealthOptions<'a> {
         save_snapshot: None,
         trend: false,
         group_by: opts.group_by,
+    }
+}
+
+/// Print orientation header: vital signs summary + start-here nudge.
+///
+/// Renders a compact one-or-two-line block at the top of combined mode output
+/// so users immediately see the project's vital signs and top refactoring target.
+fn print_orientation_header(health: &HealthResult, check: Option<&CheckResult>) {
+    // Vital signs line (skip when trend table is active — it replaces vital signs)
+    if let Some(ref vs) = health.report.vital_signs
+        && health.report.health_trend.is_none()
+    {
+        let mut parts = Vec::new();
+        if let Some(dfp) = vs.dead_file_pct {
+            parts.push(format!("dead files {dfp:.1}%"));
+        }
+        if let Some(dep) = vs.dead_export_pct {
+            parts.push(format!("dead exports {dep:.1}%"));
+        }
+        if let Some(mi) = vs.maintainability_avg {
+            let label = if mi >= 85.0 {
+                "good"
+            } else if mi >= 65.0 {
+                "moderate"
+            } else {
+                "low"
+            };
+            parts.push(format!("MI {mi:.1} ({label})"));
+        }
+        if let Some(hc) = vs.hotspot_count
+            && hc > 0
+        {
+            parts.push(format!(
+                "{hc} churn hotspot{}",
+                if hc == 1 { "" } else { "s" }
+            ));
+        }
+        if let Some(cd) = vs.circular_dep_count
+            && cd > 0
+        {
+            parts.push(format!(
+                "{cd} circular dep{}",
+                if cd == 1 { "" } else { "s" }
+            ));
+        }
+        if !parts.is_empty() {
+            eprintln!();
+            eprintln!(
+                "{} {}",
+                "\u{25a0}".dimmed(),
+                parts.join(" \u{00b7} ").dimmed()
+            );
+        }
+    }
+
+    // Analysis scope: file count + active plugins
+    let files = health.report.summary.files_analyzed;
+    let config = check.map_or(&health.config, |c| &c.config);
+    let plugin_count = config.external_plugins.len();
+    if files > 0 {
+        use std::fmt::Write as _;
+        let mut scope = format!("  {files} files analyzed");
+        if plugin_count > 0 {
+            let names: Vec<&str> = config
+                .external_plugins
+                .iter()
+                .take(5)
+                .map(|p| p.name.as_str())
+                .collect();
+            let _ = write!(
+                scope,
+                ", {plugin_count} plugin{}",
+                if plugin_count == 1 { "" } else { "s" }
+            );
+            let _ = write!(scope, " ({})", names.join(", "));
+            if plugin_count > 5 {
+                let _ = write!(scope, " +{}", plugin_count - 5);
+            }
+        }
+        eprintln!("{}", scope.dimmed());
+    }
+
+    // "Start here" nudge: point to top refactoring target
+    if !health.report.targets.is_empty() {
+        let target_count = health.report.targets.len();
+        let top = &health.report.targets[0];
+        let file_name = top
+            .path
+            .file_name()
+            .map(|f| f.to_string_lossy().to_string())
+            .unwrap_or_default();
+        eprintln!(
+            "{}",
+            format!(
+                "  {target_count} refactoring target{} \u{2014} start with {file_name} ({})",
+                if target_count == 1 { "" } else { "s" },
+                top.category.label()
+            )
+            .dimmed()
+        );
     }
 }
 

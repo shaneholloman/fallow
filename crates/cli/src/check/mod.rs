@@ -132,6 +132,7 @@ pub struct CheckOptions<'a> {
     pub include_dupes: bool,
     pub trace_opts: &'a TraceOptions,
     pub explain: bool,
+    pub top: Option<usize>,
     pub regression_opts: RegressionOpts<'a>,
 }
 
@@ -301,6 +302,7 @@ pub fn print_check_result(
     explain: bool,
     regression_json: bool,
     group_by: Option<report::OwnershipResolver>,
+    top: Option<usize>,
 ) -> ExitCode {
     let effective_rules = if result.fail_on_issues {
         let mut r = result.config.rules.clone();
@@ -317,6 +319,7 @@ pub fn print_check_result(
         quiet,
         explain,
         group_by,
+        top,
     };
     let report_code = report::print_results(
         &result.results,
@@ -364,7 +367,7 @@ pub fn run_check(opts: &CheckOptions<'_>) -> ExitCode {
         Ok(r) => r,
         Err(code) => return code,
     };
-    let exit = print_check_result(&result, opts.quiet, opts.explain, true, resolver);
+    let exit = print_check_result(&result, opts.quiet, opts.explain, true, resolver, opts.top);
 
     // Cross-reference: run duplication analysis on the full results
     // (the combined command handles this separately)

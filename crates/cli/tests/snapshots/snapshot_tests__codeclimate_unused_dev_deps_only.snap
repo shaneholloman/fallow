@@ -10,7 +10,7 @@ expression: json_str
     "categories": [
       "Bug Risk"
     ],
-    "severity": "major",
+    "severity": "minor",
     "fingerprint": "2a4393b133ea1523",
     "location": {
       "path": "package.json",

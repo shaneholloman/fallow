@@ -793,7 +793,7 @@ mod tests {
     }
 
     #[test]
-    fn has_error_optional_deps_detected() {
+    fn has_error_optional_deps_warn_by_default() {
         let mut results = AnalysisResults::default();
         results.unused_optional_dependencies.push(UnusedDependency {
             package_name: "optional-pkg".into(),
@@ -802,6 +802,23 @@ mod tests {
             line: 5,
         });
         let rules = RulesConfig::default();
+        // unused_optional_dependencies defaults to Warn, so no error
+        assert!(!has_error_severity_issues(&results, &rules, None));
+    }
+
+    #[test]
+    fn has_error_optional_deps_detected_when_error() {
+        let mut results = AnalysisResults::default();
+        results.unused_optional_dependencies.push(UnusedDependency {
+            package_name: "optional-pkg".into(),
+            location: DependencyLocation::OptionalDependencies,
+            path: PathBuf::from("/project/package.json"),
+            line: 5,
+        });
+        let rules = RulesConfig {
+            unused_optional_dependencies: Severity::Error,
+            ..RulesConfig::default()
+        };
         assert!(has_error_severity_issues(&results, &rules, None));
     }
 

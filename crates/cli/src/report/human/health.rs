@@ -59,7 +59,14 @@ pub(in crate::report) fn print_health_human(
         parts.push(format!("{} above threshold", s.functions_above_threshold));
         parts.push(format!("{} analyzed", s.functions_analyzed));
         if let Some(avg) = s.average_maintainability {
-            parts.push(format!("MI {avg:.1}"));
+            let label = if avg >= 85.0 {
+                "good"
+            } else if avg >= 65.0 {
+                "moderate"
+            } else {
+                "low"
+            };
+            parts.push(format!("MI {avg:.1} ({label})"));
         }
         eprintln!(
             "{}",
@@ -71,6 +78,12 @@ pub(in crate::report) fn print_health_human(
             .red()
             .bold()
         );
+        if s.average_maintainability.is_some() {
+            eprintln!(
+                "{}",
+                "  MI scale: good \u{2265}85, moderate \u{2265}65, low <65 (0\u{2013}100)".dimmed()
+            );
+        }
     }
 }
 
@@ -306,10 +319,17 @@ fn render_vital_signs(lines: &mut Vec<String>, report: &crate::health_types::Hea
     parts.push(format!("avg cyclomatic {:.1}", vs.avg_cyclomatic));
     parts.push(format!("p90 cyclomatic {}", vs.p90_cyclomatic));
     if let Some(mi) = vs.maintainability_avg {
-        parts.push(format!("MI {mi:.1}"));
+        let label = if mi >= 85.0 {
+            "good"
+        } else if mi >= 65.0 {
+            "moderate"
+        } else {
+            "low"
+        };
+        parts.push(format!("MI {mi:.1} ({label})"));
     }
     if let Some(hc) = vs.hotspot_count {
-        parts.push(format!("{hc} hotspot{}", plural(hc as usize)));
+        parts.push(format!("{hc} churn hotspot{}", plural(hc as usize)));
     }
     if let Some(cd) = vs.circular_dep_count
         && cd > 0
@@ -379,11 +399,17 @@ fn render_findings(
             cog_val.dimmed().to_string()
         };
 
-        // Line 1: function name
+        // Line 1: function name (tag likely generated code)
+        let generated_tag = if is_likely_generated(&finding.name, finding.cyclomatic) {
+            format!(" {}", "(generated)".dimmed())
+        } else {
+            String::new()
+        };
         lines.push(format!(
-            "    {} {}",
+            "    {} {}{}",
             format!(":{}", finding.line).dimmed(),
             finding.name.bold(),
+            generated_tag,
         ));
         // Line 2: metrics (indented, aligned like hotspots)
         lines.push(format!(
@@ -401,6 +427,50 @@ fn render_findings(
         .dimmed()
     ));
     lines.push(String::new());
+}
+
+/// Detect likely generated code based on function name patterns.
+fn is_likely_generated(name: &str, cyclomatic: u16) -> bool {
+    // AJV-style validators: validate0, validate10, validate123
+    if name.starts_with("validate")
+        && name.len() > 8
+        && name[8..].chars().all(|c| c.is_ascii_digit())
+    {
+        return true;
+    }
+    // Extremely high complexity with generic names suggests generated/bundled code
+    if cyclomatic > 200 && (name == "module.exports" || name == "default" || name == "<anonymous>")
+    {
+        return true;
+    }
+    false
+}
+
+/// Check if a refactoring recommendation references a likely-generated function name.
+///
+/// Recommendations from Rule 5 embed function names like `"Extract validate10 (cognitive: 350)"`.
+/// This detects those patterns so the display can tag them.
+fn recommendation_mentions_generated(recommendation: &str) -> bool {
+    // Look for AJV-style validator names: "validate" followed immediately by digits
+    let mut rest = recommendation;
+    while let Some(pos) = rest.find("validate") {
+        let after_validate = &rest[pos + 8..];
+        if !after_validate.is_empty() {
+            let digits: String = after_validate
+                .chars()
+                .take_while(|c| c.is_ascii_digit())
+                .collect();
+            if !digits.is_empty() {
+                // Ensure next char after digits is not alphanumeric (word boundary)
+                let next = after_validate.chars().nth(digits.len());
+                if !next.is_some_and(|c| c.is_alphanumeric() || c == '_') {
+                    return true;
+                }
+            }
+        }
+        rest = &rest[pos + 8..];
+    }
+    false
 }
 
 fn render_file_scores(
@@ -458,7 +528,7 @@ fn render_file_scores(
         lines.push(format!(
             "  {}",
             format!(
-                "... and {} more files",
+                "... and {} more files (--format json for full list)",
                 report.file_scores.len() - MAX_FLAT_ITEMS
             )
             .dimmed()
@@ -617,6 +687,10 @@ fn render_refactoring_targets(
         effort_parts.push(format!("{high} high"));
     }
     lines.push(format!("  {}", effort_parts.join(" \u{00b7} ").dimmed()));
+    lines.push(format!(
+        "  {}",
+        "  score = quick-win ROI (higher = better) \u{00b7} pri = absolute priority".dimmed()
+    ));
     lines.push(String::new());
 
     let shown_targets = report.targets.len().min(MAX_FLAT_ITEMS);
@@ -659,12 +733,18 @@ fn render_refactoring_targets(
             crate::health_types::Confidence::Medium => confidence.yellow().to_string(),
             crate::health_types::Confidence::Low => confidence.dimmed().to_string(),
         };
+        let generated_tag = if recommendation_mentions_generated(&target.recommendation) {
+            format!(" {}", "(generated)".dimmed())
+        } else {
+            String::new()
+        };
         lines.push(format!(
-            "         {} \u{00b7} effort:{} \u{00b7} confidence:{}  {}",
+            "         {} \u{00b7} effort:{} \u{00b7} confidence:{}  {}{}",
             label.yellow(),
             effort_colored,
             confidence_colored,
             target.recommendation.dimmed(),
+            generated_tag,
         ));
 
         // Blank line between entries
@@ -674,7 +754,7 @@ fn render_refactoring_targets(
         lines.push(format!(
             "  {}",
             format!(
-                "... and {} more targets",
+                "... and {} more targets (--format json for full list)",
                 report.targets.len() - MAX_FLAT_ITEMS
             )
             .dimmed()
@@ -1306,7 +1386,7 @@ mod tests {
         assert!(text.contains("avg cyclomatic 4.7"));
         assert!(text.contains("p90 cyclomatic 12"));
         assert!(text.contains("MI 72.4"));
-        assert!(text.contains("2 hotspots"));
+        assert!(text.contains("2 churn hotspots"));
         assert!(text.contains("3 unused deps"));
         assert!(text.contains("1 circular dep"));
     }
@@ -1408,8 +1488,8 @@ mod tests {
         });
         let lines = build_health_human_lines(&report, &root);
         let text = plain(&lines);
-        assert!(text.contains("1 hotspot"));
-        assert!(!text.contains("1 hotspots"));
+        assert!(text.contains("1 churn hotspot"));
+        assert!(!text.contains("1 churn hotspots"));
         assert!(text.contains("1 unused dep"));
         assert!(!text.contains("1 unused deps"));
         assert!(text.contains("2 circular deps"));

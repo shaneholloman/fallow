@@ -66,9 +66,9 @@ pub struct RulesConfig {
     pub unused_types: Severity,
     #[serde(default)]
     pub unused_dependencies: Severity,
-    #[serde(default)]
+    #[serde(default = "Severity::default_warn")]
     pub unused_dev_dependencies: Severity,
-    #[serde(default)]
+    #[serde(default = "Severity::default_warn")]
     pub unused_optional_dependencies: Severity,
     #[serde(default)]
     pub unused_enum_members: Severity,
@@ -97,8 +97,8 @@ impl Default for RulesConfig {
             unused_exports: Severity::Error,
             unused_types: Severity::Error,
             unused_dependencies: Severity::Error,
-            unused_dev_dependencies: Severity::Error,
-            unused_optional_dependencies: Severity::Error,
+            unused_dev_dependencies: Severity::Warn,
+            unused_optional_dependencies: Severity::Warn,
             unused_enum_members: Severity::Error,
             unused_class_members: Severity::Error,
             unresolved_imports: Severity::Error,
@@ -210,8 +210,8 @@ mod tests {
         assert_eq!(rules.unused_exports, Severity::Error);
         assert_eq!(rules.unused_types, Severity::Error);
         assert_eq!(rules.unused_dependencies, Severity::Error);
-        assert_eq!(rules.unused_dev_dependencies, Severity::Error);
-        assert_eq!(rules.unused_optional_dependencies, Severity::Error);
+        assert_eq!(rules.unused_dev_dependencies, Severity::Warn);
+        assert_eq!(rules.unused_optional_dependencies, Severity::Warn);
         assert_eq!(rules.unused_enum_members, Severity::Error);
         assert_eq!(rules.unused_class_members, Severity::Error);
         assert_eq!(rules.unresolved_imports, Severity::Error);
@@ -316,7 +316,7 @@ mod tests {
     #[test]
     fn rules_config_defaults_include_optional_deps() {
         let rules = RulesConfig::default();
-        assert_eq!(rules.unused_optional_dependencies, Severity::Error);
+        assert_eq!(rules.unused_optional_dependencies, Severity::Warn);
     }
 
     #[test]

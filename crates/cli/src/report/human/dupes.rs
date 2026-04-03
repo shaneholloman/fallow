@@ -60,6 +60,14 @@ pub(in crate::report) fn print_duplication_human(
             .red()
             .bold()
         );
+        // Advisory when duplication rate is very high — likely mirrored directories
+        if stats.duplication_percentage > 80.0 {
+            eprintln!(
+                "  {}",
+                "Note: rates above 80% often indicate mirrored or generated directories \u{2014} consider ignorePatterns"
+                    .dimmed()
+            );
+        }
     }
 }
 

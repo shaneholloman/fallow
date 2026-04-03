@@ -101,10 +101,85 @@ fn section_footer_text(title: &str) -> Option<(&'static str, &'static str)> {
     }
 }
 
-/// Push a dimmed section footer line: description — docs_url
-pub(super) fn push_section_footer(lines: &mut Vec<String>, title: &str) {
+/// Map section title to the corresponding fallow-ignore rule name.
+fn section_suppress_rule(title: &str) -> Option<&'static str> {
+    match title {
+        "Unused files" => Some("unused-files"),
+        "Unused exports" => Some("unused-exports"),
+        "Unused type exports" => Some("unused-types"),
+        "Unused dependencies" | "Unused devDependencies" | "Unused optionalDependencies" => {
+            Some("unused-dependencies")
+        }
+        "Unused enum members" => Some("unused-enum-members"),
+        "Unused class members" => Some("unused-class-members"),
+        "Unresolved imports" => Some("unresolved-imports"),
+        "Unlisted dependencies" => Some("unlisted-dependencies"),
+        "Duplicate exports" => Some("duplicate-exports"),
+        "Circular dependencies" => Some("circular-dependencies"),
+        "Boundary violations" => Some("boundary-violations"),
+        _ => None,
+    }
+}
+
+/// Rules that only support file-level suppression (not next-line).
+fn is_file_level_only(rule: &str) -> bool {
+    matches!(rule, "circular-dependencies" | "boundary-violations")
+}
+
+/// Categories that support `fallow fix --dry-run` auto-fix.
+fn is_auto_fixable(title: &str) -> bool {
+    matches!(
+        title,
+        "Unused exports"
+            | "Unused type exports"
+            | "Unused dependencies"
+            | "Unused devDependencies"
+            | "Unused optionalDependencies"
+            | "Unused enum members"
+    )
+}
+
+/// Push a dimmed section footer line: description — docs_url, plus suppression hint.
+///
+/// The `item_count` controls whether the suppress hint is shown (only for sections
+/// with 3+ items, to reduce noise for power users scanning many small sections).
+pub(super) fn push_section_footer_with_count(
+    lines: &mut Vec<String>,
+    title: &str,
+    item_count: usize,
+) {
+    push_section_footer_impl(lines, title, item_count, false);
+}
+
+/// Push section footer for directory-rollup sections (suggests ignorePatterns config).
+pub(super) fn push_section_footer_rollup(lines: &mut Vec<String>, title: &str, item_count: usize) {
+    push_section_footer_impl(lines, title, item_count, true);
+}
+
+fn push_section_footer_impl(lines: &mut Vec<String>, title: &str, item_count: usize, rollup: bool) {
     if let Some((desc, url)) = section_footer_text(title) {
         lines.push(format!("  {}", format!("{desc} \u{2014} {url}").dimmed()));
+    }
+    // Only show suppress/fix hints for sections with 3+ items to reduce noise
+    if item_count >= 3 {
+        // Auto-fix hint for fixable categories
+        if is_auto_fixable(title) {
+            lines.push(format!(
+                "  {}",
+                "To auto-fix: fallow fix --dry-run".dimmed()
+            ));
+        }
+        // Suppress hint: config-level for rollup, inline for individual items
+        if let Some(rule) = section_suppress_rule(title) {
+            let comment = if rollup {
+                "To suppress a directory: add to ignorePatterns in .fallowrc.json".to_string()
+            } else if is_file_level_only(rule) {
+                format!("To suppress: // fallow-ignore-file {rule}")
+            } else {
+                format!("To suppress: // fallow-ignore-next-line {rule}")
+            };
+            lines.push(format!("  {}", comment.dimmed()));
+        }
     }
 }
 
@@ -153,7 +228,11 @@ pub(super) fn build_grouped_by_file<'a, T>(
         if indices.len() > max_items_per_file {
             lines.push(format!(
                 "    {}",
-                format!("... and {} more", indices.len() - max_items_per_file).dimmed()
+                format!(
+                    "... and {} more (--format json for full list)",
+                    indices.len() - max_items_per_file
+                )
+                .dimmed()
             ));
         }
     }
@@ -167,7 +246,7 @@ pub(super) fn build_grouped_by_file<'a, T>(
         lines.push(format!(
             "  {}",
             format!(
-                "... and {} more in {} file{}",
+                "... and {} more in {} file{} (--format json for full list)",
                 hidden_items,
                 hidden_files,
                 plural(hidden_files)

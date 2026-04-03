@@ -228,6 +228,10 @@ enum Command {
         /// Trace where a dependency is used
         #[arg(long, value_name = "PACKAGE")]
         trace_dependency: Option<String>,
+
+        /// Show only the top N items per category
+        #[arg(long)]
+        top: Option<usize>,
     },
 
     /// Watch for changes and re-run analysis
@@ -953,6 +957,7 @@ fn dispatch_subcommand(
             trace,
             trace_file,
             trace_dependency,
+            top,
         } => {
             let (output, quiet, fail_on_issues) = apply_ci_defaults(
                 cli.ci,
@@ -999,6 +1004,7 @@ fn dispatch_subcommand(
                 include_dupes,
                 trace_opts: &trace_opts,
                 explain: cli.explain,
+                top,
                 regression_opts: build_regression_opts(
                     cli.fail_on_regression,
                     tolerance,

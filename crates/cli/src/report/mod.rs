@@ -32,6 +32,8 @@ pub struct ReportContext<'a> {
     pub explain: bool,
     /// When set, group all output by this resolver.
     pub group_by: Option<OwnershipResolver>,
+    /// Limit displayed items per section (--top N).
+    pub top: Option<usize>,
 }
 
 /// Strip the project root prefix from a path for display, falling back to the full path.
@@ -150,7 +152,14 @@ pub fn print_results(
 
     match output {
         OutputFormat::Human => {
-            human::print_human(results, ctx.root, ctx.rules, ctx.elapsed, ctx.quiet);
+            human::print_human(
+                results,
+                ctx.root,
+                ctx.rules,
+                ctx.elapsed,
+                ctx.quiet,
+                ctx.top,
+            );
             ExitCode::SUCCESS
         }
         OutputFormat::Json => {

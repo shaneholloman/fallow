@@ -75,7 +75,7 @@ expression: redact_sarif_version(&json_str)
               },
               "helpUri": "https://docs.fallow.tools/explanations/dead-code#unused-devdependencies",
               "defaultConfiguration": {
-                "level": "error"
+                "level": "warning"
               }
             },
             {
@@ -88,7 +88,7 @@ expression: redact_sarif_version(&json_str)
               },
               "helpUri": "https://docs.fallow.tools/explanations/dead-code#unused-optionaldependencies",
               "defaultConfiguration": {
-                "level": "error"
+                "level": "warning"
               }
             },
             {
@@ -282,7 +282,7 @@ expression: redact_sarif_version(&json_str)
         },
         {
           "ruleId": "fallow/unused-dev-dependency",
-          "level": "error",
+          "level": "warning",
           "message": {
             "text": "Package 'jest' is in devDependencies but never imported"
           },
@@ -302,7 +302,7 @@ expression: redact_sarif_version(&json_str)
         },
         {
           "ruleId": "fallow/unused-optional-dependency",
-          "level": "error",
+          "level": "warning",
           "message": {
             "text": "Package 'fsevents' is in optionalDependencies but never imported"
           },

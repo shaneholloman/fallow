@@ -468,10 +468,10 @@ mod tests {
         );
         assert_eq!(
             resolved.rules.unused_dev_dependencies,
-            Severity::Error,
+            Severity::Warn,
             "non-production should keep default severity"
         );
-        assert_eq!(resolved.rules.unused_optional_dependencies, Severity::Error);
+        assert_eq!(resolved.rules.unused_optional_dependencies, Severity::Warn);
     }
 
     #[test]
@@ -884,7 +884,7 @@ mod tests {
                 let resolved = arb_resolved_config(false);
                 prop_assert_eq!(
                     resolved.rules.unused_dev_dependencies,
-                    Severity::Error,
+                    Severity::Warn,
                     "Non-production should keep default dev dep severity"
                 );
             }

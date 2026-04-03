@@ -5,10 +5,11 @@ use std::time::Duration;
 use colored::Colorize;
 use fallow_config::RulesConfig;
 use fallow_core::results::{AnalysisResults, UnusedExport, UnusedMember};
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::{
-    MAX_FLAT_ITEMS, build_grouped_by_file, build_section_header, format_path, push_section_footer,
+    MAX_FLAT_ITEMS, build_grouped_by_file, build_section_header, format_path,
+    push_section_footer_rollup, push_section_footer_with_count,
 };
 use crate::report::grouping::OwnershipResolver;
 use crate::report::{
@@ -19,6 +20,78 @@ use crate::report::{
 const MAX_GROUPED_FILES: usize = 10;
 /// Maximum detail items shown per file within a grouped section.
 const MAX_ITEMS_PER_FILE: usize = 5;
+/// Threshold above which unused files switch to directory-grouped rollup.
+const DIR_ROLLUP_THRESHOLD: usize = 200;
+/// Threshold above which truncation hints suggest scoping flags.
+const SCOPING_HINT_THRESHOLD: usize = 500;
+
+/// Build a truncation message, adding scoping suggestions for very high counts.
+///
+/// The `total_issues` parameter is the total across ALL categories (not just this section).
+/// The scoping hint fires when either the per-section overflow OR the total issue count
+/// exceeds the threshold, so medium-sized projects with dispersed issues still see the hint.
+fn truncation_hint(remaining: usize, total_issues: usize) -> String {
+    if remaining > SCOPING_HINT_THRESHOLD || total_issues > SCOPING_HINT_THRESHOLD {
+        format!(
+            "... and {remaining} more \u{2014} try --workspace <name> or --changed-since main to scope"
+        )
+    } else {
+        format!("... and {remaining} more (--format json for full list)")
+    }
+}
+
+/// Check if a path contains a test directory segment.
+fn is_test_path(path: &Path) -> bool {
+    path.components().any(|c| {
+        let s = c.as_os_str().to_string_lossy();
+        matches!(
+            s.as_ref(),
+            "test"
+                | "tests"
+                | "__tests__"
+                | "__test__"
+                | "spec"
+                | "specs"
+                | "__mocks__"
+                | "__fixtures__"
+                | "fixtures"
+        )
+    })
+}
+
+/// Insert a dimmed test/src breakdown line when the majority of items are in test paths.
+///
+/// The annotation is inserted before the last blank line of the current section
+/// so it appears just before the section gap.
+fn insert_test_src_split<T>(lines: &mut Vec<String>, items: &[T], get_path: impl Fn(&T) -> &Path) {
+    if items.len() < 5 {
+        return;
+    }
+    let test_count = items
+        .iter()
+        .filter(|item| is_test_path(get_path(item)))
+        .count();
+    let src_count = items.len() - test_count;
+    // Only show when there's a meaningful split (both > 0 and test is >=30%)
+    if test_count == 0 || src_count == 0 {
+        return;
+    }
+    let test_pct = (test_count * 100) / items.len();
+    if test_pct < 30 {
+        return;
+    }
+    let annotation = format!(
+        "  {}",
+        format!("{src_count} in src, {test_count} in test directories").dimmed()
+    );
+    // Insert before the trailing blank line (if present)
+    if lines.last().is_some_and(String::is_empty) {
+        let pos = lines.len() - 1;
+        lines.insert(pos, annotation);
+    } else {
+        lines.push(annotation);
+    }
+}
 
 pub(in crate::report) fn print_human(
     results: &AnalysisResults,
@@ -26,13 +99,16 @@ pub(in crate::report) fn print_human(
     rules: &RulesConfig,
     elapsed: Duration,
     quiet: bool,
+    top: Option<usize>,
 ) {
     if !quiet {
         eprintln!();
+        // Config quality signal: warn when findings are dominated by one directory
+        emit_config_quality_signal(results, root);
     }
 
     // Human output always includes section footers with doc links.
-    for line in build_human_lines(results, root, rules) {
+    for line in build_human_lines(results, root, rules, top) {
         println!("{line}");
     }
 
@@ -65,8 +141,35 @@ pub(in crate::report) fn build_human_lines(
     results: &AnalysisResults,
     root: &Path,
     rules: &RulesConfig,
+    top: Option<usize>,
 ) -> Vec<String> {
+    let max_items = top.unwrap_or(MAX_FLAT_ITEMS);
+    let max_grouped_files = top.unwrap_or(MAX_GROUPED_FILES);
+    let total_issues = results.total_issues();
     let mut lines = Vec::new();
+
+    // Build set of unused file paths to suppress double-counting
+    let unused_file_set: FxHashSet<&std::path::Path> = results
+        .unused_files
+        .iter()
+        .map(|f| f.path.as_path())
+        .collect();
+
+    // Filter exports/types: suppress items from files already reported as unused
+    let filtered_exports: Vec<UnusedExport> = results
+        .unused_exports
+        .iter()
+        .filter(|e| !unused_file_set.contains(e.path.as_path()))
+        .cloned()
+        .collect();
+    let filtered_types: Vec<UnusedExport> = results
+        .unused_types
+        .iter()
+        .filter(|e| !unused_file_set.contains(e.path.as_path()))
+        .cloned()
+        .collect();
+    let suppressed_exports = results.unused_exports.len() - filtered_exports.len();
+    let suppressed_types = results.unused_types.len() - filtered_types.len();
 
     let format_export = |e: &UnusedExport| -> String {
         let tag = if e.is_re_export {
@@ -99,42 +202,68 @@ pub(in crate::report) fn build_human_lines(
         }
     };
 
-    build_human_section_ex(
-        &mut lines,
-        &results.unused_files,
-        "Unused files",
-        severity_to_level(rules.unused_files),
-        |file| {
-            let path_str = relative_path(&file.path, root).display().to_string();
-            vec![format!("  {}", format_path(&path_str))]
-        },
-    );
+    if results.unused_files.len() > DIR_ROLLUP_THRESHOLD {
+        // Directory rollup for large unused file counts
+        build_dir_rollup_section(&mut lines, &results.unused_files, root, rules, total_issues);
+    } else {
+        build_human_section_ex(
+            &mut lines,
+            &results.unused_files,
+            "Unused files",
+            severity_to_level(rules.unused_files),
+            max_items,
+            total_issues,
+            |file| {
+                let path_str = relative_path(&file.path, root).display().to_string();
+                vec![format!("  {}", format_path(&path_str))]
+            },
+        );
+    }
+    // Test/src breakdown when test paths dominate
+    insert_test_src_split(&mut lines, &results.unused_files, |f| &f.path);
 
     build_human_grouped_section(
         &mut lines,
-        &results.unused_exports,
+        &filtered_exports,
         "Unused exports",
         severity_to_level(rules.unused_exports),
         root,
+        max_grouped_files,
         |e| e.path.as_path(),
         &format_export,
     );
+    insert_test_src_split(&mut lines, &filtered_exports, |e| &e.path);
+    if suppressed_exports > 0 {
+        lines.push(format!(
+            "  {}",
+            format!("({suppressed_exports} more in files already reported as unused)").dimmed()
+        ));
+    }
 
     build_human_grouped_section(
         &mut lines,
-        &results.unused_types,
+        &filtered_types,
         "Unused type exports",
         severity_to_level(rules.unused_types),
         root,
+        max_grouped_files,
         |e| e.path.as_path(),
         &format_export,
     );
+    if suppressed_types > 0 {
+        lines.push(format!(
+            "  {}",
+            format!("({suppressed_types} more in files already reported as unused)").dimmed()
+        ));
+    }
 
     build_human_section_ex(
         &mut lines,
         &results.unused_dependencies,
         "Unused dependencies",
         severity_to_level(rules.unused_dependencies),
+        max_items,
+        total_issues,
         |dep| vec![format!("  {}", format_dep(&dep.package_name, &dep.path))],
     );
 
@@ -143,6 +272,8 @@ pub(in crate::report) fn build_human_lines(
         &results.unused_dev_dependencies,
         "Unused devDependencies",
         severity_to_level(rules.unused_dev_dependencies),
+        max_items,
+        total_issues,
         |dep| vec![format!("  {}", format_dep(&dep.package_name, &dep.path))],
     );
 
@@ -151,6 +282,8 @@ pub(in crate::report) fn build_human_lines(
         &results.unused_optional_dependencies,
         "Unused optionalDependencies",
         severity_to_level(rules.unused_optional_dependencies),
+        max_items,
+        total_issues,
         |dep| vec![format!("  {}", format_dep(&dep.package_name, &dep.path))],
     );
 
@@ -160,6 +293,7 @@ pub(in crate::report) fn build_human_lines(
         "Unused enum members",
         severity_to_level(rules.unused_enum_members),
         root,
+        max_grouped_files,
         |m| m.path.as_path(),
         &format_member,
     );
@@ -170,6 +304,7 @@ pub(in crate::report) fn build_human_lines(
         "Unused class members",
         severity_to_level(rules.unused_class_members),
         root,
+        max_grouped_files,
         |m| m.path.as_path(),
         &format_member,
     );
@@ -180,6 +315,7 @@ pub(in crate::report) fn build_human_lines(
         "Unresolved imports",
         severity_to_level(rules.unresolved_imports),
         root,
+        max_grouped_files,
         |i| i.path.as_path(),
         &|i| format!("{} {}", format!(":{}", i.line).dimmed(), i.specifier.bold()),
     );
@@ -189,6 +325,8 @@ pub(in crate::report) fn build_human_lines(
         &results.unlisted_dependencies,
         "Unlisted dependencies",
         severity_to_level(rules.unlisted_dependencies),
+        max_items,
+        total_issues,
         |dep| vec![format!("  {}", dep.package_name.bold())],
     );
 
@@ -197,6 +335,7 @@ pub(in crate::report) fn build_human_lines(
         &results.duplicate_exports,
         severity_to_level(rules.duplicate_exports),
         root,
+        total_issues,
     );
 
     build_human_section_ex(
@@ -204,6 +343,8 @@ pub(in crate::report) fn build_human_lines(
         &results.type_only_dependencies,
         "Type-only dependencies (consider moving to devDependencies)",
         severity_to_level(rules.type_only_dependencies),
+        max_items,
+        total_issues,
         |dep| vec![format!("  {}", format_dep(&dep.package_name, &dep.path))],
     );
 
@@ -212,6 +353,8 @@ pub(in crate::report) fn build_human_lines(
         &results.test_only_dependencies,
         "Test-only production dependencies (consider moving to devDependencies)",
         severity_to_level(rules.test_only_dependencies),
+        max_items,
+        total_issues,
         |dep| vec![format!("  {}", format_dep(&dep.package_name, &dep.path))],
     );
 
@@ -220,6 +363,7 @@ pub(in crate::report) fn build_human_lines(
         &results.circular_dependencies,
         severity_to_level(rules.circular_dependencies),
         root,
+        total_issues,
     );
 
     build_boundary_violations_section(
@@ -227,9 +371,83 @@ pub(in crate::report) fn build_human_lines(
         &results.boundary_violations,
         severity_to_level(rules.boundary_violation),
         root,
+        total_issues,
     );
 
     lines
+}
+
+/// Directory-grouped rollup for large unused file counts.
+///
+/// Instead of listing individual files (which is overwhelming at 200+), groups
+/// by top-level directory and shows file counts per directory.
+fn build_dir_rollup_section(
+    lines: &mut Vec<String>,
+    unused_files: &[fallow_core::results::UnusedFile],
+    root: &Path,
+    rules: &RulesConfig,
+    total_issues: usize,
+) {
+    if unused_files.is_empty() {
+        return;
+    }
+    let title = "Unused files";
+    let level = severity_to_level(rules.unused_files);
+    lines.push(build_section_header(title, unused_files.len(), level));
+
+    // Group by first directory component (root-level files go under "(project root)")
+    let mut dir_counts: Vec<(String, usize, bool)> = Vec::new();
+    let mut dir_map: FxHashMap<String, usize> = FxHashMap::default();
+    for f in unused_files {
+        let rel = relative_path(&f.path, root);
+        // Detect root-level files: only one path component means no parent directory
+        let (dir, is_dir) = if rel.components().count() <= 1 {
+            ("(project root)".to_string(), false)
+        } else {
+            (
+                rel.components().next().map_or_else(
+                    || ".".to_string(),
+                    |c| c.as_os_str().to_string_lossy().to_string(),
+                ),
+                true,
+            )
+        };
+        if let Some(&idx) = dir_map.get(&dir) {
+            dir_counts[idx].1 += 1;
+        } else {
+            dir_map.insert(dir.clone(), dir_counts.len());
+            dir_counts.push((dir, 1, is_dir));
+        }
+    }
+    dir_counts.sort_by(|a, b| b.1.cmp(&a.1));
+
+    let shown = dir_counts.len().min(MAX_FLAT_ITEMS);
+    for (dir, count, is_dir) in &dir_counts[..shown] {
+        let label = if *is_dir {
+            format!("{dir}/").bold().to_string()
+        } else {
+            dir.dimmed().to_string()
+        };
+        lines.push(format!("  {}  {} file{}", label, count, plural(*count)));
+    }
+    if dir_counts.len() > MAX_FLAT_ITEMS {
+        let remaining = dir_counts.len() - MAX_FLAT_ITEMS;
+        // Use directory-specific wording and scoping hint when total issues are high
+        let hint = if remaining > SCOPING_HINT_THRESHOLD || total_issues > SCOPING_HINT_THRESHOLD {
+            format!(
+                "... and {remaining} more director{} \u{2014} try --workspace <name> or --changed-since main to scope",
+                if remaining == 1 { "y" } else { "ies" }
+            )
+        } else {
+            format!(
+                "... and {remaining} more director{} (--format json for full list)",
+                if remaining == 1 { "y" } else { "ies" }
+            )
+        };
+        lines.push(format!("  {}", hint.dimmed()));
+    }
+    push_section_footer_rollup(lines, title, unused_files.len());
+    lines.push(String::new());
 }
 
 /// Append a non-empty section with a header, doc-link footer, and truncated items.
@@ -238,39 +456,47 @@ fn build_human_section_ex<T>(
     items: &[T],
     title: &str,
     level: Level,
+    max: usize,
+    total_issues: usize,
     format_lines: impl Fn(&T) -> Vec<String>,
 ) {
     if items.is_empty() {
         return;
     }
     lines.push(build_section_header(title, items.len(), level));
-    let shown = items.len().min(MAX_FLAT_ITEMS);
+    let shown = items.len().min(max);
     for item in &items[..shown] {
         for line in format_lines(item) {
             lines.push(line);
         }
     }
-    if items.len() > MAX_FLAT_ITEMS {
+    if items.len() > max {
+        let remaining = items.len() - max;
         lines.push(format!(
             "  {}",
-            format!("... and {} more", items.len() - MAX_FLAT_ITEMS).dimmed()
+            truncation_hint(remaining, total_issues).dimmed()
         ));
     }
-    push_section_footer(lines, title);
+    push_section_footer_with_count(lines, title, items.len());
     lines.push(String::new());
 }
 
 /// Append a non-empty section whose items are grouped by file path (truncated).
 ///
 /// Files are sorted by item count descending. Shows `(N exports)` next to each
-/// file header. Truncates to `MAX_GROUPED_FILES` files and `MAX_ITEMS_PER_FILE`
+/// file header. Truncates to `max_files` files and `MAX_ITEMS_PER_FILE`
 /// items per file.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "section renderer needs all display parameters"
+)]
 fn build_human_grouped_section<'a, T>(
     lines: &mut Vec<String>,
     items: &'a [T],
     title: &str,
     level: Level,
     root: &Path,
+    max_files: usize,
     get_path: impl Fn(&'a T) -> &'a Path,
     format_detail: &impl Fn(&T) -> String,
 ) {
@@ -284,10 +510,10 @@ fn build_human_grouped_section<'a, T>(
         root,
         get_path,
         format_detail,
-        MAX_GROUPED_FILES,
+        max_files,
         MAX_ITEMS_PER_FILE,
     );
-    push_section_footer(lines, title);
+    push_section_footer_with_count(lines, title, items.len());
     lines.push(String::new());
 }
 
@@ -297,6 +523,7 @@ fn build_duplicate_exports_section(
     items: &[fallow_core::results::DuplicateExport],
     level: Level,
     root: &Path,
+    total_issues: usize,
 ) {
     if items.is_empty() {
         return;
@@ -368,21 +595,13 @@ fn build_duplicate_exports_section(
     }
 
     if pair_groups.len() > MAX_FLAT_ITEMS {
+        let remaining = pair_groups.len() - MAX_FLAT_ITEMS;
         lines.push(format!(
             "  {}",
-            format!(
-                "... and {} more pair{}",
-                pair_groups.len() - MAX_FLAT_ITEMS,
-                if pair_groups.len() - MAX_FLAT_ITEMS == 1 {
-                    ""
-                } else {
-                    "s"
-                }
-            )
-            .dimmed()
+            truncation_hint(remaining, total_issues).dimmed()
         ));
     }
-    push_section_footer(lines, title);
+    push_section_footer_with_count(lines, title, items.len());
     lines.push(String::new());
 }
 
@@ -392,6 +611,7 @@ fn build_circular_deps_section(
     items: &[fallow_core::results::CircularDependency],
     level: Level,
     root: &Path,
+    total_issues: usize,
 ) {
     if items.is_empty() {
         return;
@@ -446,10 +666,22 @@ fn build_circular_deps_section(
             let (_, hub_filename) = split_dir_filename(hub_path);
             chain_parts.push(hub_filename.bold().to_string());
 
+            // When every file in the cycle is a .d.ts, tag it as type-only
+            let type_only_tag = if cycle
+                .files
+                .iter()
+                .all(|p| p.to_str().is_some_and(|s| s.ends_with(".d.ts")))
+            {
+                format!(" {}", "(type-only)".dimmed())
+            } else {
+                String::new()
+            };
+
             lines.push(format!(
-                "    {} {}",
+                "    {} {}{}",
                 "\u{2192}".dimmed(),
-                chain_parts.join(&format!(" {} ", "\u{2192}".dimmed()))
+                chain_parts.join(&format!(" {} ", "\u{2192}".dimmed())),
+                type_only_tag,
             ));
         }
         lines.push(String::new());
@@ -460,10 +692,13 @@ fn build_circular_deps_section(
             .iter()
             .map(|(_, cycles)| cycles.len())
             .sum();
-        lines.push(format!("  {}", format!("... and {hidden} more").dimmed()));
+        lines.push(format!(
+            "  {}",
+            truncation_hint(hidden, total_issues).dimmed()
+        ));
         lines.push(String::new());
     }
-    push_section_footer(lines, title);
+    push_section_footer_with_count(lines, title, items.len());
     if !lines.last().is_some_and(String::is_empty) {
         lines.push(String::new());
     }
@@ -475,6 +710,7 @@ fn build_boundary_violations_section(
     items: &[fallow_core::results::BoundaryViolation],
     level: Level,
     root: &Path,
+    total_issues: usize,
 ) {
     if items.is_empty() {
         return;
@@ -497,12 +733,13 @@ fn build_boundary_violations_section(
         ));
     }
     if items.len() > MAX_FLAT_ITEMS {
+        let remaining = items.len() - MAX_FLAT_ITEMS;
         lines.push(format!(
             "  {}",
-            format!("... and {} more", items.len() - MAX_FLAT_ITEMS).dimmed()
+            truncation_hint(remaining, total_issues).dimmed()
         ));
     }
-    push_section_footer(lines, title);
+    push_section_footer_with_count(lines, title, items.len());
     lines.push(String::new());
 }
 
@@ -630,7 +867,7 @@ pub(in crate::report) fn print_grouped_human(
         println!("{}", header_text.cyan().bold());
 
         // Build lines and dedup doc URL footers across groups
-        let lines = build_human_lines(&group.results, root, rules);
+        let lines = build_human_lines(&group.results, root, rules, None);
         for line in &lines {
             if line.contains("docs.fallow.tools") && !seen_footers.insert(line.clone()) {
                 continue;
@@ -681,13 +918,62 @@ pub(in crate::report) fn print_grouped_human(
     }
 }
 
+/// Emit a config-quality advisory to stderr when unused files are dominated by one directory.
+///
+/// Called from `print_human` (not `build_human_lines`) so it respects the `quiet` flag
+/// and doesn't fire as a side effect during line-building.
+fn emit_config_quality_signal(results: &AnalysisResults, root: &Path) {
+    if results.unused_files.len() <= 50 {
+        return;
+    }
+    let mut dir_counts: rustc_hash::FxHashMap<String, usize> = rustc_hash::FxHashMap::default();
+    for f in &results.unused_files {
+        let rel = relative_path(&f.path, root);
+        if let Some(first) = rel.components().next() {
+            *dir_counts
+                .entry(first.as_os_str().to_string_lossy().to_string())
+                .or_insert(0) += 1;
+        }
+    }
+    let total = results.unused_files.len();
+    if let Some((dominant_dir, count)) = dir_counts.iter().max_by_key(|(_, c)| **c) {
+        let pct = (*count as f64 / total as f64) * 100.0;
+        if pct > 50.0 {
+            // Source-heavy directories get different advice than test/example dirs
+            let is_source_dir =
+                matches!(dominant_dir.as_str(), "packages" | "src" | "lib" | "apps");
+            let advice = if is_source_dir {
+                format!(
+                    "Note: {pct:.0}% of unused files are under {dominant_dir}/ \
+                     \u{2014} run `fallow list --entry-points` to verify entry-point detection \
+                     \u{2014} https://docs.fallow.tools/explanations/dead-code#unused-files"
+                )
+            } else {
+                format!(
+                    "Note: {pct:.0}% of unused files are under {dominant_dir}/ \
+                     \u{2014} consider adding it to ignorePatterns or using --production \
+                     (analyzes only production entry points) \
+                     \u{2014} https://docs.fallow.tools/explanations/dead-code#unused-files"
+                )
+            };
+            eprintln!("  {}", advice.yellow());
+        }
+    }
+}
+
 /// Build a one-line summary footer showing counts per issue type.
 fn build_summary_footer(results: &AnalysisResults) -> String {
     let mut parts = Vec::new();
     let mut add = |count: usize, label: &str| {
         if count > 0 {
+            let display_label = if count == 1 && label.ends_with('s') {
+                // Singularize pre-pluralized labels: "enum members" → "enum member"
+                &label[..label.len() - 1]
+            } else {
+                label
+            };
             let mut s = String::new();
-            let _ = write!(s, "{count} {label}");
+            let _ = write!(s, "{count} {display_label}");
             if count != 1 && !label.ends_with('s') {
                 s.push('s');
             }
@@ -698,17 +984,31 @@ fn build_summary_footer(results: &AnalysisResults) -> String {
     add(results.unused_files.len(), "file");
     add(results.unused_exports.len(), "export");
     add(results.unused_types.len(), "type");
+    add(results.unused_dependencies.len(), "unused dep");
     add(
-        results.unused_dependencies.len()
-            + results.unused_dev_dependencies.len()
-            + results.unused_optional_dependencies.len(),
-        "dep",
+        results.unused_dev_dependencies.len() + results.unused_optional_dependencies.len(),
+        "dev/optional dep",
     );
     add(results.unused_enum_members.len(), "enum members");
     add(results.unused_class_members.len(), "class members");
     add(results.unresolved_imports.len(), "unresolved imports");
     add(results.unlisted_dependencies.len(), "unlisted deps");
-    add(results.duplicate_exports.len(), "duplicates");
+    // Count unique file-pairs (consistent with the section renderer's grouping)
+    {
+        let mut pair_set = rustc_hash::FxHashSet::default();
+        for dup in &results.duplicate_exports {
+            if dup.locations.len() >= 2 {
+                let mut paths: Vec<&std::path::Path> =
+                    dup.locations.iter().map(|l| l.path.as_path()).collect();
+                paths.sort();
+                paths.dedup();
+                if paths.len() >= 2 {
+                    pair_set.insert((paths[0].to_path_buf(), paths[1].to_path_buf()));
+                }
+            }
+        }
+        add(pair_set.len(), "duplicate pair");
+    }
     add(results.type_only_dependencies.len(), "type-only deps");
     add(results.test_only_dependencies.len(), "test-only deps");
     add(results.circular_dependencies.len(), "circular deps");
@@ -764,7 +1064,7 @@ mod tests {
         let root = PathBuf::from("/project");
         let results = AnalysisResults::default();
         let rules = RulesConfig::default();
-        let lines = build_human_lines(&results, &root, &rules);
+        let lines = build_human_lines(&results, &root, &rules, None);
         assert!(lines.is_empty());
     }
 
@@ -775,7 +1075,7 @@ mod tests {
         let root = PathBuf::from("/project");
         let results = sample_results(&root);
         let rules = RulesConfig::default();
-        let lines = build_human_lines(&results, &root, &rules);
+        let lines = build_human_lines(&results, &root, &rules, None);
         let text = plain(&lines);
 
         assert!(text.contains("Unused files (1)"));
@@ -805,7 +1105,7 @@ mod tests {
             });
         }
         let rules = RulesConfig::default();
-        let lines = build_human_lines(&results, &root, &rules);
+        let lines = build_human_lines(&results, &root, &rules, None);
         let text = plain(&lines);
         assert!(text.contains("Unused files (5)"));
     }
@@ -820,7 +1120,7 @@ mod tests {
             path: root.join("src/components/Button.tsx"),
         });
         let rules = RulesConfig::default();
-        let lines = build_human_lines(&results, &root, &rules);
+        let lines = build_human_lines(&results, &root, &rules, None);
         let text = plain(&lines);
         assert!(text.contains("src/components/Button.tsx"));
         assert!(!text.contains("/project/"));
@@ -851,7 +1151,7 @@ mod tests {
             is_re_export: false,
         });
         let rules = RulesConfig::default();
-        let lines = build_human_lines(&results, &root, &rules);
+        let lines = build_human_lines(&results, &root, &rules, None);
         let text = plain(&lines);
 
         // Count of 2 in header
@@ -879,7 +1179,7 @@ mod tests {
             is_re_export: true,
         });
         let rules = RulesConfig::default();
-        let lines = build_human_lines(&results, &root, &rules);
+        let lines = build_human_lines(&results, &root, &rules, None);
         let text = plain(&lines);
         assert!(text.contains("(re-export)"));
     }
@@ -898,7 +1198,7 @@ mod tests {
             is_re_export: false,
         });
         let rules = RulesConfig::default();
-        let lines = build_human_lines(&results, &root, &rules);
+        let lines = build_human_lines(&results, &root, &rules, None);
         let text = plain(&lines);
         assert!(!text.contains("(re-export)"));
     }
@@ -918,7 +1218,7 @@ mod tests {
             col: 2,
         });
         let rules = RulesConfig::default();
-        let lines = build_human_lines(&results, &root, &rules);
+        let lines = build_human_lines(&results, &root, &rules, None);
         let text = plain(&lines);
         assert!(text.contains("Color.Purple"));
         assert!(text.contains(":5"));
@@ -937,7 +1237,7 @@ mod tests {
             col: 4,
         });
         let rules = RulesConfig::default();
-        let lines = build_human_lines(&results, &root, &rules);
+        let lines = build_human_lines(&results, &root, &rules, None);
         let text = plain(&lines);
         assert!(text.contains("ApiService.disconnect"));
         assert!(text.contains(":99"));
@@ -956,7 +1256,7 @@ mod tests {
             line: 5,
         });
         let rules = RulesConfig::default();
-        let lines = build_human_lines(&results, &root, &rules);
+        let lines = build_human_lines(&results, &root, &rules, None);
         let text = plain(&lines);
         assert!(text.contains("lodash"));
         // Should NOT show "(package.json)" for root deps
@@ -974,7 +1274,7 @@ mod tests {
             line: 8,
         });
         let rules = RulesConfig::default();
-        let lines = build_human_lines(&results, &root, &rules);
+        let lines = build_human_lines(&results, &root, &rules, None);
         let text = plain(&lines);
         assert!(text.contains("axios"));
         assert!(text.contains("(packages/web/package.json)"));
@@ -994,7 +1294,7 @@ mod tests {
             specifier_col: 0,
         });
         let rules = RulesConfig::default();
-        let lines = build_human_lines(&results, &root, &rules);
+        let lines = build_human_lines(&results, &root, &rules, None);
         let text = plain(&lines);
         assert!(text.contains("src/app.ts"));
         assert!(text.contains(":7"));
@@ -1023,7 +1323,7 @@ mod tests {
             ],
         });
         let rules = RulesConfig::default();
-        let lines = build_human_lines(&results, &root, &rules);
+        let lines = build_human_lines(&results, &root, &rules, None);
         let text = plain(&lines);
         assert!(text.contains("Config"));
         assert!(text.contains("src/config.ts"));
@@ -1048,7 +1348,7 @@ mod tests {
             col: 0,
         });
         let rules = RulesConfig::default();
-        let lines = build_human_lines(&results, &root, &rules);
+        let lines = build_human_lines(&results, &root, &rules, None);
         let text = plain(&lines);
         // Hub file shown first, chain with elided paths and arrows
         assert!(text.contains("a.ts"));
@@ -1068,7 +1368,7 @@ mod tests {
             path: root.join("src/dead.ts"),
         });
         let rules = RulesConfig::default();
-        let lines = build_human_lines(&results, &root, &rules);
+        let lines = build_human_lines(&results, &root, &rules, None);
         let text = plain(&lines);
         assert!(text.contains("Unused files (1)"));
         assert!(!text.contains("Unused exports"));
@@ -1126,7 +1426,7 @@ mod tests {
             is_re_export: false,
         });
         let rules = RulesConfig::default();
-        let lines = build_human_lines(&results, &root, &rules);
+        let lines = build_human_lines(&results, &root, &rules, None);
         let text = plain(&lines);
         // a-file should appear before z-file in output
         let a_pos = text.find("src/a-file.ts").unwrap();
@@ -1152,7 +1452,7 @@ mod tests {
             });
         }
         let rules = RulesConfig::default();
-        let lines = build_human_lines(&results, &root, &rules);
+        let lines = build_human_lines(&results, &root, &rules, None);
         let text = plain(&lines);
         // "src/utils.ts" should appear exactly once as a group header
         let count = text.matches("src/utils.ts").count();
@@ -1175,7 +1475,7 @@ mod tests {
             unused_files: Severity::Off,
             ..RulesConfig::default()
         };
-        let lines = build_human_lines(&results, &root, &rules);
+        let lines = build_human_lines(&results, &root, &rules, None);
         let text = plain(&lines);
         assert!(text.contains("Unused files (1)"));
     }
@@ -1190,7 +1490,7 @@ mod tests {
             path: root.join("packages/ui/src/components/forms/inputs/TextInput.tsx"),
         });
         let rules = RulesConfig::default();
-        let lines = build_human_lines(&results, &root, &rules);
+        let lines = build_human_lines(&results, &root, &rules, None);
         let text = plain(&lines);
         assert!(text.contains("packages/ui/src/components/forms/inputs/TextInput.tsx"));
     }
@@ -1202,7 +1502,7 @@ mod tests {
         let root = PathBuf::from("/project");
         let results = sample_results(&root);
         let rules = RulesConfig::default();
-        let lines = build_human_lines(&results, &root, &rules);
+        let lines = build_human_lines(&results, &root, &rules, None);
         let text = plain(&lines);
         // Every populated section must produce a header with a count
         assert!(text.contains("Unused files (1)"));
@@ -1239,7 +1539,7 @@ mod tests {
             line: 1,
         });
         let rules = RulesConfig::default();
-        let lines = build_human_lines(&results, &root, &rules);
+        let lines = build_human_lines(&results, &root, &rules, None);
         // After each section, there should be an empty string separator
         let empty_count = lines.iter().filter(|l| l.is_empty()).count();
         assert_eq!(
@@ -1260,7 +1560,7 @@ mod tests {
             line: 8,
         });
         let rules = RulesConfig::default();
-        let lines = build_human_lines(&results, &root, &rules);
+        let lines = build_human_lines(&results, &root, &rules, None);
         let text = plain(&lines);
         assert!(text.contains("Type-only dependencies (consider moving to devDependencies)"));
     }
@@ -1278,7 +1578,7 @@ mod tests {
         });
         // type_only_dependencies defaults to Warn
         let rules = RulesConfig::default();
-        let lines = build_human_lines(&results, &root, &rules);
+        let lines = build_human_lines(&results, &root, &rules, None);
         let text = plain(&lines);
         // Verify the section appears with the correct title (the styling differs
         // between Warn and Error, but the structural content is the same)
@@ -1297,7 +1597,7 @@ mod tests {
             imported_from: vec![],
         });
         let rules = RulesConfig::default();
-        let lines = build_human_lines(&results, &root, &rules);
+        let lines = build_human_lines(&results, &root, &rules, None);
         let text = plain(&lines);
         assert!(text.contains("@scope/unknown-pkg"));
     }
@@ -1322,7 +1622,7 @@ mod tests {
             col: 0,
         });
         let rules = RulesConfig::default();
-        let lines = build_human_lines(&results, &root, &rules);
+        let lines = build_human_lines(&results, &root, &rules, None);
         let text = plain(&lines);
         // Should show "(2 cycles)" for the hub
         assert!(text.contains("(2 cycles)"));
@@ -1354,7 +1654,7 @@ mod tests {
             path: root.join("src/dead.ts"),
         });
         let rules = RulesConfig::default();
-        let lines = build_human_lines(&results, &root, &rules);
+        let lines = build_human_lines(&results, &root, &rules, None);
         let text = plain(&lines);
         // Human output always includes section footers with doc links
         assert!(text.contains("docs.fallow.tools/explanations/dead-code"));
@@ -1373,7 +1673,7 @@ mod tests {
             });
         }
         let rules = RulesConfig::default();
-        let lines = build_human_lines(&results, &root, &rules);
+        let lines = build_human_lines(&results, &root, &rules, None);
         let text = plain(&lines);
         assert!(text.contains("... and 5 more"));
     }
@@ -1395,7 +1695,7 @@ mod tests {
             });
         }
         let rules = RulesConfig::default();
-        let lines = build_human_lines(&results, &root, &rules);
+        let lines = build_human_lines(&results, &root, &rules, None);
         let text = plain(&lines);
         assert!(text.contains("... and 5 more in 5 files"));
     }

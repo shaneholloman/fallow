@@ -326,6 +326,7 @@ fn run_audit_check<'a>(
         include_dupes: false,
         trace_opts: &trace_opts,
         explain: opts.explain,
+        top: None,
         regression_opts: crate::regression::RegressionOpts {
             fail_on_regression: false,
             tolerance: crate::regression::Tolerance::Absolute(0),
@@ -471,7 +472,7 @@ fn print_audit_human(result: &AuditResult, quiet: bool, explain: bool, output: O
                 eprintln!();
                 eprintln!("── Dead Code ──────────────────────────────────────");
             }
-            crate::check::print_check_result(check, quiet, explain, false, None);
+            crate::check::print_check_result(check, quiet, explain, false, None, None);
         }
 
         if has_dupe_groups && let Some(ref dupes) = result.dupes {
