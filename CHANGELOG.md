@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.10.1] - 2026-04-03
+
+### Changed
+
+- **PR comment vital signs clarity** -- the metrics table in GitHub Action and GitLab CI PR comments now has a "Codebase health" section header, making it clear that metrics are project-wide rather than PR-scoped. The `dead_export_pct` metric is removed from PR comments (still available in CLI JSON output) since it's a graph-level property not actionable from a single PR.
+- **Scoped maintainability row** -- when `--changed-since` is active, PR comments now show a "Maintainability (changed files)" row alongside the codebase-wide score, so developers can see how their changes compare to the project baseline.
+- **Clickable commit hash** -- the "Scoped to files changed since" footer now links the commit hash to the commit on GitHub/GitLab instead of showing plain text.
+- **Disambiguated scoping footer** -- the footer now reads "Issue counts scoped to files changed since ... · health metrics reflect the full codebase" to eliminate ambiguity about what is PR-scoped vs codebase-wide.
+
 ## [2.10.0] - 2026-04-03
 
 ### Added
@@ -727,7 +736,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--changed-since` and `--fail-on-issues` for CI
 - Cross-workspace resolution for npm/yarn/pnpm workspaces
 
-[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.10.0...HEAD
+[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.10.1...HEAD
+[2.10.1]: https://github.com/fallow-rs/fallow/compare/v2.10.0...v2.10.1
 [2.10.0]: https://github.com/fallow-rs/fallow/compare/v2.9.3...v2.10.0
 [2.9.3]: https://github.com/fallow-rs/fallow/compare/v2.9.2...v2.9.3
 [2.9.2]: https://github.com/fallow-rs/fallow/compare/v2.9.1...v2.9.2
