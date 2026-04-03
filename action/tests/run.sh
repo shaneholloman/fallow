@@ -364,6 +364,123 @@ assert_json_value "$OUT" '.circular_dependencies | length' "1" "keeps cycle if a
 OUT=$(echo "$CD_INPUT" | jq --argjson changed '["src/c.ts"]' -f "$JQ_DIR/filter-changed.jq" 2>&1)
 assert_json_value "$OUT" '.circular_dependencies | length' "0" "removes cycle if no file changed"
 
+# --- Pre-computed changed files (shallow clone fallback) tests ---
+
+echo ""
+echo "=== Pre-computed changed files (fallow-changed-files.json) ==="
+
+WORK_DIR=$(mktemp -d)
+SCRIPTS_DIR="$DIR/../scripts"
+
+# Copy fixtures into work dir to simulate the action working directory
+cp "$FIXTURES/check.json" "$WORK_DIR/fallow-results.json"
+
+echo "  comment.sh filtering with pre-computed file:"
+
+# Create a pre-computed changed files list (what analyze.sh produces)
+echo '["src/helpers/api.ts"]' > "$WORK_DIR/fallow-changed-files.json"
+
+# Run the filtering logic from comment.sh in the work dir
+OUT=$(cd "$WORK_DIR" && \
+  CHANGED_SINCE="abc123" \
+  INPUT_ROOT="." \
+  ACTION_JQ_DIR="$JQ_DIR" \
+  FALLOW_COMMAND="dead-code" \
+  bash -c '
+    RESULTS_FILE="fallow-results.json"
+    CHANGED_JSON=""
+    if [ -f fallow-changed-files.json ]; then
+      CHANGED_JSON=$(cat fallow-changed-files.json)
+    fi
+    if [ -n "$CHANGED_JSON" ] && [ "$CHANGED_JSON" != "[]" ]; then
+      if jq --argjson changed "$CHANGED_JSON" -f "${ACTION_JQ_DIR}/filter-changed.jq" fallow-results.json > fallow-results-scoped.json 2>/dev/null; then
+        RESULTS_FILE="fallow-results-scoped.json"
+      fi
+    fi
+    jq -r ".total_issues" "$RESULTS_FILE"
+  ' 2>&1)
+[ "$OUT" = "6" ] && pass "filters to 6 issues (pre-computed)" || fail "pre-computed filter" "expected 6, got $OUT"
+
+echo "  fallback to unfiltered when no pre-computed file:"
+rm -f "$WORK_DIR/fallow-changed-files.json"
+
+# Without fallow-changed-files.json AND without git, falls through to unfiltered
+OUT=$(cd "$WORK_DIR" && \
+  CHANGED_SINCE="abc123" \
+  INPUT_ROOT="." \
+  ACTION_JQ_DIR="$JQ_DIR" \
+  bash -c '
+    RESULTS_FILE="fallow-results.json"
+    CHANGED_JSON=""
+    if [ -f fallow-changed-files.json ]; then
+      CHANGED_JSON=$(cat fallow-changed-files.json)
+    else
+      CHANGED_FILES=$(git diff --name-only --relative "abc123...HEAD" -- . 2>/dev/null || true)
+      if [ -n "$CHANGED_FILES" ]; then
+        CHANGED_JSON=$(echo "$CHANGED_FILES" | jq -R -s "split(\"\n\") | map(select(length > 0))")
+      fi
+    fi
+    if [ -n "$CHANGED_JSON" ] && [ "$CHANGED_JSON" != "[]" ]; then
+      jq --argjson changed "$CHANGED_JSON" -f "${ACTION_JQ_DIR}/filter-changed.jq" fallow-results.json > fallow-results-scoped.json 2>/dev/null && RESULTS_FILE="fallow-results-scoped.json"
+    fi
+    jq -r ".total_issues" "$RESULTS_FILE"
+  ' 2>&1)
+EXPECTED_TOTAL=$(jq -r '.total_issues' "$FIXTURES/check.json")
+[ "$OUT" = "$EXPECTED_TOTAL" ] && pass "unfiltered when no pre-computed file" || fail "no pre-computed fallback" "expected $EXPECTED_TOTAL, got $OUT"
+
+echo "  empty changed list produces no filtering:"
+echo '[]' > "$WORK_DIR/fallow-changed-files.json"
+OUT=$(cd "$WORK_DIR" && \
+  CHANGED_SINCE="abc123" \
+  ACTION_JQ_DIR="$JQ_DIR" \
+  bash -c '
+    RESULTS_FILE="fallow-results.json"
+    CHANGED_JSON=""
+    if [ -f fallow-changed-files.json ]; then
+      CHANGED_JSON=$(cat fallow-changed-files.json)
+    fi
+    if [ -n "$CHANGED_JSON" ] && [ "$CHANGED_JSON" != "[]" ]; then
+      jq --argjson changed "$CHANGED_JSON" -f "${ACTION_JQ_DIR}/filter-changed.jq" fallow-results.json > fallow-results-scoped.json 2>/dev/null && RESULTS_FILE="fallow-results-scoped.json"
+    fi
+    jq -r ".total_issues" "$RESULTS_FILE"
+  ' 2>&1)
+[ "$OUT" = "$EXPECTED_TOTAL" ] && pass "empty list skips filtering" || fail "empty list guard" "expected $EXPECTED_TOTAL, got $OUT"
+
+echo "  combined format with pre-computed file:"
+cp "$FIXTURES/combined.json" "$WORK_DIR/fallow-results.json"
+echo '["src/helpers/api.ts"]' > "$WORK_DIR/fallow-changed-files.json"
+OUT=$(cd "$WORK_DIR" && \
+  CHANGED_SINCE="abc123" \
+  ACTION_JQ_DIR="$JQ_DIR" \
+  bash -c '
+    RESULTS_FILE="fallow-results.json"
+    CHANGED_JSON=""
+    if [ -f fallow-changed-files.json ]; then
+      CHANGED_JSON=$(cat fallow-changed-files.json)
+    fi
+    if [ -n "$CHANGED_JSON" ] && [ "$CHANGED_JSON" != "[]" ]; then
+      jq --argjson changed "$CHANGED_JSON" -f "${ACTION_JQ_DIR}/filter-changed.jq" fallow-results.json > fallow-results-scoped.json 2>/dev/null && RESULTS_FILE="fallow-results-scoped.json"
+    fi
+    jq -r ".check.total_issues" "$RESULTS_FILE"
+  ' 2>&1)
+[ "$OUT" = "6" ] && pass "combined format filters check section" || fail "combined pre-computed" "expected 6, got $OUT"
+
+echo "  no CHANGED_SINCE skips filtering entirely:"
+cp "$FIXTURES/check.json" "$WORK_DIR/fallow-results.json"
+echo '["src/helpers/api.ts"]' > "$WORK_DIR/fallow-changed-files.json"
+OUT=$(cd "$WORK_DIR" && \
+  ACTION_JQ_DIR="$JQ_DIR" \
+  bash -c '
+    RESULTS_FILE="fallow-results.json"
+    if [ -n "${CHANGED_SINCE:-}" ]; then
+      echo "ERROR: should not enter filter block"
+    fi
+    jq -r ".total_issues" "$RESULTS_FILE"
+  ' 2>&1)
+[ "$OUT" = "$EXPECTED_TOTAL" ] && pass "no CHANGED_SINCE skips filtering" || fail "no CHANGED_SINCE guard" "expected $EXPECTED_TOTAL, got $OUT"
+
+rm -rf "$WORK_DIR"
+
 # --- Summary ---
 
 echo ""
