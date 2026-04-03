@@ -1,5 +1,5 @@
 name: 'Fallow - Codebase Health'
-description: 'Codebase analyzer for TypeScript/JavaScript — unused code, code duplication, circular dependencies, complexity hotspots, and architecture boundary violations.'
+description: 'Find unused code, duplicates, circular deps, and complexity hotspots in TypeScript/JavaScript projects'
 author: 'Bart Waardenburg'
 
 branding:
