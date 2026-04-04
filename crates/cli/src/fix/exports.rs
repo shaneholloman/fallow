@@ -123,7 +123,8 @@ pub(super) fn apply_export_fixes(
                     after_export
                 };
 
-                new_lines[fix.line_idx] = format!("{}{}", &" ".repeat(indent), replacement);
+                let prefix = &line[..indent];
+                new_lines[fix.line_idx] = format!("{prefix}{replacement}");
             }
             let success = match write_fixed_content(path, &new_lines, line_ending, &content) {
                 Ok(()) => true,
@@ -673,11 +674,7 @@ mod tests {
         );
 
         let content = std::fs::read_to_string(&file).unwrap();
-        // Tab indentation counts as 1 character, but trim_start() removes it
-        // The indent is reconstructed using spaces: " ".repeat(indent)
-        // Since \t.len() == 1, we get " " (1 space) instead of \t
-        // This is a known limitation of the current implementation
-        assert!(content.contains("const x = 1;"));
+        assert_eq!(content, "\tconst x = 1;\n");
     }
 
     #[test]
@@ -831,4 +828,5 @@ mod tests {
         let path_str = fixes[0]["path"].as_str().unwrap().replace('\\', "/");
         assert_eq!(path_str, "src/utils.ts");
     }
+
 }
