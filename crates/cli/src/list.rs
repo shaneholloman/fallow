@@ -33,8 +33,9 @@ pub fn run_list(opts: &ListOptions<'_>) -> ExitCode {
 
     let show_all = should_show_all(opts);
 
-    // Run plugin detection to find active plugins (including workspace packages)
-    let plugin_result = if opts.plugins || show_all {
+    // Run plugin detection when plugin output is requested or when entry-point
+    // discovery needs plugin-provided entry points.
+    let plugin_result = if opts.plugins || opts.entry_points || show_all {
         let disc = fallow_core::discover::discover_files(&config);
         let file_paths: Vec<std::path::PathBuf> = disc.iter().map(|f| f.path.clone()).collect();
         let registry = fallow_core::plugins::PluginRegistry::new(config.external_plugins.clone());

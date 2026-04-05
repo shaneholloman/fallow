@@ -271,27 +271,28 @@ fn list_plugin_discovered_entry_points_in_show_all_mode() {
     }
 }
 
-/// BUG: When --entry-points is used without --plugins, plugin detection
-/// is skipped, so plugin-discovered entry points are missing.
-/// `fallow list --entry-points` returns fewer entry points than
-/// `fallow list` (show_all mode) for projects with framework plugins.
 #[test]
-fn list_entry_points_only_missing_plugin_entries_bug() {
+fn list_entry_points_only_includes_plugin_entries() {
     // show_all mode includes plugin-detected entry points
     let all_output = run_list("external-plugins", &["--format", "json"]);
     let all_json = parse_json(&all_output);
     let all_eps = all_json["entry_points"].as_array().unwrap();
 
-    // --entry-points only mode is missing plugin entries (this is a bug)
+    // --entry-points only mode should include the same plugin-discovered entries
     let ep_output = run_list("external-plugins", &["--entry-points", "--format", "json"]);
     let ep_json = parse_json(&ep_output);
     let ep_only = ep_json["entry_points"].as_array().unwrap();
 
-    // show_all has more entry points because it includes plugin-discovered ones
     assert!(
-        all_eps.len() > ep_only.len(),
-        "BUG: show_all mode ({}) has more entry points than --entry-points only ({}) \
-         because plugin detection is skipped when --entry-points is used alone",
+        ep_only
+            .iter()
+            .any(|ep| ep["source"].as_str().is_some_and(|s| s == "my-framework")),
+        "--entry-points output should include plugin-discovered entry points",
+    );
+    assert_eq!(
+        all_eps.len(),
+        ep_only.len(),
+        "show_all mode ({}) and --entry-points only mode ({}) should report the same entry points",
         all_eps.len(),
         ep_only.len(),
     );
