@@ -680,7 +680,7 @@ fn print_orientation_header(health: &HealthResult, check: Option<&CheckResult>) 
             eprintln!(
                 "{}",
                 format!(
-                    "  {target_count} refactoring target{} \u{2014} try `fallow check --workspace <name>` to scope",
+                    "  {target_count} refactoring target{} \u{2014} try `fallow dead-code --workspace <name>` to scope",
                     if target_count == 1 { "" } else { "s" },
                 )
                 .dimmed()

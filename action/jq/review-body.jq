@@ -25,7 +25,7 @@ def count(obj; key): obj | if . then .[key] // 0 else 0 end;
 else "" end) +
 
 (if $filtered > 0 and $inline > 0 then
-  "**\($inline)** inline comments on your changes \u00b7 \($filtered) findings in files not changed in this PR \u2014 run `fallow check` locally to see them\n\n"
+  "**\($inline)** inline comments on your changes \u00b7 \($filtered) findings in files not changed in this PR \u2014 run `fallow dead-code` locally to see them\n\n"
 elif $filtered > 0 then
   "\($filtered) findings in changed files \u00b7 none are on lines changed in this PR\n\n"
 elif $inline > 0 then

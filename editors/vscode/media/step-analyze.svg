@@ -9,7 +9,7 @@
   <circle cx="144" cy="82" r="6" fill="#27c93f"/>
   <!-- Terminal content -->
   <text fill="#858585" x="104" y="130" font-size="14" font-family="monospace">$</text>
-  <text fill="#d4d4d4" x="120" y="130" font-size="14" font-family="monospace">fallow check</text>
+  <text fill="#d4d4d4" x="120" y="130" font-size="14" font-family="monospace">fallow dead-code</text>
   <text fill="#3794ff" x="104" y="170" font-size="13" font-family="monospace">Unused files (2)</text>
   <text fill="#858585" x="120" y="195" font-size="12" font-family="monospace">src/old-parser.ts</text>
   <text fill="#858585" x="120" y="215" font-size="12" font-family="monospace">src/deprecated.ts</text>

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Conformance fixture verifier: runs fallow check on each fixture and
+# Conformance fixture verifier: runs fallow dead-code on each fixture and
 # compares the JSON output against the expected.json file.
 #
 # Usage:
