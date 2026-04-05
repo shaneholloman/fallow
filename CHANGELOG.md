@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.13.1] - 2026-04-05
+
+### Fixed
+
+- **Init hook uses canonical command name** -- `fallow init --hooks` now generates hooks with `fallow dead-code` instead of the legacy `fallow check` alias, and the internal `--base` field is renamed to `--branch` to match the CLI flag. ([#43](https://github.com/fallow-rs/fallow/pull/43) by [@M-Hassan-Raza](https://github.com/M-Hassan-Raza))
+- **Legacy command name cleanup** -- replaced `fallow check` with `fallow dead-code` in 4 user-facing messages: combined output suggestion, GitHub Action PR review body, VS Code extension diagram, and conformance test script.
+- **Documentation consistency** -- fixed stale `--base` references to `--branch` in `AGENTS.md`, `docs/backwards-compatibility.md`, and companion repos.
+
 ## [2.13.0] - 2026-04-04
 
 ### Added
@@ -806,6 +814,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cross-workspace resolution for npm/yarn/pnpm workspaces
 
 [Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.12.1...HEAD
+[2.13.1]: https://github.com/fallow-rs/fallow/compare/v2.13.0...v2.13.1
 [2.13.0]: https://github.com/fallow-rs/fallow/compare/v2.12.1...v2.13.0
 [2.12.1]: https://github.com/fallow-rs/fallow/compare/v2.12.0...v2.12.1
 [2.12.0]: https://github.com/fallow-rs/fallow/compare/v2.11.0...v2.12.0
