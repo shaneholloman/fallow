@@ -15,8 +15,31 @@ pub struct TemplateUsage {
     pub(crate) whole_object_uses: Vec<String>,
 }
 
-#[cfg(test)]
 impl TemplateUsage {
+    pub(crate) fn merge(&mut self, other: Self) {
+        self.used_bindings.extend(other.used_bindings);
+        for access in other.member_accesses {
+            let key = (&access.object, &access.member);
+            let already_present = self
+                .member_accesses
+                .iter()
+                .any(|existing| (&existing.object, &existing.member) == key);
+            if !already_present {
+                self.member_accesses.push(access);
+            }
+        }
+        for whole in other.whole_object_uses {
+            if !self
+                .whole_object_uses
+                .iter()
+                .any(|existing| existing == &whole)
+            {
+                self.whole_object_uses.push(whole);
+            }
+        }
+    }
+
+    #[cfg(test)]
     pub(crate) fn is_empty(&self) -> bool {
         self.used_bindings.is_empty()
             && self.member_accesses.is_empty()

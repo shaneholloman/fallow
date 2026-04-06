@@ -132,17 +132,35 @@ pub(crate) fn parse_sfc_to_module(
     content_hash: u64,
 ) -> ModuleInfo {
     let scripts = extract_sfc_scripts(source);
-    let kind = if path.extension().and_then(|ext| ext.to_str()) == Some("vue") {
+    let kind = sfc_kind(path);
+    let mut combined = empty_sfc_module(file_id, source, content_hash);
+    let mut template_visible_imports: FxHashSet<String> = FxHashSet::default();
+
+    for script in &scripts {
+        merge_script_into_module(kind, script, &mut combined, &mut template_visible_imports);
+    }
+
+    apply_template_usage(kind, source, &template_visible_imports, &mut combined);
+    combined.unused_import_bindings.sort_unstable();
+    combined.unused_import_bindings.dedup();
+
+    combined
+}
+
+fn sfc_kind(path: &Path) -> SfcKind {
+    if path.extension().and_then(|ext| ext.to_str()) == Some("vue") {
         SfcKind::Vue
     } else {
         SfcKind::Svelte
-    };
+    }
+}
 
+fn empty_sfc_module(file_id: FileId, source: &str, content_hash: u64) -> ModuleInfo {
     // For SFC files, use string scanning for suppression comments since script block
     // byte offsets don't correspond to the original file positions.
     let suppressions = crate::suppress::parse_suppressions_from_source(source);
 
-    let mut combined = ModuleInfo {
+    ModuleInfo {
         file_id,
         exports: Vec::new(),
         imports: Vec::new(),
@@ -158,64 +176,84 @@ pub(crate) fn parse_sfc_to_module(
         unused_import_bindings: Vec::new(),
         line_offsets: fallow_types::extract::compute_line_offsets(source),
         complexity: Vec::new(),
-    };
-    let mut template_visible_imports: FxHashSet<String> = FxHashSet::default();
+    }
+}
 
-    for script in &scripts {
-        if let Some(src) = &script.src {
-            combined.imports.push(ImportInfo {
-                source: src.clone(),
-                imported_name: ImportedName::SideEffect,
-                local_name: String::new(),
-                is_type_only: false,
-                span: Span::default(),
-                source_span: Span::default(),
-            });
-        }
-
-        let source_type = match (script.is_typescript, script.is_jsx) {
-            (true, true) => SourceType::tsx(),
-            (true, false) => SourceType::ts(),
-            (false, true) => SourceType::jsx(),
-            (false, false) => SourceType::mjs(),
-        };
-        let allocator = Allocator::default();
-        let parser_return = Parser::new(&allocator, &script.body, source_type).parse();
-        let mut extractor = ModuleInfoExtractor::new();
-        extractor.visit_program(&parser_return.program);
-        let unused_import_bindings =
-            compute_unused_import_bindings(&parser_return.program, &extractor.imports);
-        combined
-            .unused_import_bindings
-            .extend(unused_import_bindings.iter().cloned());
-        if is_template_visible_script(kind, script) {
-            template_visible_imports.extend(
-                extractor
-                    .imports
-                    .iter()
-                    .filter(|import| !import.local_name.is_empty())
-                    .map(|import| import.local_name.clone()),
-            );
-        }
-        extractor.merge_into(&mut combined);
+fn merge_script_into_module(
+    kind: SfcKind,
+    script: &SfcScript,
+    combined: &mut ModuleInfo,
+    template_visible_imports: &mut FxHashSet<String>,
+) {
+    if let Some(src) = &script.src {
+        add_script_src_import(combined, src);
     }
 
-    if !template_visible_imports.is_empty() {
-        let template_usage = collect_template_usage(kind, source, &template_visible_imports);
-        combined
-            .unused_import_bindings
-            .retain(|binding| !template_usage.used_bindings.contains(binding));
-        combined
-            .member_accesses
-            .extend(template_usage.member_accesses);
-        combined
-            .whole_object_uses
-            .extend(template_usage.whole_object_uses);
-    }
-    combined.unused_import_bindings.sort_unstable();
-    combined.unused_import_bindings.dedup();
+    let allocator = Allocator::default();
+    let parser_return =
+        Parser::new(&allocator, &script.body, source_type_for_script(script)).parse();
+    let mut extractor = ModuleInfoExtractor::new();
+    extractor.visit_program(&parser_return.program);
 
+    let unused_import_bindings =
+        compute_unused_import_bindings(&parser_return.program, &extractor.imports);
     combined
+        .unused_import_bindings
+        .extend(unused_import_bindings.iter().cloned());
+
+    if is_template_visible_script(kind, script) {
+        template_visible_imports.extend(
+            extractor
+                .imports
+                .iter()
+                .filter(|import| !import.local_name.is_empty())
+                .map(|import| import.local_name.clone()),
+        );
+    }
+
+    extractor.merge_into(combined);
+}
+
+fn add_script_src_import(module: &mut ModuleInfo, source: &str) {
+    module.imports.push(ImportInfo {
+        source: source.to_string(),
+        imported_name: ImportedName::SideEffect,
+        local_name: String::new(),
+        is_type_only: false,
+        span: Span::default(),
+        source_span: Span::default(),
+    });
+}
+
+fn source_type_for_script(script: &SfcScript) -> SourceType {
+    match (script.is_typescript, script.is_jsx) {
+        (true, true) => SourceType::tsx(),
+        (true, false) => SourceType::ts(),
+        (false, true) => SourceType::jsx(),
+        (false, false) => SourceType::mjs(),
+    }
+}
+
+fn apply_template_usage(
+    kind: SfcKind,
+    source: &str,
+    template_visible_imports: &FxHashSet<String>,
+    combined: &mut ModuleInfo,
+) {
+    if template_visible_imports.is_empty() {
+        return;
+    }
+
+    let template_usage = collect_template_usage(kind, source, template_visible_imports);
+    combined
+        .unused_import_bindings
+        .retain(|binding| !template_usage.used_bindings.contains(binding));
+    combined
+        .member_accesses
+        .extend(template_usage.member_accesses);
+    combined
+        .whole_object_uses
+        .extend(template_usage.whole_object_uses);
 }
 
 fn is_template_visible_script(kind: SfcKind, script: &SfcScript) -> bool {
