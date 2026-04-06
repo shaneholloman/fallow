@@ -8,7 +8,7 @@ Fallow is the counterbalance: fast, framework-aware dead code detection that wor
 
 ---
 
-## Where we are (v2.14.0)
+## Where we are (v2.14.1)
 
 **Dead code analysis** -- 14 issue types: unused files, exports, types, dependencies, enum/class members, unresolved imports, unlisted deps, duplicate exports, circular dependencies, type-only dependencies, and test-only production dependencies. 84 framework plugins with auto-detection. Auto-fix for safe removals. Inline suppression. Severity rules (`error` / `warn` / `off`).
 

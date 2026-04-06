@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.14.1] - 2026-04-06
+
+### Added
+
+- **HTML entry file parsing** -- when an HTML file is reachable (e.g., Vite's `index.html` entry point), fallow now parses `<script src>`, `<link rel="stylesheet" href>`, and `<link rel="modulepreload" href>` to create graph edges to referenced local assets. This prevents false-positive dead-code reports for JS/CSS files and their transitive imports in Vite/Parcel-style apps. HTML files are exempt from unused-file detection. ([#57](https://github.com/fallow-rs/fallow/issues/57))
+- **Parcel `index.html` entry pattern** -- the Parcel plugin now auto-detects `index.html` as a runtime entry point, matching the Vite plugin's behavior.
+
+### Fixed
+
+- **Coverage gaps inline suppression** -- `coverage-gaps` issue kind can now be suppressed with `// fallow-ignore-next-line coverage-gaps` comments.
+
 ## [2.14.0] - 2026-04-06
 
 ### Added
@@ -856,7 +867,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--changed-since` and `--fail-on-issues` for CI
 - Cross-workspace resolution for npm/yarn/pnpm workspaces
 
-[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.14.0...HEAD
+[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.14.1...HEAD
+[2.14.1]: https://github.com/fallow-rs/fallow/compare/v2.14.0...v2.14.1
 [2.14.0]: https://github.com/fallow-rs/fallow/compare/v2.13.4...v2.14.0
 [2.13.4]: https://github.com/fallow-rs/fallow/compare/v2.13.3...v2.13.4
 [2.13.3]: https://github.com/fallow-rs/fallow/compare/v2.13.2...v2.13.3

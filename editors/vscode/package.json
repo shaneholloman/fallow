@@ -2,7 +2,7 @@
   "name": "fallow-vscode",
   "displayName": "Fallow",
   "description": "Codebase analyzer for TypeScript/JavaScript — unused code, circular dependencies, code duplication, complexity hotspots, and architecture boundaries",
-  "version": "2.14.0",
+  "version": "2.14.1",
   "packageManager": "pnpm@10.17.1",
   "publisher": "fallow-rs",
   "license": "MIT",
