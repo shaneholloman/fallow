@@ -47,7 +47,7 @@ pub struct WorkspaceDiagnostic {
 #[must_use]
 pub fn discover_workspaces(root: &Path) -> Vec<WorkspaceInfo> {
     let patterns = collect_workspace_patterns(root);
-    let canonical_root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    let canonical_root = dunce::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
 
     let mut workspaces = expand_patterns_to_workspaces(root, &patterns, &canonical_root);
     workspaces.extend(collect_tsconfig_workspaces(root, &canonical_root));
@@ -78,10 +78,10 @@ pub fn find_undeclared_workspaces(
 
     let declared_roots: rustc_hash::FxHashSet<PathBuf> = declared
         .iter()
-        .map(|w| w.root.canonicalize().unwrap_or_else(|_| w.root.clone()))
+        .map(|w| dunce::canonicalize(&w.root).unwrap_or_else(|_| w.root.clone()))
         .collect();
 
-    let canonical_root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    let canonical_root = dunce::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
 
     let mut undeclared = Vec::new();
 
@@ -152,7 +152,7 @@ fn check_undeclared(
     if !dir.join("package.json").exists() {
         return;
     }
-    let canonical = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
+    let canonical = dunce::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
     // Skip the project root itself
     if canonical == *canonical_root {
         return;
@@ -293,7 +293,7 @@ fn collect_tsconfig_workspaces(
     let mut workspaces = Vec::new();
 
     for dir in parse_tsconfig_references(root) {
-        let canonical_dir = dir.canonicalize().unwrap_or_else(|_| dir.clone());
+        let canonical_dir = dunce::canonicalize(&dir).unwrap_or_else(|_| dir.clone());
         // Security: skip references pointing to project root or outside it
         if canonical_dir == *canonical_root || !canonical_dir.starts_with(canonical_root) {
             continue;
@@ -338,7 +338,7 @@ fn mark_internal_dependencies(workspaces: &mut Vec<(WorkspaceInfo, Vec<String>)>
     {
         let mut seen = rustc_hash::FxHashSet::default();
         workspaces.retain(|(ws, _)| {
-            let canonical = ws.root.canonicalize().unwrap_or_else(|_| ws.root.clone());
+            let canonical = dunce::canonicalize(&ws.root).unwrap_or_else(|_| ws.root.clone());
             seen.insert(canonical)
         });
     }

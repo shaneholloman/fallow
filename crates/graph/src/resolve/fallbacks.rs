@@ -45,7 +45,7 @@ pub(super) fn try_path_alias_fallback(
                 return Some(ResolveResult::InternalModule(file_id));
             }
             // Fall back to canonical path lookup
-            if let Ok(canonical) = resolved_path.canonicalize() {
+            if let Ok(canonical) = dunce::canonicalize(resolved_path) {
                 if let Some(&file_id) = ctx.path_to_id.get(canonical.as_path()) {
                     return Some(ResolveResult::InternalModule(file_id));
                 }

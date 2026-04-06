@@ -30,8 +30,7 @@ pub fn validate_git_ref(s: &str) -> Result<&str, String> {
 }
 
 pub fn validate_root(root: &std::path::Path) -> Result<PathBuf, String> {
-    let canonical = root
-        .canonicalize()
+    let canonical = dunce::canonicalize(root)
         .map_err(|e| format!("invalid root path '{}': {e}", root.display()))?;
     if !canonical.is_dir() {
         return Err(format!("root path '{}' is not a directory", root.display()));

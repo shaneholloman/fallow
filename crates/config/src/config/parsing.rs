@@ -101,10 +101,9 @@ fn resolve_confined(
     context: &str,
     source_config: &Path,
 ) -> Result<PathBuf, miette::Report> {
-    let canonical_base = base_dir
-        .canonicalize()
+    let canonical_base = dunce::canonicalize(base_dir)
         .map_err(|e| miette::miette!("Failed to resolve base dir {}: {}", base_dir.display(), e))?;
-    let canonical_file = resolved.canonicalize().map_err(|e| {
+    let canonical_file = dunce::canonicalize(resolved).map_err(|e| {
         miette::miette!(
             "Config file not found: {} ({}, referenced from {}): {}",
             resolved.display(),
@@ -531,7 +530,7 @@ fn resolve_extends_file(
         ));
     }
 
-    let canonical = path.canonicalize().map_err(|e| {
+    let canonical = dunce::canonicalize(path).map_err(|e| {
         miette::miette!(
             "Config file not found or unresolvable: {}: {}",
             path.display(),

@@ -12,6 +12,7 @@ description = "Configuration types for the fallow TypeScript/JavaScript codebase
 readme = "../../README.md"
 
 [dependencies]
+dunce = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 json_comments = { workspace = true }

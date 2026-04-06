@@ -578,6 +578,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fd8e701084c37e7ef62d3f9e453b618130cbc0ef3573847785952a3ac3f746bf"
 
 [[package]]
+name = "dunce"
+version = "1.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
+
+[[package]]
 name = "dyn-clone"
 version = "1.0.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -617,6 +623,7 @@ version = "2.14.1"
 dependencies = [
  "clap",
  "colored",
+ "dunce",
  "fallow-config",
  "fallow-core",
  "fallow-types",
@@ -641,6 +648,7 @@ dependencies = [
 name = "fallow-config"
 version = "2.14.1"
 dependencies = [
+ "dunce",
  "glob",
  "globset",
  "json_comments",
@@ -662,6 +670,7 @@ version = "2.14.1"
 dependencies = [
  "criterion",
  "dhat",
+ "dunce",
  "fallow-config",
  "fallow-extract",
  "fallow-graph",
@@ -712,6 +721,7 @@ dependencies = [
 name = "fallow-graph"
 version = "2.14.1"
 dependencies = [
+ "dunce",
  "fallow-config",
  "fallow-types",
  "fixedbitset",

@@ -160,7 +160,7 @@ pub(super) fn expand_workspace_glob(
             .filter(|p| p.join("package.json").exists())
             .filter_map(|p| {
                 // Security: ensure workspace directory is within project root
-                p.canonicalize()
+                dunce::canonicalize(&p)
                     .ok()
                     .filter(|cp| cp.starts_with(canonical_root))
                     .map(|cp| (p, cp))
@@ -455,7 +455,7 @@ mod tests {
         )
         .unwrap();
 
-        let canonical_root = temp_dir.canonicalize().unwrap();
+        let canonical_root = dunce::canonicalize(&temp_dir).unwrap();
         let results = expand_workspace_glob(&temp_dir, "packages/core", &canonical_root);
         assert_eq!(results.len(), 1);
         assert!(results[0].0.ends_with("packages/core"));
@@ -474,7 +474,7 @@ mod tests {
         std::fs::write(temp_dir.join("packages/b/package.json"), r#"{"name": "b"}"#).unwrap();
         // c has no package.json — should be excluded
 
-        let canonical_root = temp_dir.canonicalize().unwrap();
+        let canonical_root = dunce::canonicalize(&temp_dir).unwrap();
         let results = expand_workspace_glob(&temp_dir, "packages/*", &canonical_root);
         assert_eq!(results.len(), 2);
 
@@ -498,7 +498,7 @@ mod tests {
         )
         .unwrap();
 
-        let canonical_root = temp_dir.canonicalize().unwrap();
+        let canonical_root = dunce::canonicalize(&temp_dir).unwrap();
         let results = expand_workspace_glob(&temp_dir, "packages/**/*", &canonical_root);
         assert_eq!(results.len(), 2);
 
@@ -619,7 +619,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&temp_dir);
         std::fs::create_dir_all(&temp_dir).unwrap();
 
-        let canonical_root = temp_dir.canonicalize().unwrap();
+        let canonical_root = dunce::canonicalize(&temp_dir).unwrap();
         let results = expand_workspace_glob(&temp_dir, "nonexistent/*", &canonical_root);
         assert!(results.is_empty());
 
@@ -694,7 +694,7 @@ mod tests {
         std::fs::create_dir_all(temp_dir.join("packages/a")).unwrap();
         std::fs::write(temp_dir.join("packages/a/package.json"), r#"{"name": "a"}"#).unwrap();
 
-        let canonical_root = temp_dir.canonicalize().unwrap();
+        let canonical_root = dunce::canonicalize(&temp_dir).unwrap();
         // Trailing slash pattern gets `*` appended -> `packages/*`
         let results = expand_workspace_glob(&temp_dir, "packages/*", &canonical_root);
         assert_eq!(results.len(), 1);
@@ -718,7 +718,7 @@ mod tests {
         let ws_pkg = temp_dir.join("packages/foo");
         std::fs::write(ws_pkg.join("package.json"), r#"{"name":"foo"}"#).unwrap();
 
-        let canonical_root = temp_dir.canonicalize().unwrap();
+        let canonical_root = dunce::canonicalize(&temp_dir).unwrap();
         let results = expand_workspace_glob(&temp_dir, "packages/**", &canonical_root);
 
         assert!(results.iter().any(|(_orig, canon)| {
@@ -752,7 +752,7 @@ mod tests {
         .unwrap();
         // packages/without-pkg has no package.json
 
-        let canonical_root = temp_dir.canonicalize().unwrap();
+        let canonical_root = dunce::canonicalize(&temp_dir).unwrap();
         let results = expand_workspace_glob(&temp_dir, "packages/*", &canonical_root);
         assert_eq!(results.len(), 1);
         assert!(

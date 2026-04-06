@@ -56,7 +56,7 @@ pub fn discover_infrastructure_entry_points(root: &Path) -> Vec<EntryPoint> {
     }
 
     // Resolve file references against project root
-    let canonical_root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    let canonical_root = dunce::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
     let mut entries: Vec<EntryPoint> = file_refs
         .iter()
         .filter_map(|file_ref| {

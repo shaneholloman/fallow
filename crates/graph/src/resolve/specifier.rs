@@ -98,7 +98,7 @@ pub(super) fn resolve_specifier(
             }
 
             // Fall back to canonical path lookup
-            match resolved_path.canonicalize() {
+            match dunce::canonicalize(resolved_path) {
                 Ok(canonical) => {
                     if let Some(&file_id) = ctx.path_to_id.get(canonical.as_path()) {
                         ResolveResult::InternalModule(file_id)

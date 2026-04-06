@@ -83,8 +83,7 @@ impl ModuleGraph {
             .iter()
             .filter_map(|ep| {
                 path_to_id.get(&ep.path).copied().or_else(|| {
-                    ep.path
-                        .canonicalize()
+                    dunce::canonicalize(&ep.path)
                         .ok()
                         .and_then(|path| path_to_id.get(&path).copied())
                 })

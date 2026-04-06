@@ -20,6 +20,7 @@ fallow-core = { workspace = true }
 fallow-config = { workspace = true }
 fallow-types = { workspace = true }
 clap = { workspace = true }
+dunce = { workspace = true }
 globset = { workspace = true }
 colored = { workspace = true }
 serde = { workspace = true }

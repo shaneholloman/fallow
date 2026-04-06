@@ -95,7 +95,7 @@ pub fn resolve_entry_path(
 ) -> Option<EntryPoint> {
     let resolved = base.join(entry);
     // Security: ensure resolved path stays within the allowed root
-    let canonical_resolved = resolved.canonicalize().unwrap_or_else(|_| resolved.clone());
+    let canonical_resolved = dunce::canonicalize(&resolved).unwrap_or_else(|_| resolved.clone());
     if !canonical_resolved.starts_with(canonical_root) {
         tracing::warn!(path = %entry, "Skipping entry point outside project root");
         return None;
@@ -107,7 +107,7 @@ pub fn resolve_entry_path(
     // fallow ignores dist/ by default, so we need the source file instead.
     if let Some(source_path) = try_output_to_source_path(base, entry) {
         // Security: ensure the mapped source path stays within the project root
-        if let Ok(canonical_source) = source_path.canonicalize()
+        if let Ok(canonical_source) = dunce::canonicalize(&source_path)
             && canonical_source.starts_with(canonical_root)
         {
             return Some(EntryPoint {
@@ -271,10 +271,7 @@ pub fn discover_entry_points(config: &ResolvedConfig, files: &[DiscoveredFile]) 
 
     // 2. Package.json entries
     // Pre-compute canonical root once for all resolve_entry_path calls
-    let canonical_root = config
-        .root
-        .canonicalize()
-        .unwrap_or_else(|_| config.root.clone());
+    let canonical_root = dunce::canonicalize(&config.root).unwrap_or_else(|_| config.root.clone());
     let pkg_path = config.root.join("package.json");
     if let Ok(pkg) = PackageJson::load(&pkg_path) {
         for entry_path in pkg.entry_points() {
@@ -396,9 +393,8 @@ pub fn discover_workspace_entry_points(
 
     let pkg_path = ws_root.join("package.json");
     if let Ok(pkg) = PackageJson::load(&pkg_path) {
-        let canonical_ws_root = ws_root
-            .canonicalize()
-            .unwrap_or_else(|_| ws_root.to_path_buf());
+        let canonical_ws_root =
+            dunce::canonicalize(ws_root).unwrap_or_else(|_| ws_root.to_path_buf());
         for entry_path in pkg.entry_points() {
             if let Some(ep) = resolve_entry_path(
                 ws_root,
@@ -813,7 +809,7 @@ mod tests {
             std::fs::create_dir_all(&src).unwrap();
             std::fs::write(src.join("index.ts"), "export const a = 1;").unwrap();
 
-            let canonical = dir.path().canonicalize().unwrap();
+            let canonical = dunce::canonicalize(dir.path()).unwrap();
             let result = resolve_entry_path(
                 dir.path(),
                 "src/index.ts",
@@ -828,7 +824,7 @@ mod tests {
         fn resolves_with_extension_fallback() {
             let dir = tempfile::tempdir().expect("create temp dir");
             // Use canonical base to avoid macOS /var → /private/var symlink mismatch
-            let canonical = dir.path().canonicalize().unwrap();
+            let canonical = dunce::canonicalize(dir.path()).unwrap();
             let src = canonical.join("src");
             std::fs::create_dir_all(&src).unwrap();
             std::fs::write(src.join("index.ts"), "export const a = 1;").unwrap();
@@ -854,7 +850,7 @@ mod tests {
         #[test]
         fn returns_none_for_nonexistent_file() {
             let dir = tempfile::tempdir().expect("create temp dir");
-            let canonical = dir.path().canonicalize().unwrap();
+            let canonical = dunce::canonicalize(dir.path()).unwrap();
             let result = resolve_entry_path(
                 dir.path(),
                 "does/not/exist.ts",
@@ -876,7 +872,7 @@ mod tests {
             std::fs::create_dir_all(&dist).unwrap();
             std::fs::write(dist.join("utils.js"), "// compiled").unwrap();
 
-            let canonical = dir.path().canonicalize().unwrap();
+            let canonical = dunce::canonicalize(dir.path()).unwrap();
             let result = resolve_entry_path(
                 dir.path(),
                 "./dist/utils.js",
@@ -898,7 +894,7 @@ mod tests {
         fn maps_build_output_to_src() {
             let dir = tempfile::tempdir().expect("create temp dir");
             // Use canonical base to avoid macOS /var → /private/var symlink mismatch
-            let canonical = dir.path().canonicalize().unwrap();
+            let canonical = dunce::canonicalize(dir.path()).unwrap();
             let src = canonical.join("src");
             std::fs::create_dir_all(&src).unwrap();
             std::fs::write(src.join("index.tsx"), "export default () => {};").unwrap();
@@ -925,7 +921,7 @@ mod tests {
             let dir = tempfile::tempdir().expect("create temp dir");
             std::fs::write(dir.path().join("index.ts"), "export const a = 1;").unwrap();
 
-            let canonical = dir.path().canonicalize().unwrap();
+            let canonical = dunce::canonicalize(dir.path()).unwrap();
             let result = resolve_entry_path(
                 dir.path(),
                 "index.ts",

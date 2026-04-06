@@ -212,7 +212,7 @@ pub fn discover_external_plugins(
     let mut seen_names = rustc_hash::FxHashSet::default();
 
     // All paths are checked against the canonical root to prevent symlink escapes
-    let canonical_root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    let canonical_root = dunce::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
 
     // 1. Explicit paths from config
     for path_str in config_plugin_paths {
@@ -257,7 +257,7 @@ pub fn discover_external_plugins(
 
 /// Check if a path resolves within the canonical root (follows symlinks).
 fn is_within_root(path: &Path, canonical_root: &Path) -> bool {
-    let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let canonical = dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     canonical.starts_with(canonical_root)
 }
 

@@ -112,8 +112,7 @@ impl<'a> CanonicalFallback<'a> {
             self.files
                 .iter()
                 .filter_map(|f| {
-                    f.path
-                        .canonicalize()
+                    dunce::canonicalize(&f.path)
                         .ok()
                         .map(|canonical| (canonical, f.id))
                 })
@@ -149,7 +148,7 @@ mod tests {
         }];
         let fallback = CanonicalFallback::new(&files);
 
-        let canonical = test_file.canonicalize().unwrap();
+        let canonical = dunce::canonicalize(&test_file).unwrap();
         assert_eq!(fallback.get(&canonical), Some(FileId(42)));
 
         // Second call uses cached map (OnceLock)

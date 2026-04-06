@@ -32,6 +32,7 @@ oxc_syntax = { workspace = true }
 rayon = { workspace = true }
 
 # File system
+dunce = { workspace = true }
 ignore = { workspace = true }
 glob = { workspace = true }
 globset = { workspace = true }

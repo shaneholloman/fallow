@@ -63,7 +63,7 @@ pub fn resolve_all_imports(
     // cause workspace roots to mismatch canonical file paths.
     let canonical_ws_roots: Vec<PathBuf> = workspaces
         .par_iter()
-        .map(|ws| ws.root.canonicalize().unwrap_or_else(|_| ws.root.clone()))
+        .map(|ws| dunce::canonicalize(&ws.root).unwrap_or_else(|_| ws.root.clone()))
         .collect();
     let workspace_roots: FxHashMap<&str, &Path> = workspaces
         .iter()
@@ -75,7 +75,7 @@ pub fn resolve_all_imports(
     // When true, raw paths == canonical paths for files under root, so we can skip
     // the upfront bulk canonicalize() of all source files (21k+ syscalls on large projects).
     // A lazy CanonicalFallback handles the rare intra-project symlink case.
-    let root_is_canonical = root.canonicalize().is_ok_and(|c| c == root);
+    let root_is_canonical = dunce::canonicalize(root).is_ok_and(|c| c == root);
 
     // Pre-compute canonical paths ONCE for all files in parallel (avoiding repeated syscalls).
     // Skipped when root is canonical — the lazy fallback below handles edge cases.
@@ -84,7 +84,7 @@ pub fn resolve_all_imports(
     } else {
         files
             .par_iter()
-            .map(|f| f.path.canonicalize().unwrap_or_else(|_| f.path.clone()))
+            .map(|f| dunce::canonicalize(&f.path).unwrap_or_else(|_| f.path.clone()))
             .collect()
     };
 

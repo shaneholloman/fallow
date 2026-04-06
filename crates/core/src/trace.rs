@@ -15,7 +15,7 @@ fn path_matches(module_path: &Path, root: &Path, user_path: &str) -> bool {
     if rel_str == user_path || module_path.to_string_lossy() == user_path {
         return true;
     }
-    if root.canonicalize().is_ok_and(|canonical_root| {
+    if dunce::canonicalize(root).is_ok_and(|canonical_root| {
         module_path
             .strip_prefix(&canonical_root)
             .is_ok_and(|rel| rel.to_string_lossy() == user_path)

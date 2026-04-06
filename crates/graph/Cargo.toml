@@ -19,6 +19,7 @@ fallow-types = { workspace = true }
 fallow-config = { workspace = true }
 
 # Resolution
+dunce = { workspace = true }
 oxc_resolver = { workspace = true }
 oxc_span = { workspace = true }
 
