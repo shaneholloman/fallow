@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.15.0] - 2026-04-06
+
+### Added
+
+- **Next.js convention export tracking** -- App Router special files (`loading`, `error`, `not-found`, `template`, `default`, `global-error`, `forbidden`, `unauthorized`, `global-not-found`) and route segment config exports (`revalidate`, `dynamic`, `runtime`, `fetchCache`, `preferredRegion`, `maxDuration`, `viewport`, `generateViewport`) are now treated as framework-used. Pages Router `_app` (`reportWebVitals`), API routes (`config`), `middleware`, `proxy`, `instrumentation` (`register`, `onRequestError`), `instrumentation-client` (`onRouterTransitionStart`), and `mdx-components` (`useMDXComponents`) are also covered. Entry-point files still report genuinely unused helper exports alongside framework-used ones. ([#59](https://github.com/fallow-rs/fallow/pull/59) by [@M-Hassan-Raza](https://github.com/M-Hassan-Raza))
+- **Next.js `transpilePackages` support** -- packages listed in `next.config.{ts,js}` `transpilePackages` are treated as referenced dependencies, preventing false unused-dependency reports. ([#59](https://github.com/fallow-rs/fallow/pull/59))
+- **Config-defined alias resolution for Vite, Nuxt, and SvelteKit** -- aliases defined in `vite.config.ts` (`resolve.alias`), `nuxt.config.ts` (`alias`), and `svelte.config.ts` (`kit.alias`) are extracted at analysis time and fed into the resolver as fallbacks. Supports object form, array form, `fileURLToPath(new URL(...))`, `path.resolve(__dirname, ...)`, and `path.join(...)` patterns. Eliminates false unresolved-import, unlisted-dependency, and unused-file reports for config-aliased paths. ([#59](https://github.com/fallow-rs/fallow/pull/59))
+- **Nuxt `srcDir` support** -- when `srcDir` is set in `nuxt.config.ts`, fallow remaps `~/` and `@/` aliases to the configured source directory, adds entry patterns and always-used files under that directory, and resolves `imports.dirs` and `components` paths relative to srcDir. ([#59](https://github.com/fallow-rs/fallow/pull/59))
+- **Nuxt custom directories** -- `imports.dirs`, `components` (string arrays and `{ path: "..." }` objects), and `components.dirs` from `nuxt.config.ts` are now discovered as auto-import roots and component directories. ([#59](https://github.com/fallow-rs/fallow/pull/59))
+- **Nuxt `@/` and `@@/` alias recognition** -- `@/` (srcDir synonym for `~/`) and `@@/` (rootDir synonym for `~~/`) are now recognized as path aliases in both static analysis and resolver fallback. ([#59](https://github.com/fallow-rs/fallow/pull/59))
+- **SvelteKit param matcher support** -- files in `src/params/**/*.{ts,js}` have their `match` export treated as framework-used. ([#59](https://github.com/fallow-rs/fallow/pull/59))
+- **Vue component tag tracking** -- imported components used as template tags (`<FancyCard />`, `<fancy-card />`, `<Form.Input />`) are now credited as used. Supports PascalCase, kebab-case-to-PascalCase conversion, and namespace member access. Built-in components (`Transition`, `KeepAlive`, `Teleport`, `Suspense`, `Slot`) are excluded. ([#59](https://github.com/fallow-rs/fallow/pull/59))
+- **Vue custom directive tracking** -- custom directives like `v-focus-trap` are mapped to their imported binding name (`vFocusTrap`) and credited as used. Built-in directives (`v-if`, `v-for`, `v-model`, etc.) are excluded. ([#59](https://github.com/fallow-rs/fallow/pull/59))
+- **Vue `v-on` and `v-bind` object syntax** -- `v-on="handlers"` and `v-bind="attrs"` now credit the bound expression as used. ([#59](https://github.com/fallow-rs/fallow/pull/59))
+- **Svelte component tag tracking** -- imported components used as Svelte markup tags (`<FancyButton />`, `<Icons.Alert />`) are credited as used, including namespace member access. ([#59](https://github.com/fallow-rs/fallow/pull/59))
+- **Svelte directive and attribute tracking** -- `use:tooltip`, `transition:fade`, `animate:flip`, `in:fly`, `out:slide` directives credit their imported action/transition binding as used. Attribute value expressions (`class:active={isActive}`) and shorthand attributes (`{page}`) are also tracked. ([#59](https://github.com/fallow-rs/fallow/pull/59))
+- **Svelte `$store` subscription tracking** -- `$page.url.pathname` in Svelte templates now credits the `page` import as used, with `url` tracked as a member access. ([#59](https://github.com/fallow-rs/fallow/pull/59))
+
+### Fixed
+
+- **Svelte template scanner index advancement** -- the HTML tag scanner was advancing by only 1 byte instead of jumping to the end of the scanned tag, causing every HTML tag to be re-parsed from its second byte. ([#59](https://github.com/fallow-rs/fallow/pull/59))
+- **Panic on malformed Svelte brace attributes** -- `parse_markup_tag` used `.expect()` on `scan_curly_section` which could panic on unterminated brace expressions in Svelte templates. Replaced with graceful fallback. ([#59](https://github.com/fallow-rs/fallow/pull/59))
+
 ## [2.14.2] - 2026-04-06
 
 ### Added
@@ -880,7 +903,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--changed-since` and `--fail-on-issues` for CI
 - Cross-workspace resolution for npm/yarn/pnpm workspaces
 
-[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.14.2...HEAD
+[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.15.0...HEAD
+[2.15.0]: https://github.com/fallow-rs/fallow/compare/v2.14.2...v2.15.0
 [2.14.2]: https://github.com/fallow-rs/fallow/compare/v2.14.1...v2.14.2
 [2.14.1]: https://github.com/fallow-rs/fallow/compare/v2.14.0...v2.14.1
 [2.14.0]: https://github.com/fallow-rs/fallow/compare/v2.13.4...v2.14.0
