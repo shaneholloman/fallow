@@ -44,7 +44,7 @@ pub fn find_boundary_violations(
 
     for node in &graph.modules {
         // Only check reachable files — unreachable files are already reported as unused.
-        if !node.is_reachable && !node.is_entry_point {
+        if !node.is_reachable() && !node.is_entry_point() {
             continue;
         }
 

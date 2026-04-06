@@ -43,14 +43,24 @@ use parse::parse_source_to_module;
 
 /// Parse all files in parallel, extracting imports and exports.
 /// Uses the cache to skip reparsing files whose content hasn't changed.
-pub fn parse_all_files(files: &[DiscoveredFile], cache: Option<&CacheStore>) -> ParseResult {
+///
+/// When `need_complexity` is true, per-function cyclomatic/cognitive complexity
+/// metrics are computed during parsing (needed by the `health` command).
+/// Pass `false` for dead-code analysis where complexity data is unused.
+pub fn parse_all_files(
+    files: &[DiscoveredFile],
+    cache: Option<&CacheStore>,
+    need_complexity: bool,
+) -> ParseResult {
     use std::sync::atomic::{AtomicUsize, Ordering};
     let cache_hits = AtomicUsize::new(0);
     let cache_misses = AtomicUsize::new(0);
 
     let modules: Vec<ModuleInfo> = files
         .par_iter()
-        .filter_map(|file| parse_single_file_cached(file, cache, &cache_hits, &cache_misses))
+        .filter_map(|file| {
+            parse_single_file_cached(file, cache, &cache_hits, &cache_misses, need_complexity)
+        })
         .collect();
 
     let hits = cache_hits.load(Ordering::Relaxed);
@@ -93,6 +103,7 @@ fn parse_single_file_cached(
     cache: Option<&CacheStore>,
     cache_hits: &std::sync::atomic::AtomicUsize,
     cache_misses: &std::sync::atomic::AtomicUsize,
+    need_complexity: bool,
 ) -> Option<ModuleInfo> {
     use std::sync::atomic::Ordering;
 
@@ -104,8 +115,12 @@ fn parse_single_file_cached(
         let mt = mtime_secs(&metadata);
         let sz = metadata.len();
         if let Some(cached) = store.get_by_metadata(&file.path, mt, sz) {
-            cache_hits.fetch_add(1, Ordering::Relaxed);
-            return Some(cache::cached_to_module(cached, file.id));
+            // When complexity is requested but the cached entry lacks it
+            // (populated by a prior `check` run), skip the cache and re-parse.
+            if !need_complexity || !cached.complexity.is_empty() {
+                cache_hits.fetch_add(1, Ordering::Relaxed);
+                return Some(cache::cached_to_module(cached, file.id));
+            }
         }
     }
 
@@ -116,6 +131,7 @@ fn parse_single_file_cached(
     // Check cache by content hash (handles touch/save-without-change)
     if let Some(store) = cache
         && let Some(cached) = store.get(&file.path, content_hash)
+        && (!need_complexity || !cached.complexity.is_empty())
     {
         cache_hits.fetch_add(1, Ordering::Relaxed);
         return Some(cache::cached_to_module(cached, file.id));
@@ -128,10 +144,11 @@ fn parse_single_file_cached(
         &file.path,
         &source,
         content_hash,
+        need_complexity,
     ))
 }
 
-/// Parse a single file and extract module information.
+/// Parse a single file and extract module information (without complexity).
 #[must_use]
 pub fn parse_single_file(file: &DiscoveredFile) -> Option<ModuleInfo> {
     let source = std::fs::read_to_string(&file.path).ok()?;
@@ -141,14 +158,15 @@ pub fn parse_single_file(file: &DiscoveredFile) -> Option<ModuleInfo> {
         &file.path,
         &source,
         content_hash,
+        false,
     ))
 }
 
-/// Parse from in-memory content (for LSP).
+/// Parse from in-memory content (for LSP, includes complexity).
 #[must_use]
 pub fn parse_from_content(file_id: FileId, path: &Path, content: &str) -> ModuleInfo {
     let content_hash = xxhash_rust::xxh3::xxh3_64(content.as_bytes());
-    parse_source_to_module(file_id, path, content, content_hash)
+    parse_source_to_module(file_id, path, content, content_hash, true)
 }
 
 // Parser integration tests invoke Oxc under Miri which is ~1000x slower.

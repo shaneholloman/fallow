@@ -84,7 +84,7 @@ pub fn find_unused_members(
     }
 
     for module in &graph.modules {
-        if !module.is_reachable || module.is_entry_point {
+        if !module.is_reachable() || module.is_entry_point() {
             continue;
         }
 
@@ -300,7 +300,7 @@ mod tests {
     #[test]
     fn unused_enum_member_detected() {
         let mut graph = build_graph(&[("/src/entry.ts", true), ("/src/enums.ts", false)]);
-        graph.modules[1].is_reachable = true;
+        graph.modules[1].set_reachable(true);
         graph.modules[1].exports = vec![make_export_with_members(
             "Status",
             vec![
@@ -326,7 +326,7 @@ mod tests {
     #[test]
     fn accessed_enum_member_not_flagged() {
         let mut graph = build_graph(&[("/src/entry.ts", true), ("/src/enums.ts", false)]);
-        graph.modules[1].is_reachable = true;
+        graph.modules[1].set_reachable(true);
         graph.modules[1].exports = vec![make_export_with_members(
             "Status",
             vec![
@@ -378,7 +378,7 @@ mod tests {
     #[test]
     fn whole_object_use_skips_all_members() {
         let mut graph = build_graph(&[("/src/entry.ts", true), ("/src/enums.ts", false)]);
-        graph.modules[1].is_reachable = true;
+        graph.modules[1].set_reachable(true);
         graph.modules[1].exports = vec![make_export_with_members(
             "Status",
             vec![
@@ -426,7 +426,7 @@ mod tests {
     #[test]
     fn decorated_class_member_not_flagged() {
         let mut graph = build_graph(&[("/src/entry.ts", true), ("/src/entity.ts", false)]);
-        graph.modules[1].is_reachable = true;
+        graph.modules[1].set_reachable(true);
         graph.modules[1].exports = vec![make_export_with_members(
             "User",
             vec![MemberInfo {
@@ -446,7 +446,7 @@ mod tests {
     #[test]
     fn react_lifecycle_method_not_flagged() {
         let mut graph = build_graph(&[("/src/entry.ts", true), ("/src/component.ts", false)]);
-        graph.modules[1].is_reachable = true;
+        graph.modules[1].set_reachable(true);
         graph.modules[1].exports = vec![make_export_with_members(
             "MyComponent",
             vec![
@@ -467,7 +467,7 @@ mod tests {
     #[test]
     fn angular_lifecycle_method_not_flagged() {
         let mut graph = build_graph(&[("/src/entry.ts", true), ("/src/component.ts", false)]);
-        graph.modules[1].is_reachable = true;
+        graph.modules[1].set_reachable(true);
         graph.modules[1].exports = vec![make_export_with_members(
             "AppComponent",
             vec![
@@ -487,7 +487,7 @@ mod tests {
     #[test]
     fn this_member_access_not_flagged() {
         let mut graph = build_graph(&[("/src/entry.ts", true), ("/src/service.ts", false)]);
-        graph.modules[1].is_reachable = true;
+        graph.modules[1].set_reachable(true);
         graph.modules[1].exports = vec![make_export_with_members(
             "Service",
             vec![
@@ -529,7 +529,7 @@ mod tests {
     #[test]
     fn unreferenced_export_skips_member_analysis() {
         let mut graph = build_graph(&[("/src/entry.ts", true), ("/src/enums.ts", false)]);
-        graph.modules[1].is_reachable = true;
+        graph.modules[1].set_reachable(true);
         // Export has members but NO references — whole export is dead, members skipped
         graph.modules[1].exports = vec![make_export_with_members(
             "Status",
@@ -577,7 +577,7 @@ mod tests {
     #[test]
     fn enum_member_kind_routed_to_enum_results() {
         let mut graph = build_graph(&[("/src/entry.ts", true), ("/src/enums.ts", false)]);
-        graph.modules[1].is_reachable = true;
+        graph.modules[1].set_reachable(true);
         graph.modules[1].exports = vec![make_export_with_members(
             "Status",
             vec![make_member("Active", MemberKind::EnumMember)],
@@ -594,7 +594,7 @@ mod tests {
     #[test]
     fn class_member_kind_routed_to_class_results() {
         let mut graph = build_graph(&[("/src/entry.ts", true), ("/src/class.ts", false)]);
-        graph.modules[1].is_reachable = true;
+        graph.modules[1].set_reachable(true);
         graph.modules[1].exports = vec![make_export_with_members(
             "MyClass",
             vec![
@@ -623,7 +623,7 @@ mod tests {
     #[test]
     fn instance_member_access_not_flagged() {
         let mut graph = build_graph(&[("/src/entry.ts", true), ("/src/service.ts", false)]);
-        graph.modules[1].is_reachable = true;
+        graph.modules[1].set_reachable(true);
         graph.modules[1].exports = vec![make_export_with_members(
             "MyService",
             vec![
@@ -680,7 +680,7 @@ mod tests {
         // `this.member` accesses only suppress class members, not enum members.
         // Enums don't have `this` — this test ensures the check is scoped to class kinds.
         let mut graph = build_graph(&[("/src/entry.ts", true), ("/src/enums.ts", false)]);
-        graph.modules[1].is_reachable = true;
+        graph.modules[1].set_reachable(true);
         graph.modules[1].exports = vec![make_export_with_members(
             "Direction",
             vec![
@@ -721,7 +721,7 @@ mod tests {
     #[test]
     fn mixed_enum_and_class_in_same_module() {
         let mut graph = build_graph(&[("/src/entry.ts", true), ("/src/mixed.ts", false)]);
-        graph.modules[1].is_reachable = true;
+        graph.modules[1].set_reachable(true);
         graph.modules[1].exports = vec![
             make_export_with_members(
                 "Status",
@@ -748,7 +748,7 @@ mod tests {
         // import { Status as S } from './enums'
         // S.Active → should map "S" back to "Status" for member access matching
         let mut graph = build_graph(&[("/src/entry.ts", true), ("/src/enums.ts", false)]);
-        graph.modules[1].is_reachable = true;
+        graph.modules[1].set_reachable(true);
         graph.modules[1].exports = vec![make_export_with_members(
             "Status",
             vec![
@@ -800,7 +800,7 @@ mod tests {
     fn default_import_maps_to_default_export() {
         // import MyEnum from './enums' → local "MyEnum", imported "default"
         let mut graph = build_graph(&[("/src/entry.ts", true), ("/src/enums.ts", false)]);
-        graph.modules[1].is_reachable = true;
+        graph.modules[1].set_reachable(true);
         graph.modules[1].exports = vec![make_export_with_members(
             "default",
             vec![
@@ -853,7 +853,7 @@ mod tests {
         use crate::suppress::{IssueKind, Suppression};
 
         let mut graph = build_graph(&[("/src/entry.ts", true), ("/src/enums.ts", false)]);
-        graph.modules[1].is_reachable = true;
+        graph.modules[1].set_reachable(true);
         graph.modules[1].exports = vec![make_export_with_members(
             "Status",
             vec![make_member("Active", MemberKind::EnumMember)],
@@ -881,7 +881,7 @@ mod tests {
         use crate::suppress::{IssueKind, Suppression};
 
         let mut graph = build_graph(&[("/src/entry.ts", true), ("/src/service.ts", false)]);
-        graph.modules[1].is_reachable = true;
+        graph.modules[1].set_reachable(true);
         graph.modules[1].exports = vec![make_export_with_members(
             "Service",
             vec![make_member("doWork", MemberKind::ClassMethod)],
@@ -908,7 +908,7 @@ mod tests {
         // import { Status as S } from './enums'
         // Object.values(S) → should map S back to Status and suppress all members
         let mut graph = build_graph(&[("/src/entry.ts", true), ("/src/enums.ts", false)]);
-        graph.modules[1].is_reachable = true;
+        graph.modules[1].set_reachable(true);
         graph.modules[1].exports = vec![make_export_with_members(
             "Status",
             vec![
@@ -958,7 +958,7 @@ mod tests {
     #[test]
     fn export_with_no_members_skipped() {
         let mut graph = build_graph(&[("/src/entry.ts", true), ("/src/utils.ts", false)]);
-        graph.modules[1].is_reachable = true;
+        graph.modules[1].set_reachable(true);
         graph.modules[1].exports = vec![make_export_with_members(
             "helper",
             vec![], // no members

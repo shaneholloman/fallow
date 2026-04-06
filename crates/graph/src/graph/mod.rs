@@ -324,15 +324,15 @@ mod tests {
     #[test]
     fn graph_entry_point_is_reachable() {
         let graph = build_simple_graph();
-        assert!(graph.modules[0].is_entry_point);
-        assert!(graph.modules[0].is_reachable);
+        assert!(graph.modules[0].is_entry_point());
+        assert!(graph.modules[0].is_reachable());
     }
 
     #[test]
     fn graph_imported_module_is_reachable() {
         let graph = build_simple_graph();
-        assert!(!graph.modules[1].is_entry_point);
-        assert!(graph.modules[1].is_reachable);
+        assert!(!graph.modules[1].is_entry_point());
+        assert!(graph.modules[1].is_reachable());
     }
 
     #[test]
@@ -510,17 +510,17 @@ mod tests {
             &files,
         );
 
-        assert!(graph.modules[1].is_reachable);
-        assert!(graph.modules[1].is_runtime_reachable);
+        assert!(graph.modules[1].is_reachable());
+        assert!(graph.modules[1].is_runtime_reachable());
         assert!(
-            !graph.modules[1].is_test_reachable,
+            !graph.modules[1].is_test_reachable(),
             "support roots should not make runtime-only modules test reachable"
         );
 
-        assert!(graph.modules[4].is_reachable);
-        assert!(graph.modules[4].is_test_reachable);
+        assert!(graph.modules[4].is_reachable());
+        assert!(graph.modules[4].is_test_reachable());
         assert!(
-            !graph.modules[4].is_runtime_reachable,
+            !graph.modules[4].is_runtime_reachable(),
             "test-only reachability should stay separate from runtime roots"
         );
     }
@@ -735,10 +735,10 @@ mod tests {
 
         let graph = ModuleGraph::build(&resolved_modules, &entry_points, &files);
 
-        assert!(graph.modules[0].is_reachable, "entry should be reachable");
-        assert!(graph.modules[1].is_reachable, "utils should be reachable");
+        assert!(graph.modules[0].is_reachable(), "entry should be reachable");
+        assert!(graph.modules[1].is_reachable(), "utils should be reachable");
         assert!(
-            !graph.modules[2].is_reachable,
+            !graph.modules[2].is_reachable(),
             "orphan should NOT be reachable"
         );
     }
@@ -834,7 +834,7 @@ mod tests {
         }];
 
         let graph = ModuleGraph::build(&resolved_modules, &entry_points, &files);
-        assert!(graph.modules[0].has_cjs_exports);
+        assert!(graph.modules[0].has_cjs_exports());
     }
 
     #[test]
@@ -1195,12 +1195,12 @@ mod tests {
         ];
 
         let graph = ModuleGraph::build(&resolved_modules, &entry_points, &files);
-        assert!(graph.modules[0].is_entry_point);
-        assert!(graph.modules[1].is_entry_point);
-        assert!(!graph.modules[2].is_entry_point);
+        assert!(graph.modules[0].is_entry_point());
+        assert!(graph.modules[1].is_entry_point());
+        assert!(!graph.modules[2].is_entry_point());
         // All should be reachable — shared is reached from main
-        assert!(graph.modules[0].is_reachable);
-        assert!(graph.modules[1].is_reachable);
-        assert!(graph.modules[2].is_reachable);
+        assert!(graph.modules[0].is_reachable());
+        assert!(graph.modules[1].is_reachable());
+        assert!(graph.modules[2].is_reachable());
     }
 }

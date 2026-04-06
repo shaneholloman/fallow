@@ -204,7 +204,7 @@ pub fn trace_export(
         .collect();
 
     let is_used = !export.references.is_empty();
-    let reason = if !module.is_reachable {
+    let reason = if !module.is_reachable() {
         "File is unreachable from any entry point".to_string()
     } else if is_used {
         format!(
@@ -216,7 +216,7 @@ pub fn trace_export(
                 format!(", re-exported through {} barrel(s)", re_export_chains.len())
             }
         )
-    } else if module.is_entry_point {
+    } else if module.is_entry_point() {
         "No internal references, but file is an entry point (export is externally accessible)"
             .to_string()
     } else if !re_export_chains.is_empty() {
@@ -235,8 +235,8 @@ pub fn trace_export(
             .unwrap_or(&module.path)
             .to_path_buf(),
         export_name: export_name.to_string(),
-        file_reachable: module.is_reachable,
-        is_entry_point: module.is_entry_point,
+        file_reachable: module.is_reachable(),
+        is_entry_point: module.is_entry_point(),
         is_used,
         direct_references,
         re_export_chains,
@@ -326,8 +326,8 @@ pub fn trace_file(graph: &ModuleGraph, root: &Path, file_path: &str) -> Option<F
             .strip_prefix(root)
             .unwrap_or(&module.path)
             .to_path_buf(),
-        is_reachable: module.is_reachable,
-        is_entry_point: module.is_entry_point,
+        is_reachable: module.is_reachable(),
+        is_entry_point: module.is_entry_point(),
         exports,
         imports_from,
         imported_by,

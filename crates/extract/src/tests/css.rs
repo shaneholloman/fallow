@@ -6,15 +6,21 @@ use fallow_types::extract::{ExportName, ImportedName, ModuleInfo};
 use crate::parse::parse_source_to_module;
 
 fn parse_css(source: &str, filename: &str) -> ModuleInfo {
-    parse_source_to_module(FileId(0), Path::new(filename), source, 0)
+    parse_source_to_module(FileId(0), Path::new(filename), source, 0, false)
 }
 
 fn parse_css_module(source: &str) -> ModuleInfo {
-    parse_source_to_module(FileId(0), Path::new("Component.module.css"), source, 0)
+    parse_source_to_module(
+        FileId(0),
+        Path::new("Component.module.css"),
+        source,
+        0,
+        false,
+    )
 }
 
 fn parse_css_non_module(source: &str) -> ModuleInfo {
-    parse_source_to_module(FileId(0), Path::new("styles.css"), source, 0)
+    parse_source_to_module(FileId(0), Path::new("styles.css"), source, 0, false)
 }
 
 #[test]
@@ -408,6 +414,7 @@ fn scss_module_extracts_class_names() {
         Path::new("Component.module.scss"),
         ".wrapper { .inner { color: red; } }",
         0,
+        false,
     );
     let named: Vec<String> = info
         .exports

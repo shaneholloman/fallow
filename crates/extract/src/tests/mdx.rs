@@ -20,6 +20,7 @@ Some markdown content here.
 <Button>Click me</Button>
 ",
         0,
+        false,
     );
     assert_eq!(info.imports.len(), 2);
     assert!(info.imports.iter().any(|i| i.source == "./Chart"));
@@ -38,6 +39,7 @@ fn extracts_mdx_exports() {
 Content here.
 ",
         0,
+        false,
     );
     assert!(!info.exports.is_empty());
 }
@@ -49,6 +51,7 @@ fn mdx_no_imports_returns_empty() {
         Path::new("simple.mdx"),
         "# Just Markdown\n\nNo imports here.\n",
         0,
+        false,
     );
     assert!(info.imports.is_empty());
     assert!(info.exports.is_empty());
@@ -70,6 +73,7 @@ fn mdx_multiline_import() {
 <Chart />
 ",
         0,
+        false,
     );
     assert_eq!(info.imports.len(), 3);
     assert!(info.imports.iter().all(|i| i.source == "./components"));
@@ -93,6 +97,7 @@ import { Footer } from './Footer'
 More content.
 ",
         0,
+        false,
     );
     assert_eq!(info.imports.len(), 2);
     assert!(info.imports.iter().any(|i| i.source == "./Header"));

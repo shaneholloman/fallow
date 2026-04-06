@@ -40,6 +40,8 @@ impl ModuleGraph {
     }
 
     /// Mark modules reachable from overall, runtime, and test entry points via BFS.
+    ///
+    /// Skips redundant BFS passes when entry point sets are identical or empty.
     pub(super) fn mark_reachable(
         &mut self,
         entry_points: &rustc_hash::FxHashSet<fallow_types::discover::FileId>,
@@ -48,13 +50,30 @@ impl ModuleGraph {
         total_capacity: usize,
     ) {
         let visited = self.collect_reachable(entry_points, total_capacity);
-        let runtime_visited = self.collect_reachable(runtime_entry_points, total_capacity);
-        let test_visited = self.collect_reachable(test_entry_points, total_capacity);
+
+        // Reuse the overall BFS result when runtime roots are the same set.
+        let runtime_same = runtime_entry_points == entry_points;
+        let runtime_visited = if runtime_same {
+            None
+        } else {
+            Some(self.collect_reachable(runtime_entry_points, total_capacity))
+        };
+
+        // Skip BFS entirely when there are no test entry points.
+        let test_visited = if test_entry_points.is_empty() {
+            None
+        } else {
+            Some(self.collect_reachable(test_entry_points, total_capacity))
+        };
 
         for (idx, module) in self.modules.iter_mut().enumerate() {
-            module.is_reachable = visited.contains(idx);
-            module.is_runtime_reachable = runtime_visited.contains(idx);
-            module.is_test_reachable = test_visited.contains(idx);
+            module.set_reachable(visited.contains(idx));
+            module.set_runtime_reachable(
+                runtime_visited
+                    .as_ref()
+                    .map_or_else(|| visited.contains(idx), |rv| rv.contains(idx)),
+            );
+            module.set_test_reachable(test_visited.as_ref().is_some_and(|tv| tv.contains(idx)));
         }
     }
 }

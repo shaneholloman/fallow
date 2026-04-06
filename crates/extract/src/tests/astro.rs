@@ -19,6 +19,7 @@ const title = "Hello";
 </Layout>
 "#,
         0,
+        false,
     );
     assert_eq!(info.imports.len(), 2);
     assert!(
@@ -40,6 +41,7 @@ fn astro_no_frontmatter_returns_empty() {
         Path::new("Simple.astro"),
         "<div>No frontmatter here</div>",
         0,
+        false,
     );
     assert!(info.imports.is_empty());
     assert!(info.exports.is_empty());
@@ -52,6 +54,7 @@ fn astro_empty_frontmatter() {
         Path::new("Empty.astro"),
         "---\n---\n<div>Content</div>",
         0,
+        false,
     );
     assert!(info.imports.is_empty());
 }
@@ -67,6 +70,7 @@ const mod = await import('../utils/helper');
 <div>{mod.value}</div>
 ",
         0,
+        false,
     );
     assert_eq!(info.dynamic_imports.len(), 1);
     assert_eq!(info.dynamic_imports[0].source, "../utils/helper");
@@ -83,6 +87,7 @@ export { default as Layout } from '../layouts/Layout.astro';
 <div>Content</div>
 ",
         0,
+        false,
     );
     assert_eq!(info.re_exports.len(), 1);
 }

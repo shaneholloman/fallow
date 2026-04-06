@@ -7,6 +7,10 @@ use fallow_types::discover::FileId;
 use fallow_types::extract::ExportName;
 
 /// A single module in the graph.
+///
+/// Boolean flags are packed into a `u8` to keep the struct at 96 bytes
+/// (down from 104 with 5 separate `bool` fields), improving cache line
+/// utilization in hot graph traversal loops.
 #[derive(Debug)]
 pub struct ModuleNode {
     /// Unique identifier for this module.
@@ -19,16 +23,117 @@ pub struct ModuleNode {
     pub exports: Vec<ExportSymbol>,
     /// Re-exports from this module (export { x } from './y', export * from './z').
     pub re_exports: Vec<ReExportEdge>,
+    /// Packed boolean flags (entry point, reachability, CJS).
+    pub(crate) flags: u8,
+}
+
+// Bit positions for packed boolean flags in `ModuleNode::flags`.
+const FLAG_ENTRY_POINT: u8 = 1 << 0;
+const FLAG_REACHABLE: u8 = 1 << 1;
+const FLAG_RUNTIME_REACHABLE: u8 = 1 << 2;
+const FLAG_TEST_REACHABLE: u8 = 1 << 3;
+const FLAG_CJS_EXPORTS: u8 = 1 << 4;
+
+impl ModuleNode {
     /// Whether this module is an entry point.
-    pub is_entry_point: bool,
+    #[inline]
+    pub const fn is_entry_point(&self) -> bool {
+        self.flags & FLAG_ENTRY_POINT != 0
+    }
+
     /// Whether this module is reachable from any entry point.
-    pub is_reachable: bool,
+    #[inline]
+    pub const fn is_reachable(&self) -> bool {
+        self.flags & FLAG_REACHABLE != 0
+    }
+
     /// Whether this module is reachable from a runtime/application root.
-    pub is_runtime_reachable: bool,
+    #[inline]
+    pub const fn is_runtime_reachable(&self) -> bool {
+        self.flags & FLAG_RUNTIME_REACHABLE != 0
+    }
+
     /// Whether this module is reachable from a test root.
-    pub is_test_reachable: bool,
+    #[inline]
+    pub const fn is_test_reachable(&self) -> bool {
+        self.flags & FLAG_TEST_REACHABLE != 0
+    }
+
     /// Whether this module has CJS exports (module.exports / exports.*).
-    pub has_cjs_exports: bool,
+    #[inline]
+    pub const fn has_cjs_exports(&self) -> bool {
+        self.flags & FLAG_CJS_EXPORTS != 0
+    }
+
+    /// Set whether this module is an entry point.
+    #[inline]
+    pub fn set_entry_point(&mut self, v: bool) {
+        if v {
+            self.flags |= FLAG_ENTRY_POINT;
+        } else {
+            self.flags &= !FLAG_ENTRY_POINT;
+        }
+    }
+
+    /// Set whether this module is reachable from any entry point.
+    #[inline]
+    pub fn set_reachable(&mut self, v: bool) {
+        if v {
+            self.flags |= FLAG_REACHABLE;
+        } else {
+            self.flags &= !FLAG_REACHABLE;
+        }
+    }
+
+    /// Set whether this module is reachable from a runtime/application root.
+    #[inline]
+    pub fn set_runtime_reachable(&mut self, v: bool) {
+        if v {
+            self.flags |= FLAG_RUNTIME_REACHABLE;
+        } else {
+            self.flags &= !FLAG_RUNTIME_REACHABLE;
+        }
+    }
+
+    /// Set whether this module is reachable from a test root.
+    #[inline]
+    pub fn set_test_reachable(&mut self, v: bool) {
+        if v {
+            self.flags |= FLAG_TEST_REACHABLE;
+        } else {
+            self.flags &= !FLAG_TEST_REACHABLE;
+        }
+    }
+
+    /// Set whether this module has CJS exports.
+    #[inline]
+    pub fn set_cjs_exports(&mut self, v: bool) {
+        if v {
+            self.flags |= FLAG_CJS_EXPORTS;
+        } else {
+            self.flags &= !FLAG_CJS_EXPORTS;
+        }
+    }
+
+    /// Build flags byte from individual booleans (used by graph construction).
+    #[inline]
+    pub(crate) fn flags_from(
+        is_entry_point: bool,
+        is_runtime_reachable: bool,
+        has_cjs_exports: bool,
+    ) -> u8 {
+        let mut f = 0u8;
+        if is_entry_point {
+            f |= FLAG_ENTRY_POINT;
+        }
+        if is_runtime_reachable {
+            f |= FLAG_RUNTIME_REACHABLE;
+        }
+        if has_cjs_exports {
+            f |= FLAG_CJS_EXPORTS;
+        }
+        f
+    }
 }
 
 /// A re-export edge, tracking which exports are forwarded from which module.
@@ -103,7 +208,7 @@ const _: () = assert!(std::mem::size_of::<ReExportEdge>() == 56);
 // `ModuleNode` is stored in a Vec — one per discovered file.
 // PathBuf has different sizes on Unix vs Windows, so restrict to Unix.
 #[cfg(all(target_pointer_width = "64", unix))]
-const _: () = assert!(std::mem::size_of::<ModuleNode>() == 104);
+const _: () = assert!(std::mem::size_of::<ModuleNode>() == 96);
 
 #[cfg(test)]
 mod tests {
@@ -308,24 +413,21 @@ mod tests {
 
     #[test]
     fn module_node_construction() {
-        let node = ModuleNode {
+        let mut node = ModuleNode {
             file_id: FileId(0),
             path: PathBuf::from("/project/src/index.ts"),
             edge_range: 0..5,
             exports: vec![],
             re_exports: vec![],
-            is_entry_point: true,
-            is_reachable: true,
-            is_runtime_reachable: true,
-            is_test_reachable: false,
-            has_cjs_exports: false,
+            flags: ModuleNode::flags_from(true, true, false),
         };
+        node.set_reachable(true);
         assert_eq!(node.file_id, FileId(0));
-        assert!(node.is_entry_point);
-        assert!(node.is_reachable);
-        assert!(node.is_runtime_reachable);
-        assert!(!node.is_test_reachable);
-        assert!(!node.has_cjs_exports);
+        assert!(node.is_entry_point());
+        assert!(node.is_reachable());
+        assert!(node.is_runtime_reachable());
+        assert!(!node.is_test_reachable());
+        assert!(!node.has_cjs_exports());
         assert_eq!(node.edge_range, 0..5);
     }
 
@@ -337,35 +439,28 @@ mod tests {
             edge_range: 0..0,
             exports: vec![],
             re_exports: vec![],
-            is_entry_point: false,
-            is_reachable: false,
-            is_runtime_reachable: false,
-            is_test_reachable: false,
-            has_cjs_exports: false,
+            flags: ModuleNode::flags_from(false, false, false),
         };
-        assert!(!node.is_entry_point);
-        assert!(!node.is_reachable);
-        assert!(!node.is_runtime_reachable);
-        assert!(!node.is_test_reachable);
+        assert!(!node.is_entry_point());
+        assert!(!node.is_reachable());
+        assert!(!node.is_runtime_reachable());
+        assert!(!node.is_test_reachable());
         assert!(node.edge_range.is_empty());
     }
 
     #[test]
     fn module_node_cjs_exports() {
-        let node = ModuleNode {
+        let mut node = ModuleNode {
             file_id: FileId(2),
             path: PathBuf::from("/project/lib/legacy.js"),
             edge_range: 3..7,
             exports: vec![],
             re_exports: vec![],
-            is_entry_point: false,
-            is_reachable: true,
-            is_runtime_reachable: true,
-            is_test_reachable: false,
-            has_cjs_exports: true,
+            flags: ModuleNode::flags_from(false, true, true),
         };
-        assert!(node.has_cjs_exports);
-        assert!(node.is_runtime_reachable);
+        node.set_reachable(true);
+        assert!(node.has_cjs_exports());
+        assert!(node.is_runtime_reachable());
         assert_eq!(node.edge_range.len(), 4);
     }
 
@@ -389,11 +484,7 @@ mod tests {
                 exported_name: "*".to_string(),
                 is_type_only: false,
             }],
-            is_entry_point: false,
-            is_reachable: true,
-            is_runtime_reachable: true,
-            is_test_reachable: false,
-            has_cjs_exports: false,
+            flags: ModuleNode::flags_from(false, true, false),
         };
         assert_eq!(node.exports.len(), 1);
         assert_eq!(node.re_exports.len(), 1);

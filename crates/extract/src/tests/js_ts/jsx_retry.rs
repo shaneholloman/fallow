@@ -9,7 +9,7 @@ use crate::parse::parse_source_to_module;
 
 /// Parse as a .js file (not .tsx) to test JSX retry fallback logic.
 fn parse_as_js(source: &str) -> ModuleInfo {
-    parse_source_to_module(FileId(0), Path::new("component.js"), source, 0)
+    parse_source_to_module(FileId(0), Path::new("component.js"), source, 0, false)
 }
 
 #[test]
@@ -91,6 +91,7 @@ import { Button } from './Button';
 const App = () => <Button>Hello</Button>;
 export default App;",
         0,
+        false,
     );
     assert!(
         info.imports.iter().any(|i| i.source == "react"),

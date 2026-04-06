@@ -243,11 +243,7 @@ fn build_module_node(
         edge_range,
         exports,
         re_exports: re_export_edges,
-        is_entry_point: entry_point_ids.contains(&file.id),
-        is_reachable: false,
-        is_runtime_reachable: false,
-        is_test_reachable: false,
-        has_cjs_exports,
+        flags: ModuleNode::flags_from(entry_point_ids.contains(&file.id), false, has_cjs_exports),
     }
 }
 

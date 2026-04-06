@@ -111,12 +111,18 @@ fn build_line_tables(files: &[FileData]) -> Vec<Vec<usize>> {
     files
         .iter()
         .map(|f| {
-            f.file_tokens
-                .source
-                .bytes()
-                .enumerate()
-                .filter_map(|(i, b)| if b == b'\n' { Some(i) } else { None })
-                .collect()
+            let src = f.file_tokens.source.as_bytes();
+            let mut lines = Vec::new();
+            let mut pos = 0;
+            while pos < src.len() {
+                if let Some(offset) = src[pos..].iter().position(|&b| b == b'\n') {
+                    lines.push(pos + offset);
+                    pos += offset + 1;
+                } else {
+                    break;
+                }
+            }
+            lines
         })
         .collect()
 }
@@ -218,18 +224,14 @@ fn build_clone_group(
 fn remove_line_subsets(clone_groups: Vec<CloneGroup>) -> Vec<CloneGroup> {
     // Build file path -> slot index mapping.
     let mut path_to_idx: FxHashMap<PathBuf, usize> = FxHashMap::default();
-    let mut next_idx = 0usize;
     for group in &clone_groups {
         for inst in &group.instances {
-            path_to_idx.entry(inst.file.clone()).or_insert_with(|| {
-                let idx = next_idx;
-                next_idx += 1;
-                idx
-            });
+            let next = path_to_idx.len();
+            path_to_idx.entry(inst.file.clone()).or_insert(next);
         }
     }
 
-    let mut index = IntervalIndex::new(next_idx);
+    let mut index = IntervalIndex::new(path_to_idx.len());
     let mut kept = Vec::new();
 
     for group in clone_groups {

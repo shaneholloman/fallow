@@ -325,7 +325,7 @@ pub(super) fn is_barrel_with_reachable_sources(
         .exports
         .iter()
         .any(|e| e.span.start != 0 || e.span.end != 0);
-    if has_local_exports || module.has_cjs_exports {
+    if has_local_exports || module.has_cjs_exports() {
         return false;
     }
 
@@ -335,7 +335,7 @@ pub(super) fn is_barrel_with_reachable_sources(
         graph
             .modules
             .get(source_idx)
-            .is_some_and(|m| m.is_reachable)
+            .is_some_and(|m| m.is_reachable())
     })
 }
 
@@ -1399,7 +1399,7 @@ mod tests {
             ("/src/index.ts", false),
             ("/src/utils.ts", false),
         ]);
-        graph.modules[2].is_reachable = true;
+        graph.modules[2].set_reachable(true);
         // Add a re-export
         graph.modules[1].re_exports = vec![ReExportEdge {
             source_file: FileId(2),
@@ -1427,14 +1427,14 @@ mod tests {
             ("/src/index.ts", false),
             ("/src/utils.ts", false),
         ]);
-        graph.modules[2].is_reachable = true;
+        graph.modules[2].set_reachable(true);
         graph.modules[1].re_exports = vec![ReExportEdge {
             source_file: FileId(2),
             imported_name: "helper".to_string(),
             exported_name: "helper".to_string(),
             is_type_only: false,
         }];
-        graph.modules[1].has_cjs_exports = true;
+        graph.modules[1].set_cjs_exports(true);
         assert!(!is_barrel_with_reachable_sources(&graph.modules[1], &graph));
     }
 
@@ -1446,7 +1446,7 @@ mod tests {
             ("/src/index.ts", false),
             ("/src/utils.ts", false),
         ]);
-        graph.modules[2].is_reachable = true;
+        graph.modules[2].set_reachable(true);
         // Only re-exports, no local exports, no CJS
         graph.modules[1].re_exports = vec![ReExportEdge {
             source_file: FileId(2),

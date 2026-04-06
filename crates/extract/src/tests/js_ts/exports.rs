@@ -1,6 +1,6 @@
 use fallow_types::extract::ExportName;
 
-use crate::tests::parse_ts as parse_source;
+use crate::tests::{parse_ts as parse_source, parse_ts_with_complexity};
 
 // -- Function overload deduplication --
 
@@ -34,7 +34,7 @@ fn line_offsets_populated_for_ts_file() {
 
 #[test]
 fn complexity_metrics_populated_for_functions() {
-    let info = parse_source(
+    let info = parse_ts_with_complexity(
         r"export function complex(x: number) {
             if (x > 0) {
                 for (let i = 0; i < x; i++) {

@@ -27,7 +27,7 @@ pub(in crate::graph) fn propagate_star_re_export(
 ) -> bool {
     // Entry point barrels with star re-exports: all source exports are
     // transitively exposed to external consumers — mark them as used.
-    if modules[barrel_idx].is_entry_point {
+    if modules[barrel_idx].is_entry_point() {
         return propagate_entry_point_star(modules, barrel_id, source_idx);
     }
 
@@ -166,7 +166,7 @@ pub(in crate::graph) fn propagate_named_re_export(
         // Entry point barrels' re-exports are consumed externally (not
         // tracked in the graph). Synthesize a ReExport reference so the
         // source export is correctly marked as used.
-        if modules[barrel_idx].is_entry_point {
+        if modules[barrel_idx].is_entry_point() {
             return propagate_entry_point_named(modules, barrel_id, source_idx, imported_name);
         }
         return false;

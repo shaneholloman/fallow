@@ -32,7 +32,7 @@ pub fn find_unused_files(
     graph
         .modules
         .iter()
-        .filter(|m| !m.is_reachable && !m.is_entry_point)
+        .filter(|m| !m.is_reachable() && !m.is_entry_point())
         .filter(|m| !is_declaration_file(&m.path))
         .filter(|m| !is_config_file(&m.path))
         .filter(|m| !is_html_file(&m.path))
@@ -70,7 +70,7 @@ fn has_reachable_importer(file_id: FileId, graph: &ModuleGraph) -> bool {
     }
     graph.reverse_deps[idx].iter().any(|&dep_id| {
         let dep_idx = dep_id.0 as usize;
-        dep_idx < graph.modules.len() && graph.modules[dep_idx].is_reachable
+        dep_idx < graph.modules.len() && graph.modules[dep_idx].is_reachable()
     })
 }
 
@@ -82,7 +82,7 @@ fn has_reachable_export_reference(file_id: FileId, graph: &ModuleGraph) -> bool 
                 graph
                     .modules
                     .get(reference.from_file.0 as usize)
-                    .is_some_and(|m| m.is_reachable)
+                    .is_some_and(|m| m.is_reachable())
             })
         })
     })

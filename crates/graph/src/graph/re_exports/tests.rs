@@ -881,7 +881,7 @@ fn entry_point_named_re_export_propagates_to_source() {
     let graph = ModuleGraph::build(&resolved_modules, &entry_points, &files);
 
     // The entry point itself should be marked as such
-    assert!(graph.modules[0].is_entry_point);
+    assert!(graph.modules[0].is_entry_point());
 
     // render.js exports should have synthetic references from the entry point
     let render_module = &graph.modules[1];

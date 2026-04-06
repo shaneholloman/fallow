@@ -629,17 +629,17 @@ mod tests {
         edges_spec: &[(usize, usize)],
     ) -> (Vec<ModuleNode>, Vec<usize>, Vec<Range<usize>>) {
         let modules: Vec<ModuleNode> = (0..file_count)
-            .map(|i| ModuleNode {
-                file_id: FileId(i as u32),
-                path: PathBuf::from(format!("/project/file{i}.ts")),
-                edge_range: 0..0,
-                exports: vec![],
-                re_exports: vec![],
-                is_entry_point: i == 0,
-                is_reachable: true,
-                is_runtime_reachable: true,
-                is_test_reachable: false,
-                has_cjs_exports: false,
+            .map(|i| {
+                let mut node = ModuleNode {
+                    file_id: FileId(i as u32),
+                    path: PathBuf::from(format!("/project/file{i}.ts")),
+                    edge_range: 0..0,
+                    exports: vec![],
+                    re_exports: vec![],
+                    flags: ModuleNode::flags_from(i == 0, true, false),
+                };
+                node.set_reachable(true);
+                node
             })
             .collect();
 

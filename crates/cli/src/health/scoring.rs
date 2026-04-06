@@ -139,7 +139,7 @@ fn compute_coverage_gaps(
     let mut exports = Vec::new();
 
     for node in &graph.modules {
-        if !node.is_runtime_reachable {
+        if !node.is_runtime_reachable() {
             continue;
         }
 
@@ -171,7 +171,7 @@ fn compute_coverage_gaps(
         runtime_paths.push((*path).clone());
 
         runtime_files += 1;
-        if node.is_test_reachable {
+        if node.is_test_reachable() {
             covered_files += 1;
         } else {
             files.push(UntestedFile {
@@ -193,7 +193,7 @@ fn compute_coverage_gaps(
                 graph
                     .modules
                     .get(reference.from_file.0 as usize)
-                    .is_some_and(|module| module.is_test_reachable)
+                    .is_some_and(|module| module.is_test_reachable())
             });
             if has_test_dependency {
                 continue;
@@ -362,7 +362,7 @@ pub(super) fn compute_file_scores(
         };
 
         // Track entry points for refactoring target exclusion
-        if node.is_entry_point {
+        if node.is_entry_point() {
             entry_points.insert((*path).clone());
         }
 

@@ -26,12 +26,13 @@ pub(super) fn rank_reduce(files: &[FileData]) -> Vec<Vec<u32>> {
         .map(|file| {
             file.hashed_tokens
                 .iter()
-                .map(|ht| {
-                    *hash_to_rank.entry(ht.hash).or_insert_with(|| {
+                .map(|ht| match hash_to_rank.entry(ht.hash) {
+                    std::collections::hash_map::Entry::Occupied(e) => *e.get(),
+                    std::collections::hash_map::Entry::Vacant(e) => {
                         let r = next_rank;
                         next_rank += 1;
-                        r
-                    })
+                        *e.insert(r)
+                    }
                 })
                 .collect()
         })

@@ -1,4 +1,4 @@
-use crate::tests::parse_ts as parse_source;
+use crate::tests::parse_ts_with_complexity as parse_source;
 
 // ── Cyclomatic & cognitive complexity (via ModuleInfo.complexity) ──
 

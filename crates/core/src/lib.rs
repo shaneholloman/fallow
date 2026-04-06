@@ -369,7 +369,7 @@ fn analyze_full(
         cache::CacheStore::load(&config.cache_dir)
     };
 
-    let parse_result = extract::parse_all_files(files, cache_store.as_ref());
+    let parse_result = extract::parse_all_files(files, cache_store.as_ref(), false);
     let modules = parse_result.modules;
     let cache_hits = parse_result.cache_hits;
     let cache_misses = parse_result.cache_misses;

@@ -89,7 +89,7 @@ pub fn execute_health(opts: &HealthOptions<'_>) -> Result<HealthResult, ExitCode
     } else {
         fallow_core::cache::CacheStore::load(&config.cache_dir)
     };
-    let parse_result = fallow_core::extract::parse_all_files(&files, cache.as_ref());
+    let parse_result = fallow_core::extract::parse_all_files(&files, cache.as_ref(), true);
 
     let ignore_set = build_ignore_set(&config.health.ignore);
     let changed_files = opts
