@@ -8,7 +8,9 @@ paths:
 Key modules:
 - `lib.rs` — Public API: `parse_all_files()` (parallel rayon dispatch, cache-aware), returns `ParseResult` with modules + cache hit/miss statistics
 - `visitor.rs` — Oxc AST visitor extracting imports, exports, re-exports, members, whole-object uses, dynamic import patterns, namespace destructuring (`const { a, b } = ns` → member accesses)
-- `sfc.rs` — Vue/Svelte SFC script extraction (HTML comment filtering, `<script src="...">` support, `lang="ts"`/`lang="tsx"` detection, handles `>` in quoted attributes)
+- `sfc.rs` — Vue/Svelte SFC script extraction (HTML comment filtering, `<script src="...">` support, `lang="ts"`/`lang="tsx"` detection, handles `>` in quoted attributes). Orchestrates template usage tracking via `sfc_template/`.
+- `sfc_template/` — Template-visible import usage tracking for Vue and Svelte. Framework-specific scanners (`vue.rs`, `svelte.rs`) parse template markup to detect import references (`{formatDate(x)}`, `utils.formatDate()`). Shared scanner (`scanners.rs`) and helpers (`shared.rs`) provide HTML tag/curly-section parsing and expression analysis.
+- `template_usage.rs` — `TemplateUsage` struct and `analyze_template_snippet()` for parsing template expressions via Oxc to extract used bindings and member accesses.
 - `astro.rs` — Astro frontmatter extraction between `---` delimiters
 - `mdx.rs` — MDX import/export extraction with multi-line brace tracking
 - `css.rs` — CSS Module class name extraction (`.module.css`/`.module.scss` → named exports)

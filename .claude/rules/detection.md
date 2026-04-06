@@ -12,7 +12,7 @@ Non-obvious implementation details for each detection feature. These are NOT dis
 
 ## Parser-level
 - **HTML entry files**: `<script src="...">` (module and classic) and `<link rel="stylesheet" href="...">` / `<link rel="modulepreload" href="...">` create graph edges from HTML to referenced assets. Remote URLs skipped. HTML comments stripped before matching. HTML files exempt from unused-file detection.
-- **Vue/Svelte SFC**: handles `>` in quoted attributes like `generic="T extends Foo<Bar>"`, `<script src="...">` external script support, HTML comment filtering
+- **Vue/Svelte SFC**: handles `>` in quoted attributes like `generic="T extends Foo<Bar>"`, `<script src="...">` external script support, HTML comment filtering. Template-visible import tracking: imports used only in markup (`{formatDate(x)}`, `utils.formatDate()`) are credited as used, preventing false unused-import/export reports. Vue credits only `<script setup>` bindings; Svelte excludes `context="module"` scripts from template visibility. Namespace member access in templates (`utils.formatDate`) tracked as member usage.
 - **Namespace destructuring**: `const { a, b } = ns` → member accesses. Rest patterns (`const { foo, ...rest } = ns`) → conservative whole-object use. Works with static/dynamic imports and require.
 - **Unused import bindings**: via `oxc_semantic` scope-aware symbol analysis. Dead imports don't count as references, improving unused-export precision.
 - **TypeScript overload dedup**: `export function foo(): void; export function foo(x: string): string;` treated as single export
