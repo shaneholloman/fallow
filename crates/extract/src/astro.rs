@@ -30,6 +30,8 @@ pub fn extract_astro_frontmatter(source: &str) -> Option<SfcScript> {
             is_jsx: false,
             byte_offset: body_match.map_or(0, |m| m.start()),
             src: None,
+            is_setup: false,
+            is_context_module: false,
         }
     })
 }

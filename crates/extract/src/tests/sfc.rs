@@ -43,6 +43,88 @@ const count = ref(0);
 }
 
 #[test]
+fn vue_script_setup_template_usage_clears_unused_import_binding() {
+    let info = parse_sfc(
+        r#"
+<script setup lang="ts">
+import { formatDate } from './utils';
+</script>
+<template><p>{{ formatDate(value) }}</p></template>
+"#,
+        "Comp.vue",
+    );
+
+    assert!(
+        !info
+            .unused_import_bindings
+            .contains(&"formatDate".to_string()),
+        "script setup template usage should mark formatDate as used, got: {:?}",
+        info.unused_import_bindings
+    );
+}
+
+#[test]
+fn vue_normal_script_import_is_not_visible_to_template() {
+    let info = parse_sfc(
+        r#"
+<script lang="ts">
+import { formatDate } from './utils';
+export default {};
+</script>
+<template><p>{{ formatDate(value) }}</p></template>
+"#,
+        "Comp.vue",
+    );
+
+    assert!(
+        info.unused_import_bindings
+            .contains(&"formatDate".to_string()),
+        "normal script imports should not get template credit, got: {:?}",
+        info.unused_import_bindings
+    );
+}
+
+#[test]
+fn vue_v_for_alias_shadows_import_name() {
+    let info = parse_sfc(
+        r#"
+<script setup lang="ts">
+import { item } from './utils';
+</script>
+<template><li v-for="item in items">{{ item }}</li></template>
+"#,
+        "Comp.vue",
+    );
+
+    assert!(
+        info.unused_import_bindings.contains(&"item".to_string()),
+        "v-for alias should shadow imported item, got: {:?}",
+        info.unused_import_bindings
+    );
+}
+
+#[test]
+fn vue_template_namespace_access_marks_member_usage() {
+    let info = parse_sfc(
+        r#"
+<script setup lang="ts">
+import * as utils from './utils';
+</script>
+<template><p>{{ utils.formatDate(value) }}</p></template>
+"#,
+        "Comp.vue",
+    );
+
+    assert!(
+        info.member_accesses
+            .iter()
+            .any(|access| access.object == "utils" && access.member == "formatDate"),
+        "template namespace access should be recorded, got: {:?}",
+        info.member_accesses
+    );
+}
+
+#[test]
 fn extracts_vue_both_scripts() {
     let info = parse_sfc(
         r#"
@@ -75,6 +157,91 @@ import { helper } from './utils';
     assert_eq!(info.imports.len(), 2);
     assert!(info.imports.iter().any(|i| i.source == "svelte"));
     assert!(info.imports.iter().any(|i| i.source == "./utils"));
+}
+
+#[test]
+fn svelte_template_usage_clears_unused_import_binding() {
+    let info = parse_sfc(
+        r#"
+<script lang="ts">
+import { formatDate } from './utils';
+</script>
+<p>{formatDate(value)}</p>
+"#,
+        "App.svelte",
+    );
+
+    assert!(
+        !info
+            .unused_import_bindings
+            .contains(&"formatDate".to_string()),
+        "template usage should mark formatDate as used, got: {:?}",
+        info.unused_import_bindings
+    );
+}
+
+#[test]
+fn svelte_unused_import_binding_is_preserved() {
+    let info = parse_sfc(
+        r#"
+<script lang="ts">
+import { formatDate } from './utils';
+</script>
+<p>Hello</p>
+"#,
+        "App.svelte",
+    );
+
+    assert!(
+        info.unused_import_bindings
+            .contains(&"formatDate".to_string()),
+        "unused script import should remain unused, got: {:?}",
+        info.unused_import_bindings
+    );
+}
+
+#[test]
+fn svelte_module_context_import_is_not_visible_to_template() {
+    let info = parse_sfc(
+        r#"
+<script context="module" lang="ts">
+import { formatDate } from './utils';
+</script>
+<script lang="ts">
+const value = new Date();
+</script>
+<p>{formatDate(value)}</p>
+"#,
+        "App.svelte",
+    );
+
+    assert!(
+        info.unused_import_bindings
+            .contains(&"formatDate".to_string()),
+        "module-context import should not get template credit, got: {:?}",
+        info.unused_import_bindings
+    );
+}
+
+#[test]
+fn svelte_template_namespace_access_marks_member_usage() {
+    let info = parse_sfc(
+        r#"
+<script lang="ts">
+import * as utils from './utils';
+</script>
+<p>{utils.formatDate(value)}</p>
+"#,
+        "App.svelte",
+    );
+
+    assert!(
+        info.member_accesses
+            .iter()
+            .any(|access| access.object == "utils" && access.member == "formatDate"),
+        "template namespace access should be recorded, got: {:?}",
+        info.member_accesses
+    );
 }
 
 #[test]

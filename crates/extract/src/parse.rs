@@ -25,7 +25,7 @@ pub fn parse_source_to_module(
     content_hash: u64,
 ) -> ModuleInfo {
     if is_sfc_file(path) {
-        return parse_sfc_to_module(file_id, source, content_hash);
+        return parse_sfc_to_module(file_id, path, source, content_hash);
     }
     if is_astro_file(path) {
         return parse_astro_to_module(file_id, source, content_hash);
@@ -221,7 +221,10 @@ fn has_public_tag(comment_text: &str) -> bool {
 /// references. A value import used only as a type annotation (`const x: Foo`)
 /// will have a type-position reference and will NOT appear in the unused list.
 /// This is correct: `import { Foo }` (without `type`) may be needed at runtime.
-fn compute_unused_import_bindings(program: &Program<'_>, imports: &[ImportInfo]) -> Vec<String> {
+pub fn compute_unused_import_bindings(
+    program: &Program<'_>,
+    imports: &[ImportInfo],
+) -> Vec<String> {
     use oxc_semantic::SemanticBuilder;
 
     // Skip files with no imports

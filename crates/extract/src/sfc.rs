@@ -10,7 +10,10 @@ use oxc_allocator::Allocator;
 use oxc_ast_visit::Visit;
 use oxc_parser::Parser;
 use oxc_span::SourceType;
+use rustc_hash::FxHashSet;
 
+use crate::parse::compute_unused_import_bindings;
+use crate::sfc_template::{SfcKind, collect_template_usage};
 use crate::visitor::ModuleInfoExtractor;
 use crate::{ImportInfo, ImportedName, ModuleInfo};
 use fallow_types::discover::FileId;
@@ -35,6 +38,14 @@ static SRC_ATTR_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(r#"(?:^|\s)src\s*=\s*["']([^"']+)["']"#).expect("valid regex")
 });
 
+/// Regex to detect Vue's bare `setup` attribute.
+static SETUP_ATTR_RE: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"(?:^|\s)setup(?:\s|$)").expect("valid regex"));
+
+/// Regex to detect Svelte's `context="module"` attribute.
+static CONTEXT_MODULE_ATTR_RE: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r#"context\s*=\s*["']module["']"#).expect("valid regex"));
+
 /// Regex to match HTML comments for filtering script blocks inside comments.
 static HTML_COMMENT_RE: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"(?s)<!--.*?-->").expect("valid regex"));
@@ -51,6 +62,10 @@ pub struct SfcScript {
     pub byte_offset: usize,
     /// External script source path from `src` attribute.
     pub src: Option<String>,
+    /// Whether this script is a Vue `<script setup>` block.
+    pub is_setup: bool,
+    /// Whether this script is a Svelte module-context block.
+    pub is_context_module: bool,
 }
 
 /// Extract all `<script>` blocks from a Vue/Svelte SFC source string.
@@ -86,12 +101,16 @@ pub fn extract_sfc_scripts(source: &str) -> Vec<SfcScript> {
                 .captures(attrs)
                 .and_then(|c| c.get(1))
                 .map(|m| m.as_str().to_string());
+            let is_setup = SETUP_ATTR_RE.is_match(attrs);
+            let is_context_module = CONTEXT_MODULE_ATTR_RE.is_match(attrs);
             SfcScript {
                 body,
                 is_typescript,
                 is_jsx,
                 byte_offset,
                 src,
+                is_setup,
+                is_context_module,
             }
         })
         .collect()
@@ -106,14 +125,42 @@ pub fn is_sfc_file(path: &Path) -> bool {
 }
 
 /// Parse an SFC file by extracting and combining all `<script>` blocks.
-pub(crate) fn parse_sfc_to_module(file_id: FileId, source: &str, content_hash: u64) -> ModuleInfo {
+pub(crate) fn parse_sfc_to_module(
+    file_id: FileId,
+    path: &Path,
+    source: &str,
+    content_hash: u64,
+) -> ModuleInfo {
     let scripts = extract_sfc_scripts(source);
+    let kind = sfc_kind(path);
+    let mut combined = empty_sfc_module(file_id, source, content_hash);
+    let mut template_visible_imports: FxHashSet<String> = FxHashSet::default();
 
+    for script in &scripts {
+        merge_script_into_module(kind, script, &mut combined, &mut template_visible_imports);
+    }
+
+    apply_template_usage(kind, source, &template_visible_imports, &mut combined);
+    combined.unused_import_bindings.sort_unstable();
+    combined.unused_import_bindings.dedup();
+
+    combined
+}
+
+fn sfc_kind(path: &Path) -> SfcKind {
+    if path.extension().and_then(|ext| ext.to_str()) == Some("vue") {
+        SfcKind::Vue
+    } else {
+        SfcKind::Svelte
+    }
+}
+
+fn empty_sfc_module(file_id: FileId, source: &str, content_hash: u64) -> ModuleInfo {
     // For SFC files, use string scanning for suppression comments since script block
     // byte offsets don't correspond to the original file positions.
     let suppressions = crate::suppress::parse_suppressions_from_source(source);
 
-    let mut combined = ModuleInfo {
+    ModuleInfo {
         file_id,
         exports: Vec::new(),
         imports: Vec::new(),
@@ -129,34 +176,91 @@ pub(crate) fn parse_sfc_to_module(file_id: FileId, source: &str, content_hash: u
         unused_import_bindings: Vec::new(),
         line_offsets: fallow_types::extract::compute_line_offsets(source),
         complexity: Vec::new(),
-    };
+    }
+}
 
-    for script in &scripts {
-        if let Some(src) = &script.src {
-            combined.imports.push(ImportInfo {
-                source: src.clone(),
-                imported_name: ImportedName::SideEffect,
-                local_name: String::new(),
-                is_type_only: false,
-                span: Span::default(),
-                source_span: Span::default(),
-            });
-        }
-
-        let source_type = match (script.is_typescript, script.is_jsx) {
-            (true, true) => SourceType::tsx(),
-            (true, false) => SourceType::ts(),
-            (false, true) => SourceType::jsx(),
-            (false, false) => SourceType::mjs(),
-        };
-        let allocator = Allocator::default();
-        let parser_return = Parser::new(&allocator, &script.body, source_type).parse();
-        let mut extractor = ModuleInfoExtractor::new();
-        extractor.visit_program(&parser_return.program);
-        extractor.merge_into(&mut combined);
+fn merge_script_into_module(
+    kind: SfcKind,
+    script: &SfcScript,
+    combined: &mut ModuleInfo,
+    template_visible_imports: &mut FxHashSet<String>,
+) {
+    if let Some(src) = &script.src {
+        add_script_src_import(combined, src);
     }
 
+    let allocator = Allocator::default();
+    let parser_return =
+        Parser::new(&allocator, &script.body, source_type_for_script(script)).parse();
+    let mut extractor = ModuleInfoExtractor::new();
+    extractor.visit_program(&parser_return.program);
+
+    let unused_import_bindings =
+        compute_unused_import_bindings(&parser_return.program, &extractor.imports);
     combined
+        .unused_import_bindings
+        .extend(unused_import_bindings.iter().cloned());
+
+    if is_template_visible_script(kind, script) {
+        template_visible_imports.extend(
+            extractor
+                .imports
+                .iter()
+                .filter(|import| !import.local_name.is_empty())
+                .map(|import| import.local_name.clone()),
+        );
+    }
+
+    extractor.merge_into(combined);
+}
+
+fn add_script_src_import(module: &mut ModuleInfo, source: &str) {
+    module.imports.push(ImportInfo {
+        source: source.to_string(),
+        imported_name: ImportedName::SideEffect,
+        local_name: String::new(),
+        is_type_only: false,
+        span: Span::default(),
+        source_span: Span::default(),
+    });
+}
+
+fn source_type_for_script(script: &SfcScript) -> SourceType {
+    match (script.is_typescript, script.is_jsx) {
+        (true, true) => SourceType::tsx(),
+        (true, false) => SourceType::ts(),
+        (false, true) => SourceType::jsx(),
+        (false, false) => SourceType::mjs(),
+    }
+}
+
+fn apply_template_usage(
+    kind: SfcKind,
+    source: &str,
+    template_visible_imports: &FxHashSet<String>,
+    combined: &mut ModuleInfo,
+) {
+    if template_visible_imports.is_empty() {
+        return;
+    }
+
+    let template_usage = collect_template_usage(kind, source, template_visible_imports);
+    combined
+        .unused_import_bindings
+        .retain(|binding| !template_usage.used_bindings.contains(binding));
+    combined
+        .member_accesses
+        .extend(template_usage.member_accesses);
+    combined
+        .whole_object_uses
+        .extend(template_usage.whole_object_uses);
+}
+
+fn is_template_visible_script(kind: SfcKind, script: &SfcScript) -> bool {
+    match kind {
+        SfcKind::Vue => script.is_setup,
+        SfcKind::Svelte => !script.is_context_module,
+    }
 }
 
 // SFC tests exercise regex-based HTML string extraction — no unsafe code,
@@ -406,7 +510,7 @@ import { ref } from 'vue';
 const count = ref(0);
 </script>
 "#;
-        let info = parse_sfc_to_module(FileId(0), source, 0);
+        let info = parse_sfc_to_module(FileId(0), Path::new("Dual.vue"), source, 0);
         // The non-setup block exports `version`
         assert!(
             info.exports
@@ -455,6 +559,7 @@ const count = ref(0);
     fn script_src_generates_side_effect_import() {
         let info = parse_sfc_to_module(
             FileId(0),
+            Path::new("External.vue"),
             r#"<script src="./external-logic.ts" lang="ts"></script>"#,
             0,
         );
@@ -471,7 +576,12 @@ const count = ref(0);
 
     #[test]
     fn parse_sfc_no_script_returns_empty_module() {
-        let info = parse_sfc_to_module(FileId(0), "<template><div>Hello</div></template>", 42);
+        let info = parse_sfc_to_module(
+            FileId(0),
+            Path::new("Empty.vue"),
+            "<template><div>Hello</div></template>",
+            42,
+        );
         assert!(info.imports.is_empty());
         assert!(info.exports.is_empty());
         assert_eq!(info.content_hash, 42);
@@ -480,7 +590,12 @@ const count = ref(0);
 
     #[test]
     fn parse_sfc_has_line_offsets() {
-        let info = parse_sfc_to_module(FileId(0), r#"<script lang="ts">const x = 1;</script>"#, 0);
+        let info = parse_sfc_to_module(
+            FileId(0),
+            Path::new("LineOffsets.vue"),
+            r#"<script lang="ts">const x = 1;</script>"#,
+            0,
+        );
         assert!(!info.line_offsets.is_empty());
     }
 
@@ -488,6 +603,7 @@ const count = ref(0);
     fn parse_sfc_has_suppressions() {
         let info = parse_sfc_to_module(
             FileId(0),
+            Path::new("Suppressions.vue"),
             r#"<script lang="ts">
 // fallow-ignore-file
 export const foo = 1;

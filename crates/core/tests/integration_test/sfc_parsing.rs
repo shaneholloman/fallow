@@ -39,16 +39,20 @@ fn vue_imports_mark_exports_used() {
         .map(|e| e.export_name.as_str())
         .collect();
 
-    // formatDate is imported inside App.vue <script>, should be used
+    // formatDate is only used from the Vue template via <script setup>
     assert!(
         !unused_export_names.contains(&"formatDate"),
-        "formatDate should be used (imported in App.vue), found: {unused_export_names:?}"
+        "formatDate should be used from the Vue template, found: {unused_export_names:?}"
     );
 
     // unusedUtil is not imported anywhere, should be unused
     assert!(
         unused_export_names.contains(&"unusedUtil"),
         "unusedUtil should be detected as unused export, found: {unused_export_names:?}"
+    );
+    assert!(
+        unused_export_names.contains(&"unusedImported"),
+        "unusedImported should stay unused even when imported in App.vue, found: {unused_export_names:?}"
     );
 }
 
@@ -91,16 +95,20 @@ fn svelte_imports_mark_exports_used() {
         .map(|e| e.export_name.as_str())
         .collect();
 
-    // formatName is imported inside App.svelte, should be used
+    // formatName is only used from the Svelte template via a namespace import
     assert!(
         !unused_export_names.contains(&"formatName"),
-        "formatName should be used (imported in App.svelte), found: {unused_export_names:?}"
+        "formatName should be used from the Svelte template, found: {unused_export_names:?}"
     );
 
     // unusedUtil is not imported anywhere, should be unused
     assert!(
         unused_export_names.contains(&"unusedUtil"),
         "unusedUtil should be detected as unused export, found: {unused_export_names:?}"
+    );
+    assert!(
+        unused_export_names.contains(&"unusedImported"),
+        "unusedImported should stay unused even when imported in App.svelte, found: {unused_export_names:?}"
     );
 }
 

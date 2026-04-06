@@ -1,13 +1,9 @@
-<script lang="ts">
+<script setup lang="ts">
 import { formatDate } from './utils';
-
-export default {
-    setup() {
-        return { formatDate };
-    }
-};
+import { unusedImported } from './utils';
+const date = new Date();
 </script>
 
 <template>
-    <div>App</div>
+    <div>{{ formatDate(date) }}</div>
 </template>

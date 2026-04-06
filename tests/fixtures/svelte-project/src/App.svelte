@@ -1,7 +1,8 @@
 <script lang="ts">
-import { formatName } from './utils';
+import * as utils from './utils';
+import { unusedImported } from './utils';
 
-let name = formatName('world');
+let name = 'world';
 </script>
 
-<h1>Hello {name}!</h1>
+<h1>Hello {utils.formatName(name)}!</h1>
