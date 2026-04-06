@@ -8,7 +8,7 @@ use super::ALLOWED_HIDDEN_DIRS;
 
 pub const SOURCE_EXTENSIONS: &[&str] = &[
     "ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs", "vue", "svelte", "astro", "mdx", "css",
-    "scss",
+    "scss", "html",
 ];
 
 /// Glob patterns for test/dev/story files excluded in production mode.
@@ -216,10 +216,15 @@ mod tests {
     #[test]
     fn source_extensions_exclude_non_source() {
         assert!(!SOURCE_EXTENSIONS.contains(&"json"));
-        assert!(!SOURCE_EXTENSIONS.contains(&"html"));
         assert!(!SOURCE_EXTENSIONS.contains(&"yaml"));
         assert!(!SOURCE_EXTENSIONS.contains(&"md"));
         assert!(!SOURCE_EXTENSIONS.contains(&"png"));
+        assert!(!SOURCE_EXTENSIONS.contains(&"htm"));
+    }
+
+    #[test]
+    fn source_extensions_include_html() {
+        assert!(SOURCE_EXTENSIONS.contains(&"html"));
     }
 
     // PRODUCTION_EXCLUDE_PATTERNS tests — verify actual glob matching, not just string contains
@@ -381,7 +386,6 @@ mod tests {
             std::fs::write(src.join("readme.md"), "# Hello").unwrap();
             std::fs::write(src.join("notes.txt"), "notes").unwrap();
             std::fs::write(src.join("logo.png"), [0u8; 8]).unwrap();
-            std::fs::write(src.join("page.html"), "<html></html>").unwrap();
 
             let config = make_config(dir.path().to_path_buf(), false);
             let files = discover_files(&config);

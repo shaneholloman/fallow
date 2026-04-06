@@ -2,7 +2,7 @@
 //!
 //! This crate handles all file parsing: JS/TS via Oxc, Vue/Svelte SFC extraction,
 //! Astro frontmatter, MDX import/export extraction, CSS Module class name extraction,
-//! and incremental caching of parse results.
+//! HTML asset reference extraction, and incremental caching of parse results.
 
 #![warn(missing_docs)]
 
@@ -10,6 +10,7 @@ pub mod astro;
 pub mod cache;
 pub(crate) mod complexity;
 pub mod css;
+pub mod html;
 pub mod mdx;
 mod parse;
 pub mod sfc;

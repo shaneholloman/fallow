@@ -11,6 +11,7 @@ paths:
 Non-obvious implementation details for each detection feature. These are NOT discoverable from reading the code alone.
 
 ## Parser-level
+- **HTML entry files**: `<script src="...">` (module and classic) and `<link rel="stylesheet" href="...">` / `<link rel="modulepreload" href="...">` create graph edges from HTML to referenced assets. Remote URLs skipped. HTML comments stripped before matching. HTML files exempt from unused-file detection.
 - **Vue/Svelte SFC**: handles `>` in quoted attributes like `generic="T extends Foo<Bar>"`, `<script src="...">` external script support, HTML comment filtering
 - **Namespace destructuring**: `const { a, b } = ns` → member accesses. Rest patterns (`const { foo, ...rest } = ns`) → conservative whole-object use. Works with static/dynamic imports and require.
 - **Unused import bindings**: via `oxc_semantic` scope-aware symbol analysis. Dead imports don't count as references, improving unused-export precision.

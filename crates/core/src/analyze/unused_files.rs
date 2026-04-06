@@ -5,7 +5,9 @@ use crate::graph::ModuleGraph;
 use crate::results::UnusedFile;
 use crate::suppress::{self, IssueKind, Suppression};
 
-use super::predicates::{is_barrel_with_reachable_sources, is_config_file, is_declaration_file};
+use super::predicates::{
+    is_barrel_with_reachable_sources, is_config_file, is_declaration_file, is_html_file,
+};
 
 /// Find files that are not reachable from any entry point.
 ///
@@ -15,6 +17,10 @@ use super::predicates::{is_barrel_with_reachable_sources, is_config_file, is_dec
 ///
 /// Configuration files (e.g., `babel.config.js`, `.eslintrc.js`, `knip.config.ts`)
 /// are also excluded because they are consumed by tools, not via imports.
+///
+/// HTML files are excluded because they are entry-point-like: nothing imports
+/// an HTML file, so "unused" is meaningless. They serve as app shells in
+/// Vite/Parcel-style projects and their referenced assets are tracked via edges.
 ///
 /// Barrel files (index.ts that only re-export) are excluded when their re-export
 /// sources are reachable — they serve an organizational purpose even if consumers
@@ -29,6 +35,7 @@ pub fn find_unused_files(
         .filter(|m| !m.is_reachable && !m.is_entry_point)
         .filter(|m| !is_declaration_file(&m.path))
         .filter(|m| !is_config_file(&m.path))
+        .filter(|m| !is_html_file(&m.path))
         .filter(|m| !is_barrel_with_reachable_sources(m, graph))
         // Safety net: don't report as unused if any reachable module imports this file.
         // BFS reachability should already cover this, but this guard catches edge cases

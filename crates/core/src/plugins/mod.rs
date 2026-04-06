@@ -36,6 +36,7 @@ const RUNTIME_ENTRY_POINT_PLUGINS: &[&str] = &[
     "nextjs",
     "nitro",
     "nuxt",
+    "parcel",
     "react-native",
     "react-router",
     "remix",

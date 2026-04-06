@@ -21,6 +21,8 @@ mod external_plugins;
 mod extraction;
 #[path = "integration_test/frameworks.rs"]
 mod frameworks;
+#[path = "integration_test/html_entry.rs"]
+mod html_entry;
 #[path = "integration_test/member_detection.rs"]
 mod member_detection;
 #[path = "integration_test/rules_config.rs"]

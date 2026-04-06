@@ -4,6 +4,19 @@ pub(super) fn is_declaration_file(path: &std::path::Path) -> bool {
     name.ends_with(".d.ts") || name.ends_with(".d.mts") || name.ends_with(".d.cts")
 }
 
+/// Check if a path is an HTML file.
+///
+/// HTML files are excluded from unused-file detection because they are entry-point-like:
+/// nothing imports an HTML file, so "unused" is meaningless for them. They serve as
+/// entry points in Vite/Parcel-style apps and their referenced assets are tracked
+/// via `<script src>` and `<link href>` edges.
+// Keep in sync with fallow_extract::html::is_html_file (crate boundary prevents sharing)
+pub(super) fn is_html_file(path: &std::path::Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|ext| ext == "html")
+}
+
 /// Check if a file is a configuration file consumed by tooling, not via imports.
 ///
 /// These files should never be reported as unused because they are loaded by
