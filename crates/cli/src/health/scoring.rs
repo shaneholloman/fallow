@@ -146,6 +146,17 @@ fn compute_coverage_gaps(
         let Some(path) = file_paths.get(&node.file_id) else {
             continue;
         };
+
+        // Skip non-executable assets (CSS/SCSS/LESS/SASS) from coverage gap analysis.
+        // These are runtime-reachable (imported by JS) but not testable in the same way.
+        if path
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|ext| matches!(ext, "css" | "scss" | "less" | "sass"))
+        {
+            continue;
+        }
+
         runtime_paths.push((*path).clone());
 
         runtime_files += 1;

@@ -43,6 +43,9 @@ pub fn build_health_args(params: &HealthParams) -> Vec<String> {
     if params.targets == Some(true) {
         args.push("--targets".to_string());
     }
+    if params.coverage_gaps == Some(true) {
+        args.push("--coverage-gaps".to_string());
+    }
     if params.score == Some(true) {
         args.push("--score".to_string());
     }

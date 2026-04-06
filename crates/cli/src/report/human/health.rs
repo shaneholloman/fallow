@@ -619,23 +619,58 @@ fn render_coverage_gaps(
     }
 
     if !gaps.exports.is_empty() {
-        let shown_exports = gaps.exports.len().min(MAX_FLAT_ITEMS);
         lines.push(format!("  {}", "Exports".dimmed()));
-        for item in &gaps.exports[..shown_exports] {
-            let file_str = relative_path(&item.path, root).display().to_string();
-            lines.push(format!(
-                "  {}:{} `{}`",
-                file_str.dimmed(),
-                item.line,
-                item.export_name,
-            ));
+
+        // Group exports by file for barrel file collapsing
+        let mut by_file: Vec<(&std::path::Path, Vec<&crate::health_types::UntestedExport>)> =
+            Vec::new();
+        for item in &gaps.exports {
+            if let Some(entry) = by_file
+                .last_mut()
+                .filter(|(p, _)| *p == item.path.as_path())
+            {
+                entry.1.push(item);
+            } else {
+                by_file.push((item.path.as_path(), vec![item]));
+            }
         }
-        if gaps.exports.len() > MAX_FLAT_ITEMS {
+
+        let mut shown = 0;
+        for (file_path, exports) in &by_file {
+            if shown >= MAX_FLAT_ITEMS {
+                break;
+            }
+            let file_str = relative_path(file_path, root).display().to_string();
+            if exports.len() > 10 {
+                // Barrel file: collapse into a single summary line
+                lines.push(format!(
+                    "  {} ({} untested re-exports)",
+                    file_str.dimmed(),
+                    exports.len(),
+                ));
+                shown += 1;
+            } else {
+                for item in exports {
+                    if shown >= MAX_FLAT_ITEMS {
+                        break;
+                    }
+                    lines.push(format!(
+                        "  {}:{} `{}`",
+                        file_str.dimmed(),
+                        item.line,
+                        item.export_name,
+                    ));
+                    shown += 1;
+                }
+            }
+        }
+        let total_exports = gaps.exports.len();
+        if total_exports > shown {
             lines.push(format!(
                 "  {}",
                 format!(
                     "... and {} more exports (--format json for full list)",
-                    gaps.exports.len() - MAX_FLAT_ITEMS
+                    total_exports - shown
                 )
                 .dimmed()
             ));
