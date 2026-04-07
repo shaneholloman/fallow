@@ -10,6 +10,70 @@ pub(super) struct ExportFix {
     export_name: String,
 }
 
+/// Check if a line (after stripping `export `) is a named export list like `{ A, B } ...`
+fn is_export_list(after_export: &str) -> bool {
+    let s = after_export.trim_start();
+    // `export type { ... }` also counts
+    let s = s.strip_prefix("type ").unwrap_or(s);
+    s.starts_with('{')
+}
+
+/// Given a line like `export { A, B, C } from "./mod";` or `export { A, B, C };`,
+/// remove the specified specifiers. If all specifiers are removed, returns `None`
+/// (meaning the entire line should be deleted). Otherwise returns the updated line.
+fn remove_specifiers_from_export_list(line: &str, names_to_remove: &[&str]) -> Option<String> {
+    let indent = line.len() - line.trim_start().len();
+    let trimmed = line.trim_start();
+
+    // Determine if it's `export type { ... }` or `export { ... }`
+    let after_export = trimmed.strip_prefix("export ").unwrap_or(trimmed);
+    let (type_prefix, after_type) = if after_export.starts_with("type {")
+        || after_export.starts_with("type\t{")
+        || after_export.starts_with("type  {")
+    {
+        (
+            "type ",
+            after_export.strip_prefix("type").unwrap().trim_start(),
+        )
+    } else {
+        ("", after_export)
+    };
+
+    // Find the braces
+    let brace_start = after_type.find('{')?;
+    let brace_end = after_type.find('}')?;
+
+    let inside = &after_type[brace_start + 1..brace_end];
+    let after_brace = &after_type[brace_end + 1..];
+
+    // Parse specifiers (handle `A as B` aliases)
+    let remaining: Vec<&str> = inside
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .filter(|spec| {
+            // Extract the exported name (the original name, before `as`)
+            let exported_name = if let Some((original, _alias)) = spec.split_once(" as ") {
+                original.trim()
+            } else {
+                spec.trim()
+            };
+            !names_to_remove.contains(&exported_name)
+        })
+        .collect();
+
+    if remaining.is_empty() {
+        // All specifiers removed — delete the entire line
+        None
+    } else {
+        let prefix = &line[..indent];
+        let new_inside = remaining.join(", ");
+        Some(format!(
+            "{prefix}export {type_prefix}{{ {new_inside} }}{after_brace}"
+        ))
+    }
+}
+
 /// Apply export fixes to source files, returning JSON fix entries.
 pub(super) fn apply_export_fixes(
     root: &Path,
@@ -79,8 +143,18 @@ pub(super) fn apply_export_fixes(
         // Sort by line index descending so we can work backwards without shifting indices
         line_fixes.sort_by(|a, b| b.line_idx.cmp(&a.line_idx));
 
-        // Deduplicate by line_idx (multiple exports on the same line shouldn't be applied twice)
-        line_fixes.dedup_by_key(|f| f.line_idx);
+        // Group fixes by line_idx (multiple specifiers on the same `export { ... }` line)
+        // We no longer dedup — instead we collect all export names per line.
+        let mut grouped: Vec<(usize, Vec<String>)> = Vec::new();
+        for fix in &line_fixes {
+            if let Some(last) = grouped.last_mut()
+                && last.0 == fix.line_idx
+            {
+                last.1.push(fix.export_name.clone());
+                continue;
+            }
+            grouped.push((fix.line_idx, vec![fix.export_name.clone()]));
+        }
 
         let relative = path.strip_prefix(root).unwrap_or(path);
 
@@ -104,28 +178,51 @@ pub(super) fn apply_export_fixes(
         } else {
             // Apply all fixes to a single in-memory copy
             let mut new_lines: Vec<String> = lines.iter().map(ToString::to_string).collect();
-            for fix in &line_fixes {
-                let line = &new_lines[fix.line_idx];
+            let mut lines_to_delete: Vec<usize> = Vec::new();
+
+            for (line_idx, names) in &grouped {
+                let line = &new_lines[*line_idx];
                 let indent = line.len() - line.trim_start().len();
                 let trimmed = line.trim_start();
                 let after_export = trimmed.strip_prefix("export ").unwrap_or(trimmed);
 
-                let replacement = if after_export.starts_with("default function ")
-                    || after_export.starts_with("default async function ")
-                    || after_export.starts_with("default class ")
-                    || after_export.starts_with("default abstract class ")
-                {
-                    // `export default function Foo` -> `function Foo`
-                    after_export
-                        .strip_prefix("default ")
-                        .unwrap_or(after_export)
+                // Check if this is an `export { ... }` or `export type { ... }` line
+                if is_export_list(after_export) {
+                    let name_refs: Vec<&str> = names.iter().map(String::as_str).collect();
+                    match remove_specifiers_from_export_list(line, &name_refs) {
+                        None => {
+                            // All specifiers removed — delete the entire line
+                            lines_to_delete.push(*line_idx);
+                        }
+                        Some(new_line) => {
+                            new_lines[*line_idx] = new_line;
+                        }
+                    }
                 } else {
-                    after_export
-                };
+                    let replacement = if after_export.starts_with("default function ")
+                        || after_export.starts_with("default async function ")
+                        || after_export.starts_with("default class ")
+                        || after_export.starts_with("default abstract class ")
+                    {
+                        // `export default function Foo` -> `function Foo`
+                        after_export
+                            .strip_prefix("default ")
+                            .unwrap_or(after_export)
+                    } else {
+                        after_export
+                    };
 
-                let prefix = &line[..indent];
-                new_lines[fix.line_idx] = format!("{prefix}{replacement}");
+                    let prefix = &line[..indent];
+                    new_lines[*line_idx] = format!("{prefix}{replacement}");
+                }
             }
+
+            // Delete lines marked for removal (reverse order to preserve indices)
+            lines_to_delete.sort_unstable();
+            for &idx in lines_to_delete.iter().rev() {
+                new_lines.remove(idx);
+            }
+
             let success = match write_fixed_content(path, &new_lines, line_ending, &content) {
                 Ok(()) => true,
                 Err(e) => {
@@ -649,8 +746,8 @@ mod tests {
 
         let content = std::fs::read_to_string(&file).unwrap();
         assert_eq!(content, "function foo() {}\n");
-        // Dedup means only one fix entry in the JSON
-        assert_eq!(fixes.len(), 1);
+        // Both fixes are reported (same line, same name)
+        assert_eq!(fixes.len(), 2);
     }
 
     #[test]
@@ -827,5 +924,166 @@ mod tests {
 
         let path_str = fixes[0]["path"].as_str().unwrap().replace('\\', "/");
         assert_eq!(path_str, "src/utils.ts");
+    }
+
+    #[test]
+    fn export_fix_removes_specifier_from_export_list() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let file = root.join("index.ts");
+        std::fs::write(&file, "export { Foo, Bar, Baz } from \"./mod\";\n").unwrap();
+
+        let export = make_export(&file, "Bar", 1);
+        let mut exports_by_file: FxHashMap<PathBuf, Vec<&UnusedExport>> = FxHashMap::default();
+        exports_by_file.insert(file.clone(), vec![&export]);
+
+        let mut fixes = Vec::new();
+        apply_export_fixes(
+            root,
+            &exports_by_file,
+            OutputFormat::Human,
+            false,
+            &mut fixes,
+        );
+
+        let content = std::fs::read_to_string(&file).unwrap();
+        assert_eq!(content, "export { Foo, Baz } from \"./mod\";\n");
+    }
+
+    #[test]
+    fn export_fix_removes_all_specifiers_deletes_line() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let file = root.join("index.ts");
+        std::fs::write(
+            &file,
+            "export { Foo, Bar } from \"./mod\";\nexport const x = 1;\n",
+        )
+        .unwrap();
+
+        let e1 = make_export(&file, "Foo", 1);
+        let e2 = make_export(&file, "Bar", 1);
+        let mut exports_by_file: FxHashMap<PathBuf, Vec<&UnusedExport>> = FxHashMap::default();
+        exports_by_file.insert(file.clone(), vec![&e1, &e2]);
+
+        let mut fixes = Vec::new();
+        apply_export_fixes(
+            root,
+            &exports_by_file,
+            OutputFormat::Human,
+            false,
+            &mut fixes,
+        );
+
+        let content = std::fs::read_to_string(&file).unwrap();
+        assert_eq!(content, "export const x = 1;\n");
+    }
+
+    #[test]
+    fn export_fix_handles_export_list_without_from() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let file = root.join("barrel.ts");
+        std::fs::write(
+            &file,
+            "const A = 1;\nconst B = 2;\nconst C = 3;\nexport { A, B, C };\n",
+        )
+        .unwrap();
+
+        let export = make_export(&file, "B", 4);
+        let mut exports_by_file: FxHashMap<PathBuf, Vec<&UnusedExport>> = FxHashMap::default();
+        exports_by_file.insert(file.clone(), vec![&export]);
+
+        let mut fixes = Vec::new();
+        apply_export_fixes(
+            root,
+            &exports_by_file,
+            OutputFormat::Human,
+            false,
+            &mut fixes,
+        );
+
+        let content = std::fs::read_to_string(&file).unwrap();
+        assert_eq!(
+            content,
+            "const A = 1;\nconst B = 2;\nconst C = 3;\nexport { A, C };\n"
+        );
+    }
+
+    #[test]
+    fn export_fix_handles_export_type_list() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let file = root.join("types.ts");
+        std::fs::write(&file, "export type { Foo, Bar } from \"./types\";\n").unwrap();
+
+        let export = make_export(&file, "Foo", 1);
+        let mut exports_by_file: FxHashMap<PathBuf, Vec<&UnusedExport>> = FxHashMap::default();
+        exports_by_file.insert(file.clone(), vec![&export]);
+
+        let mut fixes = Vec::new();
+        apply_export_fixes(
+            root,
+            &exports_by_file,
+            OutputFormat::Human,
+            false,
+            &mut fixes,
+        );
+
+        let content = std::fs::read_to_string(&file).unwrap();
+        assert_eq!(content, "export type { Bar } from \"./types\";\n");
+    }
+
+    #[test]
+    fn export_fix_handles_aliased_specifiers() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let file = root.join("index.ts");
+        std::fs::write(&file, "export { Foo as MyFoo, Bar } from \"./mod\";\n").unwrap();
+
+        // The export name reported by fallow is the original name
+        let export = make_export(&file, "Foo", 1);
+        let mut exports_by_file: FxHashMap<PathBuf, Vec<&UnusedExport>> = FxHashMap::default();
+        exports_by_file.insert(file.clone(), vec![&export]);
+
+        let mut fixes = Vec::new();
+        apply_export_fixes(
+            root,
+            &exports_by_file,
+            OutputFormat::Human,
+            false,
+            &mut fixes,
+        );
+
+        let content = std::fs::read_to_string(&file).unwrap();
+        assert_eq!(content, "export { Bar } from \"./mod\";\n");
+    }
+
+    #[test]
+    fn export_fix_single_specifier_list_deletes_line() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let file = root.join("index.ts");
+        std::fs::write(
+            &file,
+            "export { Foo } from \"./foo\";\nexport { Bar } from \"./bar\";\n",
+        )
+        .unwrap();
+
+        let export = make_export(&file, "Foo", 1);
+        let mut exports_by_file: FxHashMap<PathBuf, Vec<&UnusedExport>> = FxHashMap::default();
+        exports_by_file.insert(file.clone(), vec![&export]);
+
+        let mut fixes = Vec::new();
+        apply_export_fixes(
+            root,
+            &exports_by_file,
+            OutputFormat::Human,
+            false,
+            &mut fixes,
+        );
+
+        let content = std::fs::read_to_string(&file).unwrap();
+        assert_eq!(content, "export { Bar } from \"./bar\";\n");
     }
 }
