@@ -264,7 +264,7 @@ jobs:
           registry-url: 'https://registry.npmjs.org'
 
       - name: Ensure latest npm (for trusted publishing)
-        run: npm install -g npm@10
+        run: npm install -g npm@10.9.8 && npm install -g npm@latest
 
       - name: Download all npm binaries
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
