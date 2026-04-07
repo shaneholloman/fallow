@@ -22,10 +22,12 @@ fn compile_ignore_matchers(config: &ResolvedConfig) -> IgnoreMatchers<'_> {
     config
         .ignore_export_rules
         .iter()
-        .filter_map(|rule| {
-            globset::Glob::new(&rule.file)
-                .ok()
-                .map(|g| (g.compile_matcher(), rule.exports.as_slice()))
+        .filter_map(|rule| match globset::Glob::new(&rule.file) {
+            Ok(g) => Some((g.compile_matcher(), rule.exports.as_slice())),
+            Err(e) => {
+                tracing::warn!("invalid ignoreExports pattern '{}': {e}", rule.file);
+                None
+            }
         })
         .collect()
 }
@@ -39,13 +41,15 @@ fn compile_plugin_matchers(
     };
     pr.used_exports
         .iter()
-        .filter_map(|(file_pat, exports)| {
-            globset::Glob::new(file_pat).ok().map(|g| {
-                (
-                    g.compile_matcher(),
-                    exports.iter().map(String::as_str).collect::<Vec<_>>(),
-                )
-            })
+        .filter_map(|(file_pat, exports)| match globset::Glob::new(file_pat) {
+            Ok(g) => Some((
+                g.compile_matcher(),
+                exports.iter().map(String::as_str).collect::<Vec<_>>(),
+            )),
+            Err(e) => {
+                tracing::warn!("invalid used_exports pattern '{file_pat}': {e}");
+                None
+            }
         })
         .collect()
 }

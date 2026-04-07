@@ -1,11 +1,14 @@
 use std::path::Path;
 use std::process::ExitCode;
 
+use fallow_config::OutputFormat;
 use fallow_core::results::AnalysisResults;
 
 use super::counts::{CheckCounts, DupesCounts, REGRESSION_SCHEMA_VERSION, RegressionBaseline};
 use super::outcome::RegressionOutcome;
 use super::tolerance::Tolerance;
+
+use crate::error::emit_error;
 
 // ── Public API ──────────────────────────────────────────────────
 
@@ -67,6 +70,7 @@ pub fn save_regression_baseline(
     root: &Path,
     check_counts: Option<&CheckCounts>,
     dupes_counts: Option<&DupesCounts>,
+    output: OutputFormat,
 ) -> Result<(), ExitCode> {
     let baseline = RegressionBaseline {
         schema_version: REGRESSION_SCHEMA_VERSION,
@@ -77,16 +81,22 @@ pub fn save_regression_baseline(
         dupes: dupes_counts.cloned(),
     };
     let json = serde_json::to_string_pretty(&baseline).map_err(|e| {
-        eprintln!("Error: failed to serialize regression baseline: {e}");
-        ExitCode::from(2)
+        emit_error(
+            &format!("failed to serialize regression baseline: {e}"),
+            2,
+            output,
+        )
     })?;
     // Ensure parent directory exists
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
     std::fs::write(path, json).map_err(|e| {
-        eprintln!("Error: failed to save regression baseline: {e}");
-        ExitCode::from(2)
+        emit_error(
+            &format!("failed to save regression baseline: {e}"),
+            2,
+            output,
+        )
     })?;
     // Always print save confirmation — this is a side effect the user must verify,
     // not progress noise that --quiet should suppress.
@@ -110,7 +120,11 @@ pub fn save_regression_baseline(
 /// # Errors
 ///
 /// Returns an error if the config file cannot be read, updated, or written back.
-pub fn save_baseline_to_config(config_path: &Path, counts: &CheckCounts) -> Result<(), ExitCode> {
+pub fn save_baseline_to_config(
+    config_path: &Path,
+    counts: &CheckCounts,
+    output: OutputFormat,
+) -> Result<(), ExitCode> {
     // If the config file doesn't exist yet, create a minimal one
     let content = match std::fs::read_to_string(config_path) {
         Ok(c) => c,
@@ -123,11 +137,14 @@ pub fn save_baseline_to_config(config_path: &Path, counts: &CheckCounts) -> Resu
             }
         }
         Err(e) => {
-            eprintln!(
-                "Error: failed to read config file '{}': {e}",
-                config_path.display()
-            );
-            return Err(ExitCode::from(2));
+            return Err(emit_error(
+                &format!(
+                    "failed to read config file '{}': {e}",
+                    config_path.display()
+                ),
+                2,
+                output,
+            ));
         }
     };
 
@@ -140,19 +157,25 @@ pub fn save_baseline_to_config(config_path: &Path, counts: &CheckCounts) -> Resu
         update_json_regression(&content, &baseline)
     }
     .map_err(|e| {
-        eprintln!(
-            "Error: failed to update config file '{}': {e}",
-            config_path.display()
-        );
-        ExitCode::from(2)
+        emit_error(
+            &format!(
+                "failed to update config file '{}': {e}",
+                config_path.display()
+            ),
+            2,
+            output,
+        )
     })?;
 
     std::fs::write(config_path, updated).map_err(|e| {
-        eprintln!(
-            "Error: failed to write config file '{}': {e}",
-            config_path.display()
-        );
-        ExitCode::from(2)
+        emit_error(
+            &format!(
+                "failed to write config file '{}': {e}",
+                config_path.display()
+            ),
+            2,
+            output,
+        )
     })?;
 
     eprintln!(
@@ -659,7 +682,14 @@ mod tests {
             duplication_percentage: 2.5,
         };
 
-        save_regression_baseline(&path, dir.path(), Some(&counts), Some(&dupes)).unwrap();
+        save_regression_baseline(
+            &path,
+            dir.path(),
+            Some(&counts),
+            Some(&dupes),
+            OutputFormat::Human,
+        )
+        .unwrap();
         let loaded = load_regression_baseline(&path).unwrap();
 
         assert_eq!(loaded.schema_version, REGRESSION_SCHEMA_VERSION);
@@ -686,7 +716,8 @@ mod tests {
             ..CheckCounts::from_config_baseline(&fallow_config::RegressionBaseline::default())
         };
 
-        save_regression_baseline(&path, dir.path(), Some(&counts), None).unwrap();
+        save_regression_baseline(&path, dir.path(), Some(&counts), None, OutputFormat::Human)
+            .unwrap();
         let loaded = load_regression_baseline(&path).unwrap();
 
         assert!(loaded.check.is_some());
@@ -704,7 +735,8 @@ mod tests {
             ..CheckCounts::from_config_baseline(&fallow_config::RegressionBaseline::default())
         };
 
-        save_regression_baseline(&path, dir.path(), Some(&counts), None).unwrap();
+        save_regression_baseline(&path, dir.path(), Some(&counts), None, OutputFormat::Human)
+            .unwrap();
         assert!(path.exists());
     }
 
@@ -737,7 +769,7 @@ mod tests {
             unused_exports: 4,
             ..CheckCounts::from_config_baseline(&fallow_config::RegressionBaseline::default())
         };
-        save_baseline_to_config(&config_path, &counts).unwrap();
+        save_baseline_to_config(&config_path, &counts, OutputFormat::Human).unwrap();
 
         let content = std::fs::read_to_string(&config_path).unwrap();
         assert!(content.contains("\"regression\""));
@@ -758,7 +790,7 @@ mod tests {
             unused_exports: 4,
             ..CheckCounts::from_config_baseline(&fallow_config::RegressionBaseline::default())
         };
-        save_baseline_to_config(&config_path, &counts).unwrap();
+        save_baseline_to_config(&config_path, &counts, OutputFormat::Human).unwrap();
 
         let content = std::fs::read_to_string(&config_path).unwrap();
         assert!(content.contains("[regression.baseline]"));
@@ -777,7 +809,7 @@ mod tests {
             unused_files: 1,
             ..CheckCounts::from_config_baseline(&fallow_config::RegressionBaseline::default())
         };
-        save_baseline_to_config(&config_path, &counts).unwrap();
+        save_baseline_to_config(&config_path, &counts, OutputFormat::Human).unwrap();
 
         let content = std::fs::read_to_string(&config_path).unwrap();
         assert!(content.contains("\"regression\""));
@@ -793,7 +825,7 @@ mod tests {
             total_issues: 0,
             ..CheckCounts::from_config_baseline(&fallow_config::RegressionBaseline::default())
         };
-        save_baseline_to_config(&config_path, &counts).unwrap();
+        save_baseline_to_config(&config_path, &counts, OutputFormat::Human).unwrap();
 
         let content = std::fs::read_to_string(&config_path).unwrap();
         assert!(content.contains("[regression.baseline]"));
@@ -1024,7 +1056,14 @@ mod tests {
             unused_files: 5,
             ..CheckCounts::from_config_baseline(&fallow_config::RegressionBaseline::default())
         };
-        save_regression_baseline(&baseline_path, dir.path(), Some(&counts), None).unwrap();
+        save_regression_baseline(
+            &baseline_path,
+            dir.path(),
+            Some(&counts),
+            None,
+            OutputFormat::Human,
+        )
+        .unwrap();
 
         // Compare with empty results -> pass (improvement)
         let results = AnalysisResults::default();
@@ -1047,6 +1086,7 @@ mod tests {
                 clone_groups: 1,
                 duplication_percentage: 1.0,
             }),
+            OutputFormat::Human,
         )
         .unwrap();
 

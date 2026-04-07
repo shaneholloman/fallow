@@ -112,3 +112,224 @@ pub(super) fn build_suffix_array(text: &[i64]) -> Vec<usize> {
     tracing::trace!(n, iterations, "suffix array constructed");
     sa
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Verify the suffix array property: for every adjacent pair SA[i], SA[i+1],
+    /// the suffix starting at SA[i] is lexicographically <= the suffix at SA[i+1].
+    fn assert_suffix_order(text: &[i64], sa: &[usize]) {
+        assert_eq!(
+            text.len(),
+            sa.len(),
+            "suffix array length must equal text length"
+        );
+        for i in 1..sa.len() {
+            let suffix_a = &text[sa[i - 1]..];
+            let suffix_b = &text[sa[i]..];
+            assert!(
+                suffix_a <= suffix_b,
+                "suffix order violated at SA[{}]={} vs SA[{}]={}: {:?} > {:?}",
+                i - 1,
+                sa[i - 1],
+                i,
+                sa[i],
+                suffix_a,
+                suffix_b,
+            );
+        }
+    }
+
+    /// Verify the suffix array is a permutation of 0..n.
+    fn assert_is_permutation(sa: &[usize], n: usize) {
+        let mut seen = vec![false; n];
+        for &idx in sa {
+            assert!(idx < n, "suffix array index {idx} out of bounds (n={n})");
+            assert!(!seen[idx], "duplicate index {idx} in suffix array");
+            seen[idx] = true;
+        }
+    }
+
+    #[test]
+    fn empty_input() {
+        let sa = build_suffix_array(&[]);
+        assert!(sa.is_empty());
+    }
+
+    #[test]
+    fn single_element() {
+        let text = [42];
+        let sa = build_suffix_array(&text);
+        assert_eq!(sa, vec![0]);
+        assert_suffix_order(&text, &sa);
+    }
+
+    #[test]
+    fn two_elements_already_sorted() {
+        let text = [1, 2];
+        let sa = build_suffix_array(&text);
+        assert_is_permutation(&sa, 2);
+        assert_suffix_order(&text, &sa);
+    }
+
+    #[test]
+    fn two_elements_reverse_sorted() {
+        let text = [2, 1];
+        let sa = build_suffix_array(&text);
+        assert_is_permutation(&sa, 2);
+        assert_suffix_order(&text, &sa);
+        // Suffix at 1 is [1], suffix at 0 is [2, 1]. [1] < [2, 1].
+        assert_eq!(sa[0], 1);
+        assert_eq!(sa[1], 0);
+    }
+
+    #[test]
+    fn already_sorted_input() {
+        let text = [1, 2, 3, 4, 5];
+        let sa = build_suffix_array(&text);
+        assert_is_permutation(&sa, 5);
+        assert_suffix_order(&text, &sa);
+    }
+
+    #[test]
+    fn reverse_sorted_input() {
+        let text = [5, 4, 3, 2, 1];
+        let sa = build_suffix_array(&text);
+        assert_is_permutation(&sa, 5);
+        assert_suffix_order(&text, &sa);
+        // The shortest suffix [1] should come first.
+        assert_eq!(sa[0], 4);
+    }
+
+    #[test]
+    fn all_identical_elements() {
+        let text = [7, 7, 7, 7];
+        let sa = build_suffix_array(&text);
+        assert_is_permutation(&sa, 4);
+        assert_suffix_order(&text, &sa);
+        // With all identical values, shorter suffixes are "smaller":
+        // [7] < [7,7] < [7,7,7] < [7,7,7,7]
+        assert_eq!(sa, vec![3, 2, 1, 0]);
+    }
+
+    #[test]
+    fn mixed_input_banana_like() {
+        // Classic "banana" test adapted to i64: b=2, a=1, n=3 -> [2,1,3,1,3,1]
+        let text = [2, 1, 3, 1, 3, 1];
+        let sa = build_suffix_array(&text);
+        assert_is_permutation(&sa, 6);
+        assert_suffix_order(&text, &sa);
+    }
+
+    #[test]
+    fn input_with_negative_sentinels() {
+        // Sentinels are negative values used to separate file token sequences.
+        // They should sort before all non-negative tokens.
+        let text = [3, 1, 2, -1, 4, 5, -2, 6];
+        let sa = build_suffix_array(&text);
+        assert_is_permutation(&sa, 8);
+        assert_suffix_order(&text, &sa);
+        // The most negative value (-2) starts the lexicographically smallest suffix.
+        assert_eq!(sa[0], 6);
+    }
+
+    #[test]
+    fn single_sentinel_only() {
+        let text = [-1];
+        let sa = build_suffix_array(&text);
+        assert_eq!(sa, vec![0]);
+        assert_suffix_order(&text, &sa);
+    }
+
+    #[test]
+    fn multiple_sentinels_decreasing() {
+        // Simulates concatenation of three empty files: only sentinels.
+        let text = [-1, -2];
+        let sa = build_suffix_array(&text);
+        assert_is_permutation(&sa, 2);
+        assert_suffix_order(&text, &sa);
+        // [-2] < [-1, -2] because -2 < -1
+        assert_eq!(sa[0], 1);
+        assert_eq!(sa[1], 0);
+    }
+
+    #[test]
+    fn realistic_concatenated_files() {
+        // Two "files" [10, 20, 30] and [20, 30, 40] separated by sentinel -1.
+        let text = [10, 20, 30, -1, 20, 30, 40];
+        let sa = build_suffix_array(&text);
+        assert_is_permutation(&sa, 7);
+        assert_suffix_order(&text, &sa);
+    }
+
+    #[test]
+    fn repeated_pattern() {
+        // "abab" pattern: triggers the prefix-doubling loop multiple times.
+        let text = [1, 2, 1, 2];
+        let sa = build_suffix_array(&text);
+        assert_is_permutation(&sa, 4);
+        assert_suffix_order(&text, &sa);
+    }
+
+    #[test]
+    fn large_input_stress() {
+        // Verify correctness property on a larger input that exercises
+        // multiple iterations of the prefix-doubling loop.
+        let text: Vec<i64> = (0..256).map(|i| i64::from(i % 17)).collect();
+        let sa = build_suffix_array(&text);
+        assert_is_permutation(&sa, 256);
+        assert_suffix_order(&text, &sa);
+    }
+
+    #[test]
+    fn large_identical_stress() {
+        // All-identical larger input: worst case for rank convergence.
+        let text = vec![42i64; 128];
+        let sa = build_suffix_array(&text);
+        assert_is_permutation(&sa, 128);
+        assert_suffix_order(&text, &sa);
+        // Shorter suffixes must come first.
+        for (i, &pos) in sa.iter().enumerate() {
+            assert_eq!(pos, 127 - i);
+        }
+    }
+
+    #[test]
+    fn alternating_sentinels_and_tokens() {
+        // token, sentinel, token, sentinel pattern.
+        let text = [5, -1, 5, -2];
+        let sa = build_suffix_array(&text);
+        assert_is_permutation(&sa, 4);
+        assert_suffix_order(&text, &sa);
+    }
+
+    #[test]
+    fn all_same_with_trailing_sentinel() {
+        // Common pattern: file of identical tokens followed by a sentinel.
+        let text = [3, 3, 3, -1];
+        let sa = build_suffix_array(&text);
+        assert_is_permutation(&sa, 4);
+        assert_suffix_order(&text, &sa);
+        // The sentinel is the smallest value, so its suffix comes first.
+        assert_eq!(sa[0], 3);
+    }
+
+    #[test]
+    fn suffix_array_is_inverse_of_rank() {
+        // For any valid suffix array, rank[sa[i]] == i.
+        let text = [4, 2, 3, 1, 5];
+        let sa = build_suffix_array(&text);
+        let n = text.len();
+        let mut rank = vec![0usize; n];
+        for i in 0..n {
+            rank[sa[i]] = i;
+        }
+        for i in 0..n {
+            assert_eq!(
+                sa[rank[i]], i,
+                "rank/sa inverse property violated at position {i}"
+            );
+        }
+    }
+}

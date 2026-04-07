@@ -16,6 +16,7 @@ mod check;
 mod codeowners;
 mod combined;
 mod dupes;
+mod error;
 mod explain;
 mod fix;
 mod health;
@@ -32,6 +33,7 @@ mod watch;
 
 use check::{CheckOptions, IssueFilters, TraceOptions};
 use dupes::{DupesMode, DupesOptions};
+use error::emit_error;
 use health::{HealthOptions, SortBy};
 use list::ListOptions;
 
@@ -534,25 +536,7 @@ impl EffortFilter {
     }
 }
 
-// ── Structured error output ──────────────────────────────────────
-
-/// Emit an error as structured JSON on stdout when `--format json` is active,
-/// then return the given exit code. For non-JSON formats, emit to stderr as usual.
-fn emit_error(message: &str, exit_code: u8, output: fallow_config::OutputFormat) -> ExitCode {
-    if matches!(output, fallow_config::OutputFormat::Json) {
-        let error_obj = serde_json::json!({
-            "error": true,
-            "message": message,
-            "exit_code": exit_code,
-        });
-        if let Ok(json) = serde_json::to_string_pretty(&error_obj) {
-            println!("{json}");
-        }
-    } else {
-        eprintln!("Error: {message}");
-    }
-    ExitCode::from(exit_code)
-}
+// See `error.rs` — `emit_error` is re-exported via `use error::emit_error`.
 
 // ── Environment variable helpers ─────────────────────────────────
 

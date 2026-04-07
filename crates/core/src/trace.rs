@@ -170,7 +170,7 @@ pub fn trace_export(
             );
             ExportReference {
                 from_file: from_path,
-                kind: format_reference_kind(&r.kind),
+                kind: format_reference_kind(r.kind),
             }
         })
         .collect();
@@ -269,7 +269,7 @@ pub fn trace_file(graph: &ModuleGraph, root: &Path, file_path: &str) -> Option<F
                     );
                     ExportReference {
                         from_file: from_path,
-                        kind: format_reference_kind(&r.kind),
+                        kind: format_reference_kind(r.kind),
                     }
                 })
                 .collect(),
@@ -378,7 +378,7 @@ pub fn trace_dependency(graph: &ModuleGraph, root: &Path, package_name: &str) ->
     }
 }
 
-fn format_reference_kind(kind: &ReferenceKind) -> String {
+fn format_reference_kind(kind: ReferenceKind) -> String {
     match kind {
         ReferenceKind::NamedImport => "named import".to_string(),
         ReferenceKind::DefaultImport => "default import".to_string(),

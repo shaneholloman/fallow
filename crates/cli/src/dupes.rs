@@ -7,7 +7,7 @@ use fallow_core::duplicates::DuplicationReport;
 use crate::baseline::{DuplicationBaselineData, filter_new_clone_groups, recompute_stats};
 use crate::check::get_changed_files;
 use crate::report;
-use crate::{emit_error, load_config};
+use crate::{error::emit_error, load_config};
 
 #[derive(Clone, Copy, clap::ValueEnum)]
 pub enum DupesMode {
@@ -15,6 +15,17 @@ pub enum DupesMode {
     Mild,
     Weak,
     Semantic,
+}
+
+impl From<fallow_config::DetectionMode> for DupesMode {
+    fn from(mode: fallow_config::DetectionMode) -> Self {
+        match mode {
+            fallow_config::DetectionMode::Strict => Self::Strict,
+            fallow_config::DetectionMode::Mild => Self::Mild,
+            fallow_config::DetectionMode::Weak => Self::Weak,
+            fallow_config::DetectionMode::Semantic => Self::Semantic,
+        }
+    }
 }
 
 pub struct DupesOptions<'a> {

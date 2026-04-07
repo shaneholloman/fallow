@@ -7,6 +7,7 @@ paths:
 
 Key modules:
 - `main.rs` — CLI definition (clap) + command dispatch
+- `error.rs` — Structured error output (`emit_error`): JSON on stdout when `--format json`, stderr otherwise
 - `audit.rs` — Audit command: combined dead-code + complexity + duplication for changed files, verdict (pass/warn/fail)
 - `check.rs` — Analysis pipeline, tracing, filtering, output
 - `dupes.rs` — Duplication detection, baseline, cross-reference

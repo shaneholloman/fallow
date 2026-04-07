@@ -9,6 +9,7 @@ use fallow_config::{OutputFormat, ResolvedConfig};
 
 use crate::baseline::{HealthBaselineData, filter_new_health_findings, filter_new_health_targets};
 use crate::check::{get_changed_files, resolve_workspace_filter};
+use crate::error::emit_error;
 pub use crate::health_types::*;
 use crate::load_config;
 use crate::report;
@@ -126,6 +127,7 @@ pub fn execute_health(opts: &HealthOptions<'_>) -> Result<HealthResult, ExitCode
             load_path,
             &mut findings,
             &config.root,
+            opts.output,
         )?)
     } else {
         None
@@ -149,6 +151,7 @@ pub fn execute_health(opts: &HealthOptions<'_>) -> Result<HealthResult, ExitCode
             changed_files.as_ref(),
             ws_root.as_deref(),
             &ignore_set,
+            opts.output,
         )?
     } else {
         (None, None, None)
@@ -182,7 +185,14 @@ pub fn execute_health(opts: &HealthOptions<'_>) -> Result<HealthResult, ExitCode
     );
 
     if let Some(save_path) = opts.save_baseline {
-        save_health_baseline(save_path, &findings, &targets, &config.root, opts.quiet)?;
+        save_health_baseline(
+            save_path,
+            &findings,
+            &targets,
+            &config.root,
+            opts.quiet,
+            opts.output,
+        )?;
     }
 
     // Compute vital signs (always needed for report summary)
@@ -264,11 +274,10 @@ fn compute_filtered_file_scores(
     changed_files: Option<&rustc_hash::FxHashSet<std::path::PathBuf>>,
     ws_root: Option<&std::path::Path>,
     ignore_set: &globset::GlobSet,
+    output: OutputFormat,
 ) -> Result<FileScoreResult, ExitCode> {
-    let analysis_output = fallow_core::analyze_with_parse_result(config, modules).map_err(|e| {
-        eprintln!("Error: analysis failed: {e}");
-        ExitCode::from(2)
-    })?;
+    let analysis_output = fallow_core::analyze_with_parse_result(config, modules)
+        .map_err(|e| emit_error(&format!("analysis failed: {e}"), 2, output))?;
     match compute_file_scores(modules, file_paths, changed_files, analysis_output) {
         Ok(mut output) => {
             if let Some(ws) = ws_root {
@@ -460,10 +469,7 @@ fn save_snapshot(
             }
             Ok(())
         }
-        Err(e) => {
-            eprintln!("Error: {e}");
-            Err(ExitCode::from(2))
-        }
+        Err(e) => Err(emit_error(&e, 2, opts.output)),
     }
 }
 
@@ -671,23 +677,28 @@ fn save_health_baseline(
     targets: &[RefactoringTarget],
     config_root: &std::path::Path,
     quiet: bool,
+    output: OutputFormat,
 ) -> Result<(), ExitCode> {
     let baseline = HealthBaselineData::from_findings(findings, targets, config_root);
     match serde_json::to_string_pretty(&baseline) {
         Ok(json) => {
             if let Err(e) = std::fs::write(save_path, json) {
-                eprintln!("Error: failed to save health baseline: {e}");
-                return Err(ExitCode::from(2));
+                return Err(emit_error(
+                    &format!("failed to save health baseline: {e}"),
+                    2,
+                    output,
+                ));
             }
             if !quiet {
                 eprintln!("Saved health baseline to {}", save_path.display());
             }
             Ok(())
         }
-        Err(e) => {
-            eprintln!("Error: failed to serialize health baseline: {e}");
-            Err(ExitCode::from(2))
-        }
+        Err(e) => Err(emit_error(
+            &format!("failed to serialize health baseline: {e}"),
+            2,
+            output,
+        )),
     }
 }
 
@@ -696,15 +707,12 @@ fn load_health_baseline(
     baseline_path: &std::path::Path,
     findings: &mut Vec<HealthFinding>,
     root: &std::path::Path,
+    output: OutputFormat,
 ) -> Result<HealthBaselineData, ExitCode> {
-    let json = std::fs::read_to_string(baseline_path).map_err(|e| {
-        eprintln!("Error: failed to read health baseline: {e}");
-        ExitCode::from(2)
-    })?;
-    let baseline: HealthBaselineData = serde_json::from_str(&json).map_err(|e| {
-        eprintln!("Error: failed to parse health baseline: {e}");
-        ExitCode::from(2)
-    })?;
+    let json = std::fs::read_to_string(baseline_path)
+        .map_err(|e| emit_error(&format!("failed to read health baseline: {e}"), 2, output))?;
+    let baseline: HealthBaselineData = serde_json::from_str(&json)
+        .map_err(|e| emit_error(&format!("failed to parse health baseline: {e}"), 2, output))?;
     *findings = filter_new_health_findings(std::mem::take(findings), &baseline, root);
     Ok(baseline)
 }

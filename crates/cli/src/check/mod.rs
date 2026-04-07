@@ -5,9 +5,10 @@ use fallow_config::{OutputFormat, ResolvedConfig};
 use fallow_core::results::AnalysisResults;
 
 use crate::baseline::{BaselineData, filter_new_issues};
+use crate::error::emit_error;
+use crate::load_config;
 use crate::regression::{self, RegressionOpts, RegressionOutcome};
 use crate::report;
-use crate::{emit_error, load_config};
 
 mod filtering;
 mod output;
@@ -238,8 +239,13 @@ pub fn execute_check(opts: &CheckOptions<'_>) -> Result<CheckResult, ExitCode> {
     opts.filters.apply(&mut results);
 
     // Baseline handling
-    if let Some(exit) = handle_baseline(&mut results, opts.save_baseline, opts.baseline, opts.quiet)
-    {
+    if let Some(exit) = handle_baseline(
+        &mut results,
+        opts.save_baseline,
+        opts.baseline,
+        opts.quiet,
+        opts.output,
+    ) {
         return Err(exit);
     }
 
@@ -261,7 +267,13 @@ pub fn execute_check(opts: &CheckOptions<'_>) -> Result<CheckResult, ExitCode> {
     let just_saved_baseline = match opts.regression_opts.save_target {
         regression::SaveRegressionTarget::File(save_path) => {
             let counts = regression::CheckCounts::from_results(&results);
-            regression::save_regression_baseline(save_path, opts.root, Some(&counts), None)?;
+            regression::save_regression_baseline(
+                save_path,
+                opts.root,
+                Some(&counts),
+                None,
+                opts.output,
+            )?;
             Some(counts)
         }
         regression::SaveRegressionTarget::Config => {
@@ -273,7 +285,7 @@ pub fn execute_check(opts: &CheckOptions<'_>) -> Result<CheckResult, ExitCode> {
                 },
                 |explicit| explicit.clone(),
             );
-            regression::save_baseline_to_config(&config_path, &counts)?;
+            regression::save_baseline_to_config(&config_path, &counts, opts.output)?;
             Some(counts)
         }
         regression::SaveRegressionTarget::None => None,
@@ -413,6 +425,7 @@ fn handle_baseline(
     save_path: Option<&std::path::Path>,
     load_path: Option<&std::path::Path>,
     quiet: bool,
+    output: OutputFormat,
 ) -> Option<ExitCode> {
     // Save baseline if requested
     if let Some(baseline_path) = save_path {
@@ -420,16 +433,22 @@ fn handle_baseline(
         match serde_json::to_string_pretty(&baseline_data) {
             Ok(json) => {
                 if let Err(e) = std::fs::write(baseline_path, json) {
-                    eprintln!("Error: failed to save baseline: {e}");
-                    return Some(ExitCode::from(2));
+                    return Some(emit_error(
+                        &format!("failed to save baseline: {e}"),
+                        2,
+                        output,
+                    ));
                 }
                 if !quiet {
                     eprintln!("Baseline saved to {}", baseline_path.display());
                 }
             }
             Err(e) => {
-                eprintln!("Error: failed to serialize baseline: {e}");
-                return Some(ExitCode::from(2));
+                return Some(emit_error(
+                    &format!("failed to serialize baseline: {e}"),
+                    2,
+                    output,
+                ));
             }
         }
     }
@@ -445,13 +464,19 @@ fn handle_baseline(
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error: failed to parse baseline: {e}");
-                    return Some(ExitCode::from(2));
+                    return Some(emit_error(
+                        &format!("failed to parse baseline: {e}"),
+                        2,
+                        output,
+                    ));
                 }
             },
             Err(e) => {
-                eprintln!("Error: failed to read baseline: {e}");
-                return Some(ExitCode::from(2));
+                return Some(emit_error(
+                    &format!("failed to read baseline: {e}"),
+                    2,
+                    output,
+                ));
             }
         }
     }

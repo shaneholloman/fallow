@@ -1,3 +1,4 @@
+use crate::error::emit_error;
 use crate::health_types::{FileHealthScore, HotspotEntry, HotspotSummary};
 
 use super::HealthOptions;
@@ -15,19 +16,19 @@ fn fetch_churn_data(
     use fallow_core::churn;
 
     if !churn::is_git_repo(opts.root) {
-        eprintln!("Error: hotspot analysis requires a git repository");
+        let _ = emit_error("hotspot analysis requires a git repository", 2, opts.output);
         return None;
     }
 
     let since_input = opts.since.unwrap_or("6m");
     if let Err(e) = crate::validate::validate_no_control_chars(since_input, "--since") {
-        eprintln!("Error: {e}");
+        let _ = emit_error(&e, 2, opts.output);
         return None;
     }
     let since = match churn::parse_since(since_input) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("Error: invalid --since: {e}");
+            let _ = emit_error(&format!("invalid --since: {e}"), 2, opts.output);
             return None;
         }
     };

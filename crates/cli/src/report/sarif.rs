@@ -521,7 +521,7 @@ pub(super) fn print_grouped_sarif(
     root: &Path,
     rules: &RulesConfig,
     resolver: &OwnershipResolver,
-) {
+) -> ExitCode {
     let mut sarif = build_sarif(results, root, rules);
 
     // Post-process each result to inject the owner property.
@@ -552,7 +552,7 @@ pub(super) fn print_grouped_sarif(
         }
     }
 
-    let _ = emit_json(&sarif, "SARIF");
+    emit_json(&sarif, "SARIF")
 }
 
 #[expect(

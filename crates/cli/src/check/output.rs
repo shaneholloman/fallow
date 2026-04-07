@@ -4,7 +4,7 @@ use fallow_config::{OutputFormat, ResolvedConfig};
 use fallow_core::graph::ModuleGraph;
 
 use super::TraceOptions;
-use crate::{emit_error, report};
+use crate::{error::emit_error, report};
 
 // ── Trace output ─────────────────────────────────────────────────
 

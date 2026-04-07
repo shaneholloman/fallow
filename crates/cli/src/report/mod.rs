@@ -225,13 +225,9 @@ fn print_grouped_results(
             markdown::print_grouped_markdown(groups, ctx.root);
             ExitCode::SUCCESS
         }
-        OutputFormat::Sarif => {
-            sarif::print_grouped_sarif(original, ctx.root, ctx.rules, resolver);
-            ExitCode::SUCCESS
-        }
+        OutputFormat::Sarif => sarif::print_grouped_sarif(original, ctx.root, ctx.rules, resolver),
         OutputFormat::CodeClimate => {
-            codeclimate::print_grouped_codeclimate(original, ctx.root, ctx.rules, resolver);
-            ExitCode::SUCCESS
+            codeclimate::print_grouped_codeclimate(original, ctx.root, ctx.rules, resolver)
         }
         OutputFormat::Badge => {
             eprintln!("Error: badge format is only supported for the health command");

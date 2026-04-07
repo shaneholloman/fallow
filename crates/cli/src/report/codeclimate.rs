@@ -450,7 +450,7 @@ pub(super) fn print_grouped_codeclimate(
     root: &Path,
     rules: &RulesConfig,
     resolver: &OwnershipResolver,
-) {
+) -> ExitCode {
     let mut value = build_codeclimate(results, root, rules);
 
     if let Some(issues) = value.as_array_mut() {
@@ -467,7 +467,7 @@ pub(super) fn print_grouped_codeclimate(
         }
     }
 
-    let _ = emit_json(&value, "CodeClimate");
+    emit_json(&value, "CodeClimate")
 }
 
 /// Compute graduated severity for health findings based on threshold ratio.

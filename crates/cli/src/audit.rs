@@ -6,7 +6,7 @@ use fallow_config::OutputFormat;
 
 use crate::check::{CheckOptions, CheckResult, IssueFilters, TraceOptions};
 use crate::dupes::{DupesMode, DupesOptions, DupesResult};
-use crate::emit_error;
+use crate::error::emit_error;
 use crate::health::{HealthOptions, HealthResult, SortBy};
 use crate::report;
 use crate::report::plural;

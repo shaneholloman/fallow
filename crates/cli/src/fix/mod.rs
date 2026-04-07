@@ -28,7 +28,7 @@ pub fn run_fix(opts: &FixOptions<'_>) -> ExitCode {
     if !opts.dry_run && !opts.yes && !std::io::stdin().is_terminal() {
         let msg = "fix command requires --yes (or --force) in non-interactive environments. \
                    Use --dry-run to preview changes first, then pass --yes to confirm.";
-        return super::emit_error(msg, 2, opts.output);
+        return crate::error::emit_error(msg, 2, opts.output);
     }
 
     let config = match super::load_config(
@@ -47,7 +47,7 @@ pub fn run_fix(opts: &FixOptions<'_>) -> ExitCode {
     let results = match fallow_core::analyze(&config) {
         Ok(r) => r,
         Err(e) => {
-            return super::emit_error(&format!("Analysis error: {e}"), 2, opts.output);
+            return crate::error::emit_error(&format!("Analysis error: {e}"), 2, opts.output);
         }
     };
 

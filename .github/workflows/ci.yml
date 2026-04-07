@@ -20,6 +20,7 @@ jobs:
   check:
     name: Check (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     permissions:
       contents: read
     strategy:
@@ -49,6 +50,7 @@ jobs:
   doc:
     name: Documentation
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
@@ -62,6 +64,7 @@ jobs:
   typos:
     name: Typos
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: read
     steps:
@@ -71,6 +74,7 @@ jobs:
   vscode:
     name: VS Code Extension
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
@@ -86,11 +90,25 @@ jobs:
       - run: cd editors/vscode && pnpm install --frozen-lockfile
       - run: cd editors/vscode && pnpm lint
       - run: cd editors/vscode && pnpm build
+      - run: cd editors/vscode && pnpm test:unit
       - run: cd editors/vscode && pnpm package
+
+  test-gitlab-ci:
+    name: Test GitLab CI scripts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Run GitLab CI jq unit tests
+        run: bash ci/tests/run.sh
 
   audit:
     name: Security Audit
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
@@ -101,6 +119,7 @@ jobs:
   deny:
     name: Cargo Deny
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
@@ -110,6 +129,7 @@ jobs:
   shear:
     name: Unused Dependencies
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
@@ -120,6 +140,7 @@ jobs:
   zizmor:
     name: Actions Security
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
@@ -130,6 +151,7 @@ jobs:
   msrv:
     name: MSRV (1.92)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
     steps:

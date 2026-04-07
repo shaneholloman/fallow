@@ -2,7 +2,7 @@ use std::process::ExitCode;
 
 use fallow_config::{OutputFormat, discover_workspaces};
 
-use crate::emit_error;
+use crate::error::emit_error;
 
 // ── Workspace filtering ──────────────────────────────────────────
 

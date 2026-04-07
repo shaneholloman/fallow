@@ -9,7 +9,7 @@ use crate::dupes::{DupesMode, DupesOptions, DupesResult};
 use crate::health::{HealthOptions, HealthResult, SortBy};
 use crate::regression;
 use crate::report;
-use crate::{AnalysisKind, emit_error};
+use crate::{AnalysisKind, error::emit_error, load_config};
 
 pub struct CombinedOptions<'a> {
     pub root: &'a std::path::Path,
@@ -108,6 +108,18 @@ pub fn run_combined(opts: &CombinedOptions<'_>) -> ExitCode {
 
     // Run dupes (duplication analysis)
     if opts.run_dupes {
+        let dupes_cfg = match load_config(
+            opts.root,
+            opts.config_path,
+            opts.output,
+            opts.no_cache,
+            opts.threads,
+            opts.production,
+            opts.quiet,
+        ) {
+            Ok(c) => c.duplicates,
+            Err(code) => return code,
+        };
         let dupes_opts = DupesOptions {
             root: opts.root,
             config_path: opts.config_path,
@@ -115,12 +127,12 @@ pub fn run_combined(opts: &CombinedOptions<'_>) -> ExitCode {
             no_cache: opts.no_cache,
             threads: opts.threads,
             quiet: opts.quiet,
-            mode: DupesMode::Mild,
-            min_tokens: 50,
-            min_lines: 5,
-            threshold: 0.0,
-            skip_local: false,
-            cross_language: false,
+            mode: DupesMode::from(dupes_cfg.mode),
+            min_tokens: dupes_cfg.min_tokens,
+            min_lines: dupes_cfg.min_lines,
+            threshold: dupes_cfg.threshold,
+            skip_local: dupes_cfg.skip_local,
+            cross_language: dupes_cfg.cross_language,
             top: None,
             baseline_path: None,
             save_baseline_path: None,

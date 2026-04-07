@@ -168,7 +168,7 @@ pub struct ExportSymbol {
 }
 
 /// A reference to an export from another file.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct SymbolReference {
     /// The file that references this export.
     pub from_file: FileId,
@@ -180,7 +180,7 @@ pub struct SymbolReference {
 }
 
 /// How an export is referenced.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReferenceKind {
     /// A named import (`import { foo }`).
     NamedImport,
@@ -244,10 +244,10 @@ mod tests {
     }
 
     #[test]
-    fn reference_kind_clone() {
+    fn reference_kind_copy() {
         let original = ReferenceKind::NamespaceImport;
-        let cloned = original.clone();
-        assert_eq!(original, cloned);
+        let copied = original;
+        assert_eq!(original, copied);
     }
 
     #[test]
@@ -273,18 +273,18 @@ mod tests {
     }
 
     #[test]
-    fn symbol_reference_clone_preserves_all_fields() {
+    fn symbol_reference_copy_preserves_all_fields() {
         let reference = SymbolReference {
             from_file: FileId(7),
             kind: ReferenceKind::ReExport,
             import_span: oxc_span::Span::new(5, 25),
         };
-        let cloned = reference.clone();
-        // Verify the clone matches the original
-        assert_eq!(cloned.from_file, reference.from_file);
-        assert_eq!(cloned.kind, reference.kind);
-        assert_eq!(cloned.import_span.start, reference.import_span.start);
-        assert_eq!(cloned.import_span.end, reference.import_span.end);
+        let copied = reference;
+        // Verify the copy matches the original
+        assert_eq!(copied.from_file, reference.from_file);
+        assert_eq!(copied.kind, reference.kind);
+        assert_eq!(copied.import_span.start, reference.import_span.start);
+        assert_eq!(copied.import_span.end, reference.import_span.end);
     }
 
     // ── ReExportEdge ────────────────────────────────────────────
