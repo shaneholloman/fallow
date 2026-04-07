@@ -430,3 +430,173 @@ fn nuxt_src_dir_config_reduces_false_positives() {
         "reachable nuxt srcDir aliased module should still report unused exports: {unused_export_names:?}"
     );
 }
+
+#[test]
+fn nuxt_default_scan_keeps_nested_plugin_index_but_not_nested_helpers() {
+    let root = fixture_path("nuxt-default-scan");
+    let config = create_config(root);
+    let results = fallow_core::analyze(&config).expect("analysis should succeed");
+
+    let unused_file_names: Vec<String> = results
+        .unused_files
+        .iter()
+        .map(|f| f.path.file_name().unwrap().to_string_lossy().to_string())
+        .collect();
+
+    for expected_unused in ["useHidden.ts", "format.ts", "helper.ts"] {
+        assert!(
+            unused_file_names.contains(&expected_unused.to_string()),
+            "{expected_unused} should stay unused because Nuxt does not scan nested helpers by default: {unused_file_names:?}"
+        );
+    }
+
+    assert!(
+        !unused_file_names.contains(&"index.ts".to_string()),
+        "nested plugin index.ts should stay reachable via Nuxt plugin scanning: {unused_file_names:?}"
+    );
+}
+
+#[test]
+fn nuxt_runtime_conventions_report_dead_named_exports_without_unused_file_noise() {
+    let root = fixture_path("nuxt-runtime-conventions");
+    let config = create_config(root);
+    let results = fallow_core::analyze(&config).expect("analysis should succeed");
+
+    let unused_file_names: Vec<String> = results
+        .unused_files
+        .iter()
+        .map(|f| f.path.file_name().unwrap().to_string_lossy().to_string())
+        .collect();
+    for expected_used in ["RootBadge.vue", "bootstrap.ts", "auth.ts", "logger.ts"] {
+        assert!(
+            !unused_file_names.contains(&expected_used.to_string()),
+            "{expected_used} should be kept alive by Nuxt runtime conventions: {unused_file_names:?}"
+        );
+    }
+
+    let unused_exports: Vec<(String, String)> = results
+        .unused_exports
+        .iter()
+        .map(|e| {
+            (
+                e.path.file_name().unwrap().to_string_lossy().to_string(),
+                e.export_name.clone(),
+            )
+        })
+        .collect();
+    for (file, export) in [
+        ("RootBadge.vue", "deadNamed"),
+        ("bootstrap.ts", "deadPluginHelper"),
+        ("auth.ts", "deadMiddlewareHelper"),
+        ("logger.ts", "deadServerMiddlewareHelper"),
+    ] {
+        assert!(
+            unused_exports
+                .iter()
+                .any(|(unused_file, unused_export)| unused_file == file && unused_export == export),
+            "{file}:{export} should be reported as unused, found: {unused_exports:?}"
+        );
+    }
+}
+
+#[test]
+fn nuxt_configured_runtime_paths_reduce_false_positives_and_keep_dead_exports_visible() {
+    let root = fixture_path("nuxt-config-runtime-paths");
+    let config = create_config(root);
+    let results = fallow_core::analyze(&config).expect("analysis should succeed");
+
+    let unused_file_names: Vec<String> = results
+        .unused_files
+        .iter()
+        .map(|f| f.path.file_name().unwrap().to_string_lossy().to_string())
+        .collect();
+    for expected_used in [
+        "FeatureCard.vue",
+        "plain-plugin.ts",
+        "object-plugin.ts",
+        "auth.ts",
+    ] {
+        assert!(
+            !unused_file_names.contains(&expected_used.to_string()),
+            "{expected_used} should be kept alive by configured Nuxt runtime paths: {unused_file_names:?}"
+        );
+    }
+
+    let unused_exports: Vec<(String, String)> = results
+        .unused_exports
+        .iter()
+        .map(|e| {
+            (
+                e.path.file_name().unwrap().to_string_lossy().to_string(),
+                e.export_name.clone(),
+            )
+        })
+        .collect();
+    for (file, export) in [
+        ("FeatureCard.vue", "deadFeatureNamed"),
+        ("plain-plugin.ts", "deadPlainPluginHelper"),
+        ("object-plugin.ts", "deadObjectPluginHelper"),
+        ("auth.ts", "deadAppMiddlewareHelper"),
+    ] {
+        assert!(
+            unused_exports
+                .iter()
+                .any(|(unused_file, unused_export)| unused_file == file && unused_export == export),
+            "{file}:{export} should be reported as unused, found: {unused_exports:?}"
+        );
+    }
+}
+
+#[test]
+fn nuxt_convention_exports_preserve_defaults_but_report_dead_helpers() {
+    let root = fixture_path("nuxt-convention-exports");
+    let config = create_config(root);
+    let results = fallow_core::analyze(&config).expect("analysis should succeed");
+
+    let unused_exports: Vec<(String, String)> = results
+        .unused_exports
+        .iter()
+        .map(|e| {
+            (
+                e.path.file_name().unwrap().to_string_lossy().to_string(),
+                e.export_name.clone(),
+            )
+        })
+        .collect();
+
+    for (file, export) in [
+        ("app.vue", "default"),
+        ("app.config.ts", "default"),
+        ("index.vue", "default"),
+        ("default.vue", "default"),
+        ("FancyCard.vue", "default"),
+        ("client.ts", "default"),
+        ("hello.ts", "default"),
+        ("custom.ts", "default"),
+    ] {
+        assert!(
+            !unused_exports
+                .iter()
+                .any(|(unused_file, unused_export)| unused_file == file && unused_export == export),
+            "{file}:{export} should be framework-used in Nuxt, found: {unused_exports:?}"
+        );
+    }
+
+    for (file, export) in [
+        ("app.vue", "unusedAppHelper"),
+        ("app.config.ts", "unusedConfigHelper"),
+        ("index.vue", "unusedPageHelper"),
+        ("default.vue", "unusedLayoutHelper"),
+        ("FancyCard.vue", "unusedCardHelper"),
+        ("client.ts", "unusedPluginHelper"),
+        ("hello.ts", "unusedRouteHelper"),
+        ("custom.ts", "unusedModuleHelper"),
+    ] {
+        assert!(
+            unused_exports
+                .iter()
+                .any(|(unused_file, unused_export)| unused_file == file && unused_export == export),
+            "{file}:{export} should still be reported as unused, found: {unused_exports:?}"
+        );
+    }
+}

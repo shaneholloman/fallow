@@ -167,6 +167,27 @@ import { vFocusTrap } from './directives';
 }
 
 #[test]
+fn vue_custom_directive_value_clears_unused_import_binding() {
+    let info = parse_sfc(
+        r#"
+<script setup lang="ts">
+import { tooltipText } from './utils';
+</script>
+<template><input v-tooltip="tooltipText" /></template>
+"#,
+        "Comp.vue",
+    );
+
+    assert!(
+        !info
+            .unused_import_bindings
+            .contains(&"tooltipText".to_string()),
+        "custom directive values should mark tooltipText as used, got: {:?}",
+        info.unused_import_bindings
+    );
+}
+
+#[test]
 fn vue_v_on_object_syntax_clears_unused_import_binding() {
     let info = parse_sfc(
         r#"
@@ -183,6 +204,59 @@ import { handlers } from './utils';
             .unused_import_bindings
             .contains(&"handlers".to_string()),
         "v-on object syntax should mark handlers as used, got: {:?}",
+        info.unused_import_bindings
+    );
+}
+
+#[test]
+fn vue_dynamic_directive_arguments_clear_unused_import_bindings() {
+    let info = parse_sfc(
+        r#"
+<script setup lang="ts">
+import { activeField, dynamicAttr, dynamicEvent, fieldMap, slotName } from './utils';
+</script>
+<template>
+  <button v-on:[dynamicEvent]="handleClick" />
+  <div v-bind:[dynamicAttr]="value" />
+  <section v-bind:[fieldMap[activeField]]="value" />
+  <List v-slot:[slotName]="{ slotName }">{{ slotName }}</List>
+</template>
+"#,
+        "Comp.vue",
+    );
+
+    for binding in [
+        "activeField",
+        "dynamicAttr",
+        "dynamicEvent",
+        "fieldMap",
+        "slotName",
+    ] {
+        assert!(
+            !info.unused_import_bindings.contains(&binding.to_string()),
+            "{binding} should be marked used via a dynamic directive argument, got: {:?}",
+            info.unused_import_bindings
+        );
+    }
+}
+
+#[test]
+fn vue_slot_default_initializer_clears_unused_import_binding() {
+    let info = parse_sfc(
+        r#"
+<script setup lang="ts">
+import { fallbackItem } from './utils';
+</script>
+<template><List v-slot="{ item = fallbackItem }">{{ item }}</List></template>
+"#,
+        "Comp.vue",
+    );
+
+    assert!(
+        !info
+            .unused_import_bindings
+            .contains(&"fallbackItem".to_string()),
+        "slot default initializers should mark fallbackItem as used, got: {:?}",
         info.unused_import_bindings
     );
 }

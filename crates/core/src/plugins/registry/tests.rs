@@ -787,6 +787,7 @@ fn process_config_result_merges_all_fields() {
     let mut aggregated = AggregatedPluginResult::default();
     let config_result = PluginResult {
         entry_patterns: vec!["src/routes/**/*.ts".to_string()],
+        used_exports: vec![("src/routes/**/*.ts".to_string(), vec!["loader".to_string()])],
         referenced_dependencies: vec!["lodash".to_string(), "axios".to_string()],
         always_used_files: vec!["setup.ts".to_string()],
         path_aliases: vec![],
@@ -798,6 +799,10 @@ fn process_config_result_merges_all_fields() {
     assert_eq!(aggregated.entry_patterns.len(), 1);
     assert_eq!(aggregated.entry_patterns[0].0, "src/routes/**/*.ts");
     assert_eq!(aggregated.entry_patterns[0].1, "test-plugin");
+
+    assert_eq!(aggregated.used_exports.len(), 1);
+    assert_eq!(aggregated.used_exports[0].0, "src/routes/**/*.ts");
+    assert_eq!(aggregated.used_exports[0].1, vec!["loader".to_string()]);
 
     assert_eq!(aggregated.referenced_dependencies.len(), 2);
     assert!(
@@ -829,6 +834,7 @@ fn process_config_result_accumulates_across_multiple_calls() {
 
     let result1 = PluginResult {
         entry_patterns: vec!["a.ts".to_string()],
+        used_exports: vec![("a.ts".to_string(), vec!["default".to_string()])],
         referenced_dependencies: vec!["dep-a".to_string()],
         always_used_files: vec![],
         path_aliases: vec![],
@@ -837,6 +843,7 @@ fn process_config_result_accumulates_across_multiple_calls() {
     };
     let result2 = PluginResult {
         entry_patterns: vec!["b.ts".to_string()],
+        used_exports: vec![("b.ts".to_string(), vec!["loader".to_string()])],
         referenced_dependencies: vec!["dep-b".to_string()],
         always_used_files: vec!["c.ts".to_string()],
         path_aliases: vec![],
@@ -853,6 +860,10 @@ fn process_config_result_accumulates_across_multiple_calls() {
     assert_eq!(aggregated.entry_patterns[0].1, "plugin-a");
     assert_eq!(aggregated.entry_patterns[1].0, "b.ts");
     assert_eq!(aggregated.entry_patterns[1].1, "plugin-b");
+
+    assert_eq!(aggregated.used_exports.len(), 2);
+    assert_eq!(aggregated.used_exports[0].0, "a.ts");
+    assert_eq!(aggregated.used_exports[1].0, "b.ts");
 
     // Verify referenced dependencies from both calls
     assert_eq!(aggregated.referenced_dependencies.len(), 2);
@@ -941,6 +952,10 @@ fn plugin_result_not_empty_when_any_field_set() {
     let fields: Vec<PluginResult> = vec![
         PluginResult {
             entry_patterns: vec!["src/**/*.ts".to_string()],
+            ..Default::default()
+        },
+        PluginResult {
+            used_exports: vec![("src/**/*.ts".to_string(), vec!["loader".to_string()])],
             ..Default::default()
         },
         PluginResult {

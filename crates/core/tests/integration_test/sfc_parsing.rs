@@ -56,6 +56,14 @@ fn vue_imports_mark_exports_used() {
         !unused_export_names.contains(&"handlers"),
         "handlers should be used from Vue v-on object syntax, found: {unused_export_names:?}"
     );
+    assert!(
+        !unused_export_names.contains(&"dynamicAttr"),
+        "dynamicAttr should be used from a Vue dynamic v-bind argument, found: {unused_export_names:?}"
+    );
+    assert!(
+        !unused_export_names.contains(&"dynamicEvent"),
+        "dynamicEvent should be used from a Vue dynamic v-on argument, found: {unused_export_names:?}"
+    );
 
     // unusedUtil is not imported anywhere, should be unused
     assert!(
@@ -97,6 +105,53 @@ fn vue_component_tags_mark_component_exports_used() {
             .any(|(file, export)| file == "GreetingCard.vue" && export == "unusedNamed"),
         "GreetingCard named dead export should still be reported: {unused_exports:?}"
     );
+}
+
+#[test]
+fn vue_template_edge_cases_mark_exports_used() {
+    let root = fixture_path("vue-template-edges");
+    let config = create_config(root);
+    let results = fallow_core::analyze(&config).expect("analysis should succeed");
+
+    let unused_exports: Vec<(String, String)> = results
+        .unused_exports
+        .iter()
+        .map(|e| {
+            (
+                e.path.file_name().unwrap().to_string_lossy().to_string(),
+                e.export_name.clone(),
+            )
+        })
+        .collect();
+
+    for (file, export) in [
+        ("utils.ts", "activeAttribute"),
+        ("utils.ts", "attributeSources"),
+        ("utils.ts", "fallbackItem"),
+        ("utils.ts", "message"),
+        ("utils.ts", "placement"),
+        ("utils.ts", "unusedImported"),
+        ("directives.ts", "vTooltip"),
+    ] {
+        assert!(
+            !unused_exports
+                .iter()
+                .any(|(unused_file, unused_export)| unused_file == file && unused_export == export),
+            "{file}:{export} should be preserved by Vue template usage, found: {unused_exports:?}"
+        );
+    }
+
+    for (file, export) in [
+        ("utils.ts", "unusedTemplateEdge"),
+        ("directives.ts", "unusedDirectiveHelper"),
+    ] {
+        assert!(
+            unused_exports
+                .iter()
+                .any(|(unused_file, unused_export)| unused_file == file && unused_export == export),
+            "{file}:{export} should still be reported as unused, found: {unused_exports:?}"
+        );
+    }
 }
 
 // ── Svelte SFC parsing ─────────────────────────────────────────

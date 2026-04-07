@@ -72,6 +72,8 @@ const SUPPORT_ENTRY_POINT_PLUGINS: &[&str] = &[
 pub struct PluginResult {
     /// Additional entry point glob patterns discovered from config.
     pub entry_patterns: Vec<String>,
+    /// Additional export-usage rules discovered from config.
+    pub used_exports: Vec<(String, Vec<String>)>,
     /// Dependencies referenced in config files (should not be flagged as unused).
     pub referenced_dependencies: Vec<String>,
     /// Additional files that are always considered used.
@@ -88,6 +90,7 @@ impl PluginResult {
     #[must_use]
     pub const fn is_empty(&self) -> bool {
         self.entry_patterns.is_empty()
+            && self.used_exports.is_empty()
             && self.referenced_dependencies.is_empty()
             && self.always_used_files.is_empty()
             && self.path_aliases.is_empty()

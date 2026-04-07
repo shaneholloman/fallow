@@ -4,9 +4,9 @@ use rustc_hash::FxHashSet;
 
 use crate::template_usage::TemplateUsage;
 
-use super::scanners::{scan_curly_section, scan_html_tag};
+use super::scanners::{scan_bracket_section, scan_curly_section, scan_html_tag};
 use super::shared::{
-    extract_pattern_binding_names, merge_component_tag_usage, merge_expression_usage,
+    merge_component_tag_usage, merge_expression_usage, merge_pattern_binding_usage,
     merge_statement_usage,
 };
 
@@ -122,7 +122,8 @@ fn apply_tag(
     let parsed = parse_tag(trimmed);
     mark_tag_usage(&parsed.name, imported_bindings, &current, usage);
 
-    let mut element_locals = Vec::new();
+    let mut v_for_locals = Vec::new();
+    let mut slot_locals = Vec::new();
     if let Some(value) = parsed
         .attrs
         .iter()
@@ -133,7 +134,12 @@ fn apply_tag(
         let binding = captures.name("binding").map_or("", |m| m.as_str()).trim();
         let source_expr = captures.name("source").map_or("", |m| m.as_str()).trim();
         merge_expression_usage(usage, source_expr, imported_bindings, &current);
-        element_locals.extend(extract_pattern_binding_names(binding));
+        v_for_locals.extend(merge_pattern_binding_usage(
+            usage,
+            binding,
+            imported_bindings,
+            &current,
+        ));
     }
 
     if let Some(value) = parsed
@@ -146,14 +152,27 @@ fn apply_tag(
         })
         .and_then(|attr| attr.value.as_deref())
     {
-        element_locals.extend(extract_pattern_binding_names(value));
+        slot_locals.extend(merge_pattern_binding_usage(
+            usage,
+            value,
+            imported_bindings,
+            &current,
+        ));
     }
 
-    let mut attr_locals = current;
+    let mut element_locals = v_for_locals.clone();
+    element_locals.extend(slot_locals);
+
+    let mut attr_locals = current.clone();
     attr_locals.extend(element_locals.iter().cloned());
+    let mut arg_locals = current;
+    arg_locals.extend(v_for_locals);
 
     for attr in &parsed.attrs {
         mark_custom_directive_usage(&attr.name, imported_bindings, usage);
+        if let Some(expr) = dynamic_argument_expression(&attr.name) {
+            merge_expression_usage(usage, expr, imported_bindings, &arg_locals);
+        }
         if let Some(expr) = attr.value.as_deref() {
             if attr.name == "v-for"
                 || attr.name == "slot-scope"
@@ -165,7 +184,7 @@ fn apply_tag(
 
             if is_statement_attr(&attr.name) {
                 merge_statement_usage(usage, expr, imported_bindings, &attr_locals);
-            } else if is_expression_attr(&attr.name) {
+            } else if is_expression_attr(&attr.name) || is_custom_directive_attr(&attr.name) {
                 merge_expression_usage(usage, expr, imported_bindings, &attr_locals);
             }
         }
@@ -174,6 +193,13 @@ fn apply_tag(
     if !parsed.self_closing {
         scopes.push(element_locals);
     }
+}
+
+fn dynamic_argument_expression(attr_name: &str) -> Option<&str> {
+    let start = attr_name.find('[')?;
+    let (expr, _) = scan_bracket_section(attr_name, start)?;
+    let expr = expr.trim();
+    (!expr.is_empty()).then_some(expr)
 }
 
 fn current_locals(scopes: &[Vec<String>]) -> Vec<String> {
@@ -291,16 +317,7 @@ fn mark_custom_directive_usage(
     imported_bindings: &FxHashSet<String>,
     usage: &mut TemplateUsage,
 ) {
-    let Some(rest) = attr_name.strip_prefix("v-") else {
-        return;
-    };
-
-    let Some(directive_name) = rest
-        .split([':', '.'])
-        .next()
-        .map(str::trim)
-        .filter(|name| !name.is_empty())
-    else {
+    let Some(directive_name) = directive_name(attr_name) else {
         return;
     };
 
@@ -313,6 +330,19 @@ fn mark_custom_directive_usage(
     if imported_bindings.contains(binding.as_str()) {
         usage.used_bindings.insert(binding);
     }
+}
+
+fn directive_name(attr_name: &str) -> Option<&str> {
+    attr_name
+        .strip_prefix("v-")?
+        .split([':', '.'])
+        .next()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+}
+
+fn is_custom_directive_attr(name: &str) -> bool {
+    directive_name(name).is_some_and(|directive| !is_builtin_directive(directive))
 }
 
 fn to_pascal_case(name: &str) -> String {
@@ -521,5 +551,66 @@ mod tests {
         );
 
         assert!(usage.used_bindings.contains("vFocusTrap"));
+    }
+
+    #[test]
+    fn custom_directive_values_mark_imported_bindings_used() {
+        let usage = collect_template_usage(
+            "<script setup>import { tooltipText } from './utils';</script><template><div v-tooltip=\"tooltipText\" /></template>",
+            &imported(&["tooltipText"]),
+        );
+
+        assert!(usage.used_bindings.contains("tooltipText"));
+    }
+
+    #[test]
+    fn dynamic_v_bind_argument_marks_binding_used() {
+        let usage = collect_template_usage(
+            "<script setup>import { dynamicAttr } from './utils';</script><template><div v-bind:[dynamicAttr]=\"value\" /></template>",
+            &imported(&["dynamicAttr"]),
+        );
+
+        assert!(usage.used_bindings.contains("dynamicAttr"));
+    }
+
+    #[test]
+    fn nested_dynamic_v_bind_argument_marks_all_bindings_used() {
+        let usage = collect_template_usage(
+            "<script setup>import { activeField, fieldMap } from './utils';</script><template><div v-bind:[fieldMap[activeField]]=\"value\" /></template>",
+            &imported(&["activeField", "fieldMap"]),
+        );
+
+        assert!(usage.used_bindings.contains("activeField"));
+        assert!(usage.used_bindings.contains("fieldMap"));
+    }
+
+    #[test]
+    fn dynamic_v_on_argument_marks_binding_used() {
+        let usage = collect_template_usage(
+            "<script setup>import { dynamicEvent } from './utils';</script><template><button v-on:[dynamicEvent]=\"handleClick\" /></template>",
+            &imported(&["dynamicEvent"]),
+        );
+
+        assert!(usage.used_bindings.contains("dynamicEvent"));
+    }
+
+    #[test]
+    fn dynamic_v_slot_argument_ignores_slot_scope_shadowing() {
+        let usage = collect_template_usage(
+            "<script setup>import { slotName } from './utils';</script><template><List v-slot:[slotName]=\"{ slotName }\">{{ slotName }}</List></template>",
+            &imported(&["slotName"]),
+        );
+
+        assert!(usage.used_bindings.contains("slotName"));
+    }
+
+    #[test]
+    fn slot_default_initializers_mark_imported_bindings_used() {
+        let usage = collect_template_usage(
+            "<script setup>import { fallbackItem } from './utils';</script><template><List v-slot=\"{ item = fallbackItem }\">{{ item }}</List></template>",
+            &imported(&["fallbackItem"]),
+        );
+
+        assert!(usage.used_bindings.contains("fallbackItem"));
     }
 }

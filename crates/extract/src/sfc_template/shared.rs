@@ -161,6 +161,75 @@ fn uppercase_first(source: &str) -> String {
     output
 }
 
+pub(super) fn merge_pattern_binding_usage(
+    usage: &mut TemplateUsage,
+    pattern: &str,
+    imported_bindings: &FxHashSet<String>,
+    locals: &[String],
+) -> Vec<String> {
+    let mut bindings = Vec::new();
+    collect_pattern_usage(usage, pattern, imported_bindings, locals, &mut bindings);
+    bindings
+}
+
+fn collect_pattern_usage(
+    usage: &mut TemplateUsage,
+    pattern: &str,
+    imported_bindings: &FxHashSet<String>,
+    locals: &[String],
+    bindings: &mut Vec<String>,
+) {
+    let pattern = trim_outer_parens(pattern.trim());
+    let pattern = pattern.strip_prefix("...").unwrap_or(pattern).trim();
+    if pattern.is_empty() {
+        return;
+    }
+
+    if let Some(inner) = strip_wrapping(pattern, '{', '}') {
+        for part in split_top_level(inner, ',') {
+            let part = part.trim();
+            if part.is_empty() || part == "..." {
+                continue;
+            }
+            if let Some((_, rhs)) = split_top_level_once(part, ':') {
+                collect_pattern_usage(usage, rhs, imported_bindings, locals, bindings);
+                continue;
+            }
+            if let Some((lhs, rhs)) = split_top_level_once(part, '=') {
+                merge_expression_usage(usage, rhs, imported_bindings, locals);
+                collect_pattern_usage(usage, lhs, imported_bindings, locals, bindings);
+                continue;
+            }
+            collect_pattern_usage(usage, part, imported_bindings, locals, bindings);
+        }
+        return;
+    }
+
+    if let Some(inner) = strip_wrapping(pattern, '[', ']') {
+        for part in split_top_level(inner, ',') {
+            collect_pattern_usage(usage, part.trim(), imported_bindings, locals, bindings);
+        }
+        return;
+    }
+
+    if pattern.contains(',') {
+        for part in split_top_level(pattern, ',') {
+            collect_pattern_usage(usage, part.trim(), imported_bindings, locals, bindings);
+        }
+        return;
+    }
+
+    if let Some((lhs, rhs)) = split_top_level_once(pattern, '=') {
+        merge_expression_usage(usage, rhs, imported_bindings, locals);
+        collect_pattern_usage(usage, lhs, imported_bindings, locals, bindings);
+        return;
+    }
+
+    if let Some(ident) = valid_identifier(pattern) {
+        bindings.push(ident.to_string());
+    }
+}
+
 pub(super) fn extract_pattern_binding_names(pattern: &str) -> Vec<String> {
     let pattern = trim_outer_parens(pattern.trim());
     let pattern = pattern.strip_prefix("...").unwrap_or(pattern).trim();
@@ -306,7 +375,9 @@ fn valid_identifier(source: &str) -> Option<&str> {
 mod tests {
     use rustc_hash::FxHashSet;
 
-    use super::{extract_pattern_binding_names, merge_component_tag_usage};
+    use super::{
+        extract_pattern_binding_names, merge_component_tag_usage, merge_pattern_binding_usage,
+    };
     use crate::template_usage::TemplateUsage;
 
     #[test]
@@ -331,6 +402,22 @@ mod tests {
             extract_pattern_binding_names("item, index = 0"),
             vec!["item", "index"],
         );
+    }
+
+    #[test]
+    fn pattern_usage_tracks_default_initializer_references() {
+        let mut usage = TemplateUsage::default();
+        let imported_bindings = FxHashSet::from_iter(["fallbackItem".to_string()]);
+
+        let locals = merge_pattern_binding_usage(
+            &mut usage,
+            "{ item = fallbackItem }",
+            &imported_bindings,
+            &[],
+        );
+
+        assert_eq!(locals, vec!["item"]);
+        assert!(usage.used_bindings.contains("fallbackItem"));
     }
 
     #[test]

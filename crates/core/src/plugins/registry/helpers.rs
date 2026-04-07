@@ -185,6 +185,7 @@ pub fn process_config_result(
             .into_iter()
             .map(|p| (p, pname.clone())),
     );
+    result.used_exports.extend(plugin_result.used_exports);
     result
         .referenced_dependencies
         .extend(plugin_result.referenced_dependencies);

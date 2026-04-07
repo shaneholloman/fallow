@@ -475,7 +475,10 @@ pub fn discover_plugin_entry_point_sets(
     let mut builder = globset::GlobSetBuilder::new();
     let mut glob_meta: Vec<(&str, EntryPointRole)> = Vec::new();
     for (pattern, pname) in &plugin_result.entry_patterns {
-        if let Ok(glob) = globset::Glob::new(pattern) {
+        if let Ok(glob) = globset::GlobBuilder::new(pattern)
+            .literal_separator(true)
+            .build()
+        {
             builder.add(glob);
             let role = plugin_result
                 .entry_point_roles
@@ -491,7 +494,10 @@ pub fn discover_plugin_entry_point_sets(
         .chain(plugin_result.always_used.iter())
         .chain(plugin_result.fixture_patterns.iter())
     {
-        if let Ok(glob) = globset::Glob::new(pattern) {
+        if let Ok(glob) = globset::GlobBuilder::new(pattern)
+            .literal_separator(true)
+            .build()
+        {
             builder.add(glob);
             glob_meta.push((pname, EntryPointRole::Support));
         }
@@ -619,7 +625,10 @@ pub fn compile_glob_set(patterns: &[String]) -> Option<globset::GlobSet> {
     }
     let mut builder = globset::GlobSetBuilder::new();
     for pattern in patterns {
-        if let Ok(glob) = globset::Glob::new(pattern) {
+        if let Ok(glob) = globset::GlobBuilder::new(pattern)
+            .literal_separator(true)
+            .build()
+        {
             builder.add(glob);
         }
     }
@@ -685,6 +694,15 @@ mod tests {
         assert!(set.is_match("src/foo.ts"));
         assert!(set.is_match("src/bar.js"));
         assert!(!set.is_match("src/bar.py"));
+    }
+
+    #[test]
+    fn compile_glob_set_keeps_star_within_a_single_path_segment() {
+        let patterns = vec!["composables/*.{ts,js}".to_string()];
+        let set = compile_glob_set(&patterns).expect("pattern should compile");
+
+        assert!(set.is_match("composables/useFoo.ts"));
+        assert!(!set.is_match("composables/nested/useFoo.ts"));
     }
 
     #[test]

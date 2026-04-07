@@ -4,13 +4,29 @@ pub(super) fn scan_curly_section(
     opening_len: usize,
     closing_len: usize,
 ) -> Option<(&str, usize)> {
-    debug_assert_eq!(source.as_bytes().get(start), Some(&b'{'));
     debug_assert!(opening_len == 1 || opening_len == 2);
     debug_assert!(closing_len == 1 || closing_len == 2);
 
+    scan_delimited_section(source, start, opening_len, closing_len, b'{', b'}')
+}
+
+pub(super) fn scan_bracket_section(source: &str, start: usize) -> Option<(&str, usize)> {
+    scan_delimited_section(source, start, 1, 1, b'[', b']')
+}
+
+fn scan_delimited_section(
+    source: &str,
+    start: usize,
+    opening_len: usize,
+    closing_len: usize,
+    open_byte: u8,
+    close_byte: u8,
+) -> Option<(&str, usize)> {
+    debug_assert_eq!(source.as_bytes().get(start), Some(&open_byte));
+
     let bytes = source.as_bytes();
     let mut index = start + opening_len;
-    let mut nested_braces = 0_u32;
+    let mut nested_delimiters = 0_u32;
     let mut in_single = false;
     let mut in_double = false;
     let mut in_backtick = false;
@@ -100,17 +116,17 @@ pub(super) fn scan_curly_section(
                 in_backtick = true;
                 index += 1;
             }
-            b'{' => nested_braces += 1,
-            b'}' => {
-                if nested_braces == 0 {
+            b if b == open_byte => nested_delimiters += 1,
+            b if b == close_byte => {
+                if nested_delimiters == 0 {
                     if closing_len == 1 {
                         return Some((&source[start + opening_len..index], index + 1));
                     }
-                    if bytes.get(index + 1) == Some(&b'}') {
+                    if bytes.get(index + 1) == Some(&close_byte) {
                         return Some((&source[start + opening_len..index], index + 2));
                     }
                 } else {
-                    nested_braces -= 1;
+                    nested_delimiters -= 1;
                 }
             }
             _ => {}
@@ -184,7 +200,7 @@ pub(super) fn scan_html_tag(source: &str, start: usize) -> Option<(&str, usize)>
 
 #[cfg(test)]
 mod tests {
-    use super::{scan_curly_section, scan_html_tag};
+    use super::{scan_bracket_section, scan_curly_section, scan_html_tag};
 
     #[test]
     fn scans_svelte_brace_section_with_nested_literals() {
@@ -207,6 +223,14 @@ mod tests {
         let source = r#"{format("}")}"#;
         let (inner, next_index) = scan_curly_section(source, 0, 1, 1).expect("expression");
         assert_eq!(inner, r#"format("}")"#);
+        assert_eq!(next_index, source.len());
+    }
+
+    #[test]
+    fn scans_bracket_sections_with_nested_indexing() {
+        let source = r#"[fieldMap[current["name"]]]"#;
+        let (inner, next_index) = scan_bracket_section(source, 0).expect("bracket section");
+        assert_eq!(inner, r#"fieldMap[current["name"]]"#);
         assert_eq!(next_index, source.len());
     }
 
