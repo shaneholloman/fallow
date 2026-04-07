@@ -66,7 +66,7 @@ else
 
   # Duplication breakdown
   (if $dupes > 0 then
-    "<details>\n<summary><strong>[Duplication](\(dupes_docs)) (\($dupes) clone groups, \(pct($dupes_stats.duplication_percentage))%)</strong></summary>\n\n" +
+    "<details>\n<summary><strong><a href=\"\(dupes_docs)\">Duplication</a> (\($dupes) clone groups, \(pct($dupes_stats.duplication_percentage))%)</strong></summary>\n\n" +
     "| Metric | Value |\n|:-------|------:|\n" +
     "| Duplicated lines | \($dupes_stats.duplicated_lines) |\n" +
     "| Clone instances | \($dupes_stats.clone_instances) |\n" +
