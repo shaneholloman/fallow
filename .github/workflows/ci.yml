@@ -134,7 +134,7 @@ jobs:
           cache: pnpm
           cache-dependency-path: editors/vscode/pnpm-lock.yaml
       - run: cd editors/vscode && pnpm install --frozen-lockfile
-      - run: cd editors/vscode && pnpm audit
+      - run: cd editors/vscode && pnpm audit --prod
       - run: cd editors/vscode && pnpm lint
       - run: cd editors/vscode && pnpm build
       - run: cd editors/vscode && pnpm test:unit

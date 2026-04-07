@@ -27,6 +27,11 @@ rules:
   dangerous-triggers:
     ignore:
       - dependabot-auto-merge.yml
+  # github.actor == 'dependabot[bot]' is the standard GitHub-documented pattern;
+  # risk is mitigated by --auto (waits for CI) and no code checkout
+  bot-conditions:
+    ignore:
+      - dependabot-auto-merge.yml
   # ci-ok job uses toJSON(needs.*.result) which only contains success/failure/cancelled/skipped
   template-injection:
     ignore:
