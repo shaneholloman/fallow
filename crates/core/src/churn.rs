@@ -626,4 +626,298 @@ mod tests {
         let timestamps = vec![100, 600, 800, 1000];
         assert_eq!(compute_trend(&timestamps), ChurnTrend::Accelerating);
     }
+
+    #[test]
+    fn trend_boundary_0_67x_ratio() {
+        // Exactly 0.67x ratio → boundary between cooling and stable
+        // midpoint = 100 + (1000-100)/2 = 550
+        // old: 100, 200, 300 (3 timestamps <= 550)
+        // recent: 600, 1000 (2 timestamps > 550)
+        // ratio = 2/3 = 0.666... < 0.67 → cooling
+        let timestamps = vec![100, 200, 300, 600, 1000];
+        assert_eq!(compute_trend(&timestamps), ChurnTrend::Cooling);
+    }
+
+    #[test]
+    fn trend_two_timestamps_different() {
+        // Only 2 timestamps: midpoint = 100 + (200-100)/2 = 150
+        // old: 100 (1 timestamp <= 150)
+        // recent: 200 (1 timestamp > 150)
+        // ratio = 1/1 = 1.0 → stable
+        let timestamps = vec![100, 200];
+        assert_eq!(compute_trend(&timestamps), ChurnTrend::Stable);
+    }
+
+    // ── parse_since additional coverage ─────────────────────────
+
+    #[test]
+    fn parse_since_week_singular() {
+        let d = parse_since("1week").unwrap();
+        assert_eq!(d.git_after, "1 week ago");
+        assert_eq!(d.display, "1 week");
+    }
+
+    #[test]
+    fn parse_since_weeks_long() {
+        let d = parse_since("3weeks").unwrap();
+        assert_eq!(d.git_after, "3 weeks ago");
+        assert_eq!(d.display, "3 weeks");
+    }
+
+    #[test]
+    fn parse_since_days_long() {
+        let d = parse_since("30days").unwrap();
+        assert_eq!(d.git_after, "30 days ago");
+        assert_eq!(d.display, "30 days");
+    }
+
+    #[test]
+    fn parse_since_year_long() {
+        let d = parse_since("1year").unwrap();
+        assert_eq!(d.git_after, "1 year ago");
+        assert_eq!(d.display, "1 year");
+    }
+
+    #[test]
+    fn parse_since_overflow_number_rejected() {
+        // Number too large for u64
+        let result = parse_since("99999999999999999999d");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("invalid number"));
+    }
+
+    #[test]
+    fn parse_since_zero_days_rejected() {
+        assert!(parse_since("0d").is_err());
+    }
+
+    #[test]
+    fn parse_since_zero_weeks_rejected() {
+        assert!(parse_since("0w").is_err());
+    }
+
+    #[test]
+    fn parse_since_zero_years_rejected() {
+        assert!(parse_since("0y").is_err());
+    }
+
+    // ── parse_numstat_line additional coverage ──────────────────
+
+    #[test]
+    fn numstat_missing_path() {
+        // Only two tab-separated fields, no path
+        assert!(parse_numstat_line("10\t5").is_none());
+    }
+
+    #[test]
+    fn numstat_single_field() {
+        assert!(parse_numstat_line("10").is_none());
+    }
+
+    #[test]
+    fn numstat_empty_string() {
+        assert!(parse_numstat_line("").is_none());
+    }
+
+    #[test]
+    fn numstat_only_added_is_binary() {
+        // Added is "-" but deleted is numeric
+        assert!(parse_numstat_line("-\t5\tsrc/file.ts").is_none());
+    }
+
+    #[test]
+    fn numstat_only_deleted_is_binary() {
+        // Added is numeric but deleted is "-"
+        assert!(parse_numstat_line("10\t-\tsrc/file.ts").is_none());
+    }
+
+    #[test]
+    fn numstat_path_with_spaces() {
+        let (a, d, p) = parse_numstat_line("3\t1\tpath with spaces/file.ts").unwrap();
+        assert_eq!(a, 3);
+        assert_eq!(d, 1);
+        assert_eq!(p, "path with spaces/file.ts");
+    }
+
+    #[test]
+    fn numstat_large_numbers() {
+        let (a, d, p) = parse_numstat_line("9999\t8888\tsrc/big.ts").unwrap();
+        assert_eq!(a, 9999);
+        assert_eq!(d, 8888);
+        assert_eq!(p, "src/big.ts");
+    }
+
+    // ── is_iso_date additional coverage ─────────────────────────
+
+    #[test]
+    fn iso_date_wrong_separator_positions() {
+        // Dashes in wrong positions
+        assert!(!is_iso_date("20-25-0601"));
+        assert!(!is_iso_date("202506-01-"));
+    }
+
+    #[test]
+    fn iso_date_too_short() {
+        assert!(!is_iso_date("2025-06-0"));
+    }
+
+    #[test]
+    fn iso_date_letters_in_day() {
+        assert!(!is_iso_date("2025-06-ab"));
+    }
+
+    #[test]
+    fn iso_date_letters_in_month() {
+        assert!(!is_iso_date("2025-ab-01"));
+    }
+
+    // ── split_number_unit additional coverage ───────────────────
+
+    #[test]
+    fn split_number_unit_valid() {
+        let (num, unit) = split_number_unit("42days").unwrap();
+        assert_eq!(num, "42");
+        assert_eq!(unit, "days");
+    }
+
+    #[test]
+    fn split_number_unit_single_digit() {
+        let (num, unit) = split_number_unit("1m").unwrap();
+        assert_eq!(num, "1");
+        assert_eq!(unit, "m");
+    }
+
+    #[test]
+    fn split_number_unit_no_digits() {
+        let err = split_number_unit("abc").unwrap_err();
+        assert!(err.contains("must start with a number"));
+    }
+
+    #[test]
+    fn split_number_unit_no_unit() {
+        let err = split_number_unit("123").unwrap_err();
+        assert!(err.contains("requires a unit suffix"));
+    }
+
+    // ── parse_git_log additional coverage ───────────────────────
+
+    #[test]
+    fn parse_git_log_numstat_before_timestamp_uses_now() {
+        let root = Path::new("/project");
+        // No timestamp line before the numstat line
+        let output = "10\t5\tsrc/no_ts.ts\n";
+        let result = parse_git_log(output, root);
+        assert_eq!(result.len(), 1);
+        let churn = &result[&PathBuf::from("/project/src/no_ts.ts")];
+        assert_eq!(churn.commits, 1);
+        assert_eq!(churn.lines_added, 10);
+        assert_eq!(churn.lines_deleted, 5);
+        // Without a timestamp, it falls back to now_secs, so weight should be ~1.0
+        assert!(
+            churn.weighted_commits > 0.9,
+            "weight should be near 1.0 when timestamp defaults to now"
+        );
+    }
+
+    #[test]
+    fn parse_git_log_whitespace_lines_ignored() {
+        let root = Path::new("/project");
+        let output = "  \n1700000000\n  \n10\t5\tsrc/a.ts\n  \n";
+        let result = parse_git_log(output, root);
+        assert_eq!(result.len(), 1);
+    }
+
+    #[test]
+    fn parse_git_log_trend_is_computed_per_file() {
+        let root = Path::new("/project");
+        // Two commits far apart for one file, recent-heavy for another
+        let output = "\
+1000\n5\t1\tsrc/old.ts\n\
+2000\n3\t1\tsrc/old.ts\n\
+1000\n1\t0\tsrc/hot.ts\n\
+1800\n1\t0\tsrc/hot.ts\n\
+1900\n1\t0\tsrc/hot.ts\n\
+1950\n1\t0\tsrc/hot.ts\n\
+2000\n1\t0\tsrc/hot.ts\n";
+        let result = parse_git_log(output, root);
+        let old = &result[&PathBuf::from("/project/src/old.ts")];
+        let hot = &result[&PathBuf::from("/project/src/hot.ts")];
+        assert_eq!(old.commits, 2);
+        assert_eq!(hot.commits, 5);
+        // hot.ts has 4 recent vs 1 old => accelerating
+        assert_eq!(hot.trend, ChurnTrend::Accelerating);
+    }
+
+    #[test]
+    fn parse_git_log_weighted_decay_for_old_commits() {
+        let root = Path::new("/project");
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        // One commit from 180 days ago (two half-lives) should weigh ~0.25
+        let old_ts = now - (180 * 86_400);
+        let output = format!("{old_ts}\n10\t5\tsrc/old.ts\n");
+        let result = parse_git_log(&output, root);
+        let churn = &result[&PathBuf::from("/project/src/old.ts")];
+        assert!(
+            churn.weighted_commits < 0.5,
+            "180-day-old commit should weigh ~0.25, got {}",
+            churn.weighted_commits
+        );
+        assert!(
+            churn.weighted_commits > 0.1,
+            "180-day-old commit should weigh ~0.25, got {}",
+            churn.weighted_commits
+        );
+    }
+
+    #[test]
+    fn parse_git_log_path_stored_as_absolute() {
+        let root = Path::new("/my/project");
+        let output = "1700000000\n1\t0\tlib/utils.ts\n";
+        let result = parse_git_log(output, root);
+        let key = PathBuf::from("/my/project/lib/utils.ts");
+        assert!(result.contains_key(&key));
+        assert_eq!(result[&key].path, key);
+    }
+
+    #[test]
+    fn parse_git_log_weighted_commits_rounded() {
+        let root = Path::new("/project");
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        // A commit right now should weigh exactly 1.00
+        let output = format!("{now}\n1\t0\tsrc/a.ts\n");
+        let result = parse_git_log(&output, root);
+        let churn = &result[&PathBuf::from("/project/src/a.ts")];
+        // Weighted commits are rounded to 2 decimal places
+        let decimals = format!("{:.2}", churn.weighted_commits);
+        assert_eq!(
+            churn.weighted_commits.to_string().len(),
+            decimals.len().min(churn.weighted_commits.to_string().len()),
+            "weighted_commits should be rounded to at most 2 decimal places"
+        );
+    }
+
+    // ── ChurnTrend serde ────────────────────────────────────────
+
+    #[test]
+    fn trend_serde_serialization() {
+        assert_eq!(
+            serde_json::to_string(&ChurnTrend::Accelerating).unwrap(),
+            "\"accelerating\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ChurnTrend::Stable).unwrap(),
+            "\"stable\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ChurnTrend::Cooling).unwrap(),
+            "\"cooling\""
+        );
+    }
 }

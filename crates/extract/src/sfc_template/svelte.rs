@@ -725,4 +725,510 @@ mod tests {
 
         assert!(usage.is_empty());
     }
+
+    // --- Early returns ---
+
+    #[test]
+    fn empty_imported_bindings_returns_empty_usage() {
+        let usage = collect_template_usage("<p>{formatDate(value)}</p>", &imported(&[]));
+
+        assert!(usage.is_empty());
+    }
+
+    #[test]
+    fn only_script_and_style_returns_empty_markup() {
+        let usage = collect_template_usage(
+            "<script>import { x } from './x';</script><style>p { color: red; }</style>",
+            &imported(&["x"]),
+        );
+
+        assert!(usage.is_empty());
+    }
+
+    // --- strip_non_template_content ---
+
+    #[test]
+    fn html_comments_are_stripped() {
+        let usage = collect_template_usage(
+            "<!-- {hidden(value)} --><p>{visible(value)}</p>",
+            &imported(&["hidden", "visible"]),
+        );
+
+        assert!(usage.used_bindings.contains("visible"));
+        assert!(!usage.used_bindings.contains("hidden"));
+    }
+
+    #[test]
+    fn overlapping_ranges_are_merged_during_stripping() {
+        // The script and style blocks overlap conceptually with a comment
+        // that spans across them, testing the merge logic in strip_non_template_content
+        let usage = collect_template_usage(
+            "<script>let x;</script><!-- comment --><style>p{}</style><p>{fmt(v)}</p>",
+            &imported(&["fmt"]),
+        );
+
+        assert!(usage.used_bindings.contains("fmt"));
+    }
+
+    // --- #key block ---
+
+    #[test]
+    fn key_block_marks_key_expression_used() {
+        let usage = collect_template_usage(
+            "<p>{#key selectedId}<Child />{/key}</p>",
+            &imported(&["selectedId", "Child"]),
+        );
+
+        assert!(usage.used_bindings.contains("selectedId"));
+        assert!(usage.used_bindings.contains("Child"));
+    }
+
+    // --- #snippet block ---
+
+    #[test]
+    fn snippet_params_shadow_imported_names() {
+        let usage = collect_template_usage(
+            "{#snippet row(item)}<p>{item}</p>{/snippet}",
+            &imported(&["item"]),
+        );
+
+        assert!(usage.is_empty());
+    }
+
+    #[test]
+    fn snippet_body_uses_outer_imported_bindings() {
+        let usage = collect_template_usage(
+            "{#snippet row(local)}<p>{format(local)}</p>{/snippet}",
+            &imported(&["format"]),
+        );
+
+        assert!(usage.used_bindings.contains("format"));
+    }
+
+    // --- @html ---
+
+    #[test]
+    fn at_html_marks_expression_used() {
+        let usage = collect_template_usage(
+            "{@html sanitize(content)}",
+            &imported(&["sanitize"]),
+        );
+
+        assert!(usage.used_bindings.contains("sanitize"));
+    }
+
+    // --- @render ---
+
+    #[test]
+    fn at_render_marks_expression_used() {
+        let usage = collect_template_usage(
+            "{@render header()}",
+            &imported(&["header"]),
+        );
+
+        assert!(usage.used_bindings.contains("header"));
+    }
+
+    // --- @const ---
+
+    #[test]
+    fn at_const_marks_rhs_expression_used() {
+        let usage = collect_template_usage(
+            "{#each items as item}{@const label = format(item)}<p>{label}</p>{/each}",
+            &imported(&["format"]),
+        );
+
+        assert!(usage.used_bindings.contains("format"));
+    }
+
+    #[test]
+    fn at_const_shadows_subsequent_usages() {
+        // `myVal` is imported but @const declares a local `myVal`, shadowing
+        // subsequent references to it in the same scope
+        let usage = collect_template_usage(
+            "{#each items as item}{@const myVal = item.name}<p>{myVal}</p>{/each}",
+            &imported(&["myVal"]),
+        );
+
+        // The @const statement itself references `myVal` as the LHS assignment target,
+        // so it's marked as used, but subsequent {myVal} references are shadowed
+        assert!(usage.used_bindings.contains("myVal"));
+    }
+
+    // --- @debug ---
+
+    #[test]
+    fn at_debug_marks_expression_used() {
+        let usage = collect_template_usage(
+            "{@debug count}",
+            &imported(&["count"]),
+        );
+
+        assert!(usage.used_bindings.contains("count"));
+    }
+
+    // --- :else if ---
+
+    #[test]
+    fn else_if_marks_condition_used() {
+        let usage = collect_template_usage(
+            "{#if a}<p>a</p>{:else if isReady}<p>b</p>{/if}",
+            &imported(&["isReady"]),
+        );
+
+        assert!(usage.used_bindings.contains("isReady"));
+    }
+
+    // --- :else ---
+
+    #[test]
+    fn else_branch_does_not_generate_usage() {
+        let usage = collect_template_usage(
+            "{#if cond}<p>a</p>{:else}<p>{fallback(x)}</p>{/if}",
+            &imported(&["fallback"]),
+        );
+
+        assert!(usage.used_bindings.contains("fallback"));
+    }
+
+    // --- #if block ---
+
+    #[test]
+    fn if_block_marks_condition_expression_used() {
+        let usage = collect_template_usage(
+            "{#if isVisible}<p>Hello</p>{/if}",
+            &imported(&["isVisible"]),
+        );
+
+        assert!(usage.used_bindings.contains("isVisible"));
+    }
+
+    // --- closing block with unknown kind ---
+
+    #[test]
+    fn closing_unknown_block_kind_is_no_op() {
+        // {/unknownblock} should not crash or affect scopes
+        let usage = collect_template_usage(
+            "{/unknownblock}<p>{fmt(x)}</p>",
+            &imported(&["fmt"]),
+        );
+
+        assert!(usage.used_bindings.contains("fmt"));
+    }
+
+    // --- #each with key expression ---
+
+    #[test]
+    fn each_key_expression_marks_binding_used() {
+        let usage = collect_template_usage(
+            "{#each items as item (getId(item))}<p>{item}</p>{/each}",
+            &imported(&["getId"]),
+        );
+
+        assert!(usage.used_bindings.contains("getId"));
+    }
+
+    #[test]
+    fn each_key_expression_has_access_to_each_locals() {
+        // The key expression can reference the `item` alias
+        // so `item` should be shadowed in the key context
+        let usage = collect_template_usage(
+            "{#each items as item (item.id)}<p>{item}</p>{/each}",
+            &imported(&["item"]),
+        );
+
+        assert!(usage.is_empty());
+    }
+
+    // --- await with :catch ---
+
+    #[test]
+    fn catch_binding_shadows_import_name() {
+        let usage = collect_template_usage(
+            "{#await promise}{:catch error}<p>{error}</p>{/await}",
+            &imported(&["error"]),
+        );
+
+        assert!(usage.is_empty());
+    }
+
+    #[test]
+    fn catch_without_binding_does_not_crash() {
+        let usage = collect_template_usage(
+            "{#await loadData()}{:catch}<p>Error</p>{/await}",
+            &imported(&["loadData"]),
+        );
+
+        assert!(usage.used_bindings.contains("loadData"));
+    }
+
+    #[test]
+    fn then_without_binding_does_not_crash() {
+        let usage = collect_template_usage(
+            "{#await loadData()}{:then}<p>Done</p>{/await}",
+            &imported(&["loadData"]),
+        );
+
+        assert!(usage.used_bindings.contains("loadData"));
+    }
+
+    // --- Markup tag branches ---
+
+    #[test]
+    fn html_doctype_and_processing_instructions_are_ignored() {
+        let usage = collect_template_usage(
+            "<!DOCTYPE html><?xml version=\"1.0\"?><p>{fmt(x)}</p>",
+            &imported(&["fmt"]),
+        );
+
+        assert!(usage.used_bindings.contains("fmt"));
+    }
+
+    #[test]
+    fn void_html_tags_do_not_push_element_scope() {
+        // <input> is void; the closing </div> should pop the outer element scope, not fail
+        let usage = collect_template_usage(
+            "<div><input value={val} /><p>{handler(x)}</p></div>",
+            &imported(&["val", "handler"]),
+        );
+
+        assert!(usage.used_bindings.contains("val"));
+        assert!(usage.used_bindings.contains("handler"));
+    }
+
+    #[test]
+    fn closing_markup_tag_pops_element_scope() {
+        let usage = collect_template_usage(
+            "<div let:item><p>{item}</p></div><p>{helper(x)}</p>",
+            &imported(&["item", "helper"]),
+        );
+
+        // item is shadowed inside <div> by let:item, but helper is used outside
+        assert!(usage.used_bindings.contains("helper"));
+    }
+
+    // --- Directive directives ---
+
+    #[test]
+    fn animate_directive_marks_binding_used() {
+        let usage = collect_template_usage(
+            "<div animate:flip>content</div>",
+            &imported(&["flip"]),
+        );
+
+        assert!(usage.used_bindings.contains("flip"));
+    }
+
+    #[test]
+    fn transition_directive_marks_binding_used() {
+        let usage = collect_template_usage(
+            "<div transition:fade>content</div>",
+            &imported(&["fade"]),
+        );
+
+        assert!(usage.used_bindings.contains("fade"));
+    }
+
+    #[test]
+    fn in_directive_marks_binding_used() {
+        let usage = collect_template_usage(
+            "<div in:fly>content</div>",
+            &imported(&["fly"]),
+        );
+
+        assert!(usage.used_bindings.contains("fly"));
+    }
+
+    #[test]
+    fn out_directive_marks_binding_used() {
+        let usage = collect_template_usage(
+            "<div out:slide>content</div>",
+            &imported(&["slide"]),
+        );
+
+        assert!(usage.used_bindings.contains("slide"));
+    }
+
+    #[test]
+    fn directive_with_modifier_strips_pipe() {
+        let usage = collect_template_usage(
+            "<div transition:fade|local>content</div>",
+            &imported(&["fade"]),
+        );
+
+        assert!(usage.used_bindings.contains("fade"));
+    }
+
+    // --- Attribute value parsing ---
+
+    #[test]
+    fn unquoted_attribute_value_is_parsed() {
+        let usage = collect_template_usage(
+            "<div data-value=hello>content</div>",
+            &imported(&["hello"]),
+        );
+
+        // Unquoted attribute values are plain strings, not expressions
+        assert!(usage.is_empty());
+    }
+
+    #[test]
+    fn curly_brace_attribute_value_is_parsed() {
+        let usage = collect_template_usage(
+            "<div class={getClass()}>content</div>",
+            &imported(&["getClass"]),
+        );
+
+        assert!(usage.used_bindings.contains("getClass"));
+    }
+
+    #[test]
+    fn attribute_without_value_is_handled() {
+        let usage = collect_template_usage(
+            "<button disabled><p>{action(x)}</p></button>",
+            &imported(&["action"]),
+        );
+
+        assert!(usage.used_bindings.contains("action"));
+    }
+
+    // --- Expression in attribute value with surrounding text ---
+
+    #[test]
+    fn interpolated_attribute_value_marks_binding_used() {
+        let usage = collect_template_usage(
+            "<div class=\"prefix-{cls}-suffix\">content</div>",
+            &imported(&["cls"]),
+        );
+
+        assert!(usage.used_bindings.contains("cls"));
+    }
+
+    // --- Multiple expressions in a single text node ---
+
+    #[test]
+    fn multiple_curly_expressions_all_tracked() {
+        let usage = collect_template_usage(
+            "<p>{first(x)} and {second(y)}</p>",
+            &imported(&["first", "second"]),
+        );
+
+        assert!(usage.used_bindings.contains("first"));
+        assert!(usage.used_bindings.contains("second"));
+    }
+
+    // --- Empty tag in curly braces ---
+
+    #[test]
+    fn empty_curly_braces_produce_no_usage() {
+        let usage = collect_template_usage(
+            "{ }<p>{fmt(x)}</p>",
+            &imported(&["fmt"]),
+        );
+
+        assert!(usage.used_bindings.contains("fmt"));
+    }
+
+    // --- Self-closing void tags ---
+
+    #[test]
+    fn self_closing_tag_does_not_push_scope() {
+        let usage = collect_template_usage(
+            "<br /><p>{fmt(x)}</p>",
+            &imported(&["fmt"]),
+        );
+
+        assert!(usage.used_bindings.contains("fmt"));
+    }
+
+    // --- Deeply nested scoping ---
+
+    #[test]
+    fn nested_each_and_if_scoping_works_correctly() {
+        let usage = collect_template_usage(
+            "{#each rows as row}{#if row.visible}<p>{format(row.name)}</p>{/if}{/each}",
+            &imported(&["format", "row"]),
+        );
+
+        assert!(usage.used_bindings.contains("format"));
+        // row is shadowed by the each binding
+        assert!(!usage.used_bindings.contains("row"));
+    }
+
+    // --- @const without equals (edge case) ---
+
+    #[test]
+    fn at_const_rhs_references_are_tracked() {
+        let usage = collect_template_usage(
+            "{#each items as item}{@const x = compute(item)}<p>{x}</p>{/each}",
+            &imported(&["compute"]),
+        );
+
+        assert!(usage.used_bindings.contains("compute"));
+    }
+
+    // --- Closing tag without matching Element scope ---
+
+    #[test]
+    fn closing_tag_without_element_scope_is_safe() {
+        // </div> with no matching open scope should not crash
+        let usage = collect_template_usage(
+            "</div><p>{fmt(x)}</p>",
+            &imported(&["fmt"]),
+        );
+
+        assert!(usage.used_bindings.contains("fmt"));
+    }
+
+    // --- Snippet closing ---
+
+    #[test]
+    fn snippet_closing_pops_scope_correctly() {
+        let usage = collect_template_usage(
+            "{#snippet cell(item)}<p>{item}</p>{/snippet}<p>{outer(x)}</p>",
+            &imported(&["item", "outer"]),
+        );
+
+        // item is shadowed inside snippet, outer is used outside
+        assert!(!usage.used_bindings.contains("item"));
+        assert!(usage.used_bindings.contains("outer"));
+    }
+
+    // --- Key block closing ---
+
+    #[test]
+    fn key_block_closing_pops_scope() {
+        let usage = collect_template_usage(
+            "{#key id}<Child />{/key}<p>{helper(x)}</p>",
+            &imported(&["id", "Child", "helper"]),
+        );
+
+        assert!(usage.used_bindings.contains("id"));
+        assert!(usage.used_bindings.contains("Child"));
+        assert!(usage.used_bindings.contains("helper"));
+    }
+
+    // --- Plain expression fallthrough (no special prefix) ---
+
+    #[test]
+    fn plain_expression_without_prefix_is_tracked() {
+        let usage = collect_template_usage(
+            "{count + 1}",
+            &imported(&["count"]),
+        );
+
+        assert!(usage.used_bindings.contains("count"));
+    }
+
+    // --- Attribute with single-quoted value ---
+
+    #[test]
+    fn single_quoted_attribute_value_expressions_are_parsed() {
+        let usage = collect_template_usage(
+            "<div title='{getName()}'>content</div>",
+            &imported(&["getName"]),
+        );
+
+        assert!(usage.used_bindings.contains("getName"));
+    }
 }

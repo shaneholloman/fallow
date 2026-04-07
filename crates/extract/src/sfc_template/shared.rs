@@ -376,9 +376,15 @@ mod tests {
     use rustc_hash::FxHashSet;
 
     use super::{
-        extract_pattern_binding_names, merge_component_tag_usage, merge_pattern_binding_usage,
+        extract_pattern_binding_names, kebab_to_camel_case, merge_component_tag_usage,
+        merge_expression_usage, merge_expression_usage_allow_dollar_refs,
+        merge_pattern_binding_usage, merge_statement_usage,
+        merge_statement_usage_allow_dollar_refs, split_top_level, split_top_level_once,
+        strip_wrapping, trim_outer_parens, uppercase_first, valid_identifier,
     };
     use crate::template_usage::TemplateUsage;
+
+    // --- extract_pattern_binding_names ---
 
     #[test]
     fn extracts_nested_object_pattern_bindings() {
@@ -405,6 +411,60 @@ mod tests {
     }
 
     #[test]
+    fn extract_pattern_empty_string_returns_empty() {
+        assert!(extract_pattern_binding_names("").is_empty());
+    }
+
+    #[test]
+    fn extract_pattern_only_spread_returns_empty() {
+        assert!(extract_pattern_binding_names("...").is_empty());
+    }
+
+    #[test]
+    fn extract_pattern_spread_prefix_extracts_binding() {
+        assert_eq!(extract_pattern_binding_names("...rest"), vec!["rest"]);
+    }
+
+    #[test]
+    fn extract_pattern_with_outer_parens() {
+        assert_eq!(
+            extract_pattern_binding_names("(item, idx)"),
+            vec!["item", "idx"],
+        );
+    }
+
+    #[test]
+    fn extract_pattern_invalid_identifier_returns_empty() {
+        assert!(extract_pattern_binding_names("123invalid").is_empty());
+    }
+
+    #[test]
+    fn extract_pattern_object_with_empty_parts() {
+        assert_eq!(
+            extract_pattern_binding_names("{ a, , b }"),
+            vec!["a", "b"],
+        );
+    }
+
+    #[test]
+    fn extract_pattern_object_with_rest_spread() {
+        assert_eq!(
+            extract_pattern_binding_names("{ a, ... }"),
+            vec!["a"],
+        );
+    }
+
+    #[test]
+    fn extract_pattern_top_level_default_value() {
+        assert_eq!(
+            extract_pattern_binding_names("x = 42"),
+            vec!["x"],
+        );
+    }
+
+    // --- merge_pattern_binding_usage ---
+
+    #[test]
     fn pattern_usage_tracks_default_initializer_references() {
         let mut usage = TemplateUsage::default();
         let imported_bindings = FxHashSet::from_iter(["fallbackItem".to_string()]);
@@ -419,6 +479,47 @@ mod tests {
         assert_eq!(locals, vec!["item"]);
         assert!(usage.used_bindings.contains("fallbackItem"));
     }
+
+    #[test]
+    fn pattern_usage_empty_pattern_returns_no_bindings() {
+        let mut usage = TemplateUsage::default();
+        let imported_bindings = FxHashSet::from_iter(["foo".to_string()]);
+
+        let locals = merge_pattern_binding_usage(&mut usage, "", &imported_bindings, &[]);
+
+        assert!(locals.is_empty());
+        assert!(usage.used_bindings.is_empty());
+    }
+
+    #[test]
+    fn pattern_usage_top_level_default_tracks_reference() {
+        let mut usage = TemplateUsage::default();
+        let imported_bindings = FxHashSet::from_iter(["defaultVal".to_string()]);
+
+        let locals =
+            merge_pattern_binding_usage(&mut usage, "x = defaultVal", &imported_bindings, &[]);
+
+        assert_eq!(locals, vec!["x"]);
+        assert!(usage.used_bindings.contains("defaultVal"));
+    }
+
+    #[test]
+    fn pattern_usage_array_with_nested_defaults() {
+        let mut usage = TemplateUsage::default();
+        let imported_bindings = FxHashSet::from_iter(["fallback".to_string()]);
+
+        let locals = merge_pattern_binding_usage(
+            &mut usage,
+            "[a, b = fallback]",
+            &imported_bindings,
+            &[],
+        );
+
+        assert_eq!(locals, vec!["a", "b"]);
+        assert!(usage.used_bindings.contains("fallback"));
+    }
+
+    // --- merge_component_tag_usage ---
 
     #[test]
     fn component_tag_usage_marks_exact_binding_used() {
@@ -469,5 +570,412 @@ mod tests {
         assert_eq!(usage.member_accesses.len(), 1);
         assert_eq!(usage.member_accesses[0].object, "icons");
         assert_eq!(usage.member_accesses[0].member, "Alert");
+    }
+
+    #[test]
+    fn component_tag_usage_empty_tag_is_noop() {
+        let mut usage = TemplateUsage::default();
+        let imported_bindings = FxHashSet::from_iter(["Foo".to_string()]);
+
+        merge_component_tag_usage(&mut usage, "", &imported_bindings, &[], false);
+
+        assert!(usage.used_bindings.is_empty());
+    }
+
+    #[test]
+    fn component_tag_usage_whitespace_only_tag_is_noop() {
+        let mut usage = TemplateUsage::default();
+        let imported_bindings = FxHashSet::from_iter(["Foo".to_string()]);
+
+        merge_component_tag_usage(&mut usage, "  \t  ", &imported_bindings, &[], false);
+
+        assert!(usage.used_bindings.is_empty());
+    }
+
+    #[test]
+    fn component_tag_usage_empty_bindings_is_noop() {
+        let mut usage = TemplateUsage::default();
+        let imported_bindings = FxHashSet::default();
+
+        merge_component_tag_usage(&mut usage, "MyComponent", &imported_bindings, &[], true);
+
+        assert!(usage.used_bindings.is_empty());
+    }
+
+    #[test]
+    fn component_tag_kebab_without_allow_flag_skips_conversion() {
+        let mut usage = TemplateUsage::default();
+        let imported_bindings = FxHashSet::from_iter(["MyButton".to_string()]);
+
+        merge_component_tag_usage(&mut usage, "my-button", &imported_bindings, &[], false);
+
+        assert!(!usage.used_bindings.contains("MyButton"));
+    }
+
+    #[test]
+    fn component_tag_kebab_also_tries_camel_case() {
+        let mut usage = TemplateUsage::default();
+        let imported_bindings = FxHashSet::from_iter(["myButton".to_string()]);
+
+        merge_component_tag_usage(&mut usage, "my-button", &imported_bindings, &[], true);
+
+        assert!(usage.used_bindings.contains("myButton"));
+    }
+
+    #[test]
+    fn component_tag_binding_not_imported_is_noop() {
+        let mut usage = TemplateUsage::default();
+        let imported_bindings = FxHashSet::from_iter(["OtherComponent".to_string()]);
+
+        merge_component_tag_usage(&mut usage, "Missing", &imported_bindings, &[], false);
+
+        assert!(usage.used_bindings.is_empty());
+    }
+
+    // --- merge_expression_usage ---
+
+    #[test]
+    fn expression_usage_marks_imported_binding() {
+        let mut usage = TemplateUsage::default();
+        let imported_bindings = FxHashSet::from_iter(["formatDate".to_string()]);
+
+        merge_expression_usage(&mut usage, "formatDate(x)", &imported_bindings, &[]);
+
+        assert!(usage.used_bindings.contains("formatDate"));
+    }
+
+    // --- merge_statement_usage ---
+
+    #[test]
+    fn statement_usage_marks_imported_binding() {
+        let mut usage = TemplateUsage::default();
+        let imported_bindings = FxHashSet::from_iter(["doSomething".to_string()]);
+
+        merge_statement_usage(&mut usage, "doSomething();", &imported_bindings, &[]);
+
+        assert!(usage.used_bindings.contains("doSomething"));
+    }
+
+    // --- merge_expression_usage_allow_dollar_refs ---
+
+    #[test]
+    fn expression_usage_dollar_refs_resolves_store_binding() {
+        let mut usage = TemplateUsage::default();
+        let imported_bindings = FxHashSet::from_iter(["count".to_string()]);
+
+        merge_expression_usage_allow_dollar_refs(
+            &mut usage,
+            "$count + 1",
+            &imported_bindings,
+            &[],
+        );
+
+        assert!(usage.used_bindings.contains("count"));
+    }
+
+    // --- merge_statement_usage_allow_dollar_refs ---
+
+    #[test]
+    fn statement_usage_dollar_refs_resolves_store_binding() {
+        let mut usage = TemplateUsage::default();
+        let imported_bindings = FxHashSet::from_iter(["store".to_string()]);
+
+        merge_statement_usage_allow_dollar_refs(
+            &mut usage,
+            "$store.update();",
+            &imported_bindings,
+            &[],
+        );
+
+        assert!(usage.used_bindings.contains("store"));
+    }
+
+    // --- kebab_to_camel_case ---
+
+    #[test]
+    fn kebab_to_camel_basic() {
+        assert_eq!(kebab_to_camel_case("my-button"), "myButton");
+    }
+
+    #[test]
+    fn kebab_to_camel_multiple_segments() {
+        assert_eq!(
+            kebab_to_camel_case("my-long-component-name"),
+            "myLongComponentName",
+        );
+    }
+
+    #[test]
+    fn kebab_to_camel_no_dashes() {
+        assert_eq!(kebab_to_camel_case("button"), "button");
+    }
+
+    #[test]
+    fn kebab_to_camel_leading_dash() {
+        assert_eq!(kebab_to_camel_case("-button"), "Button");
+    }
+
+    #[test]
+    fn kebab_to_camel_trailing_dash() {
+        assert_eq!(kebab_to_camel_case("button-"), "button");
+    }
+
+    #[test]
+    fn kebab_to_camel_only_dashes_returns_empty() {
+        assert_eq!(kebab_to_camel_case("---"), "");
+    }
+
+    #[test]
+    fn kebab_to_camel_empty_string() {
+        assert_eq!(kebab_to_camel_case(""), "");
+    }
+
+    // --- uppercase_first ---
+
+    #[test]
+    fn uppercase_first_basic() {
+        assert_eq!(uppercase_first("hello"), "Hello");
+    }
+
+    #[test]
+    fn uppercase_first_already_uppercase() {
+        assert_eq!(uppercase_first("Hello"), "Hello");
+    }
+
+    #[test]
+    fn uppercase_first_empty_string() {
+        assert_eq!(uppercase_first(""), "");
+    }
+
+    #[test]
+    fn uppercase_first_single_char() {
+        assert_eq!(uppercase_first("a"), "A");
+    }
+
+    // --- valid_identifier ---
+
+    #[test]
+    fn valid_identifier_simple() {
+        assert_eq!(valid_identifier("foo"), Some("foo"));
+    }
+
+    #[test]
+    fn valid_identifier_with_underscore() {
+        assert_eq!(valid_identifier("_private"), Some("_private"));
+    }
+
+    #[test]
+    fn valid_identifier_with_dollar() {
+        assert_eq!(valid_identifier("$store"), Some("$store"));
+    }
+
+    #[test]
+    fn valid_identifier_with_digits() {
+        assert_eq!(valid_identifier("item2"), Some("item2"));
+    }
+
+    #[test]
+    fn valid_identifier_starts_with_digit() {
+        assert_eq!(valid_identifier("2item"), None);
+    }
+
+    #[test]
+    fn valid_identifier_empty() {
+        assert_eq!(valid_identifier(""), None);
+    }
+
+    #[test]
+    fn valid_identifier_contains_dash() {
+        assert_eq!(valid_identifier("my-var"), None);
+    }
+
+    #[test]
+    fn valid_identifier_contains_space() {
+        assert_eq!(valid_identifier("my var"), None);
+    }
+
+    // --- trim_outer_parens ---
+
+    #[test]
+    fn trim_parens_removes_outer() {
+        assert_eq!(trim_outer_parens("(foo)"), "foo");
+    }
+
+    #[test]
+    fn trim_parens_no_parens() {
+        assert_eq!(trim_outer_parens("foo"), "foo");
+    }
+
+    #[test]
+    fn trim_parens_only_opening() {
+        assert_eq!(trim_outer_parens("(foo"), "(foo");
+    }
+
+    #[test]
+    fn trim_parens_only_closing() {
+        assert_eq!(trim_outer_parens("foo)"), "foo)");
+    }
+
+    #[test]
+    fn trim_parens_empty() {
+        assert_eq!(trim_outer_parens(""), "");
+    }
+
+    // --- strip_wrapping ---
+
+    #[test]
+    fn strip_wrapping_curly() {
+        assert_eq!(strip_wrapping("{ a, b }", '{', '}'), Some(" a, b "));
+    }
+
+    #[test]
+    fn strip_wrapping_square() {
+        assert_eq!(strip_wrapping("[x, y]", '[', ']'), Some("x, y"));
+    }
+
+    #[test]
+    fn strip_wrapping_no_match() {
+        assert_eq!(strip_wrapping("a, b", '{', '}'), None);
+    }
+
+    #[test]
+    fn strip_wrapping_mismatched() {
+        assert_eq!(strip_wrapping("{a, b", '{', '}'), None);
+    }
+
+    // --- split_top_level ---
+
+    #[test]
+    fn split_top_level_simple() {
+        assert_eq!(split_top_level("a, b, c", ','), vec!["a", " b", " c"]);
+    }
+
+    #[test]
+    fn split_top_level_respects_nested_braces() {
+        assert_eq!(
+            split_top_level("{ a, b }, c", ','),
+            vec!["{ a, b }", " c"],
+        );
+    }
+
+    #[test]
+    fn split_top_level_respects_nested_brackets() {
+        assert_eq!(
+            split_top_level("[a, b], c", ','),
+            vec!["[a, b]", " c"],
+        );
+    }
+
+    #[test]
+    fn split_top_level_respects_nested_parens() {
+        assert_eq!(
+            split_top_level("fn(a, b), c", ','),
+            vec!["fn(a, b)", " c"],
+        );
+    }
+
+    #[test]
+    fn split_top_level_respects_single_quotes() {
+        assert_eq!(
+            split_top_level("'a,b', c", ','),
+            vec!["'a,b'", " c"],
+        );
+    }
+
+    #[test]
+    fn split_top_level_respects_double_quotes() {
+        assert_eq!(
+            split_top_level(r#""a,b", c"#, ','),
+            vec![r#""a,b""#, " c"],
+        );
+    }
+
+    #[test]
+    fn split_top_level_respects_backticks() {
+        assert_eq!(
+            split_top_level("`a,b`, c", ','),
+            vec!["`a,b`", " c"],
+        );
+    }
+
+    #[test]
+    fn split_top_level_respects_escape_in_string() {
+        assert_eq!(
+            split_top_level(r"'a\',b', c", ','),
+            vec![r"'a\',b'", " c"],
+        );
+    }
+
+    #[test]
+    fn split_top_level_no_delimiter() {
+        assert_eq!(split_top_level("abc", ','), vec!["abc"]);
+    }
+
+    // --- split_top_level_once ---
+
+    #[test]
+    fn split_top_level_once_simple() {
+        assert_eq!(
+            split_top_level_once("key: value", ':'),
+            Some(("key", " value")),
+        );
+    }
+
+    #[test]
+    fn split_top_level_once_nested() {
+        assert_eq!(
+            split_top_level_once("{ a: b }: c", ':'),
+            Some(("{ a: b }", " c")),
+        );
+    }
+
+    #[test]
+    fn split_top_level_once_no_delimiter() {
+        assert_eq!(split_top_level_once("abc", ':'), None);
+    }
+
+    #[test]
+    fn split_top_level_once_delimiter_in_single_quotes() {
+        assert_eq!(
+            split_top_level_once("'a:b': c", ':'),
+            Some(("'a:b'", " c")),
+        );
+    }
+
+    #[test]
+    fn split_top_level_once_delimiter_in_double_quotes() {
+        assert_eq!(
+            split_top_level_once(r#""a:b": c"#, ':'),
+            Some((r#""a:b""#, " c")),
+        );
+    }
+
+    #[test]
+    fn split_top_level_once_delimiter_in_backticks() {
+        assert_eq!(
+            split_top_level_once("`a:b`: c", ':'),
+            Some(("`a:b`", " c")),
+        );
+    }
+
+    #[test]
+    fn split_top_level_once_escape_in_string() {
+        assert_eq!(
+            split_top_level_once(r"'a\':b': c", ':'),
+            Some((r"'a\':b'", " c")),
+        );
+    }
+
+    // --- mark_binding_used edge cases ---
+
+    #[test]
+    fn component_tag_kebab_all_dashes_does_not_mark_empty() {
+        let mut usage = TemplateUsage::default();
+        let imported_bindings = FxHashSet::from_iter([String::new()]);
+
+        merge_component_tag_usage(&mut usage, "---", &imported_bindings, &[], true);
+
+        // kebab_to_camel_case("---") returns "" which is empty, so no conversion marking
+        assert!(usage.used_bindings.is_empty());
     }
 }

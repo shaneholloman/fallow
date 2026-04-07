@@ -229,4 +229,253 @@ mod tests {
         assert!(deps.contains(&"gatsby".to_string()));
         assert!(deps.contains(&"gatsby-plugin-postcss".to_string()));
     }
+
+    #[test]
+    fn resolve_config_require_plugins() {
+        let source = r#"
+            module.exports = {
+                plugins: [require("gatsby-plugin-mdx")]
+            };
+        "#;
+        let plugin = GatsbyPlugin;
+        let result = plugin.resolve_config(
+            std::path::Path::new("gatsby-config.js"),
+            source,
+            std::path::Path::new("/project"),
+        );
+        assert!(
+            result
+                .referenced_dependencies
+                .contains(&"gatsby-plugin-mdx".to_string())
+        );
+    }
+
+    #[test]
+    fn resolve_config_empty_no_plugins_property() {
+        let source = r#"
+            module.exports = {
+                siteMetadata: { title: "My Site" }
+            };
+        "#;
+        let plugin = GatsbyPlugin;
+        let result = plugin.resolve_config(
+            std::path::Path::new("gatsby-config.js"),
+            source,
+            std::path::Path::new("/project"),
+        );
+        assert!(result.referenced_dependencies.is_empty());
+    }
+
+    #[test]
+    fn resolve_config_empty_object() {
+        let source = r"module.exports = {};";
+        let plugin = GatsbyPlugin;
+        let result = plugin.resolve_config(
+            std::path::Path::new("gatsby-config.js"),
+            source,
+            std::path::Path::new("/project"),
+        );
+        assert!(result.referenced_dependencies.is_empty());
+    }
+
+    #[test]
+    fn resolve_config_no_config_object() {
+        let source = r"
+            const x = 42;
+        ";
+        let plugin = GatsbyPlugin;
+        let result = plugin.resolve_config(
+            std::path::Path::new("gatsby-config.js"),
+            source,
+            std::path::Path::new("/project"),
+        );
+        assert!(result.referenced_dependencies.is_empty());
+    }
+
+    #[test]
+    fn resolve_config_plugins_not_array() {
+        let source = r#"
+            module.exports = {
+                plugins: "not-an-array"
+            };
+        "#;
+        let plugin = GatsbyPlugin;
+        let result = plugin.resolve_config(
+            std::path::Path::new("gatsby-config.js"),
+            source,
+            std::path::Path::new("/project"),
+        );
+        // String plugins extracted via extract_config_shallow_strings
+        assert!(
+            result
+                .referenced_dependencies
+                .contains(&"not-an-array".to_string())
+        );
+    }
+
+    #[test]
+    fn resolve_config_object_plugin_with_string_literal_keys() {
+        let source = r#"
+            module.exports = {
+                "plugins": [
+                    {
+                        "resolve": "gatsby-plugin-feed",
+                        "options": {}
+                    }
+                ]
+            };
+        "#;
+        let plugin = GatsbyPlugin;
+        let result = plugin.resolve_config(
+            std::path::Path::new("gatsby-config.js"),
+            source,
+            std::path::Path::new("/project"),
+        );
+        assert!(
+            result
+                .referenced_dependencies
+                .contains(&"gatsby-plugin-feed".to_string())
+        );
+    }
+
+    #[test]
+    fn resolve_config_plugin_object_non_resolve_properties_ignored() {
+        let source = r#"
+            module.exports = {
+                plugins: [
+                    {
+                        resolve: "gatsby-plugin-manifest",
+                        options: { name: "My App", icon: "src/images/icon.png" }
+                    }
+                ]
+            };
+        "#;
+        let plugin = GatsbyPlugin;
+        let result = plugin.resolve_config(
+            std::path::Path::new("gatsby-config.js"),
+            source,
+            std::path::Path::new("/project"),
+        );
+        let deps = &result.referenced_dependencies;
+        assert!(deps.contains(&"gatsby-plugin-manifest".to_string()));
+        // "options" property value should not appear as a dependency
+        assert!(!deps.iter().any(|d| d.contains("My App")));
+    }
+
+    #[test]
+    fn resolve_config_scoped_package_extraction() {
+        let source = r#"
+            module.exports = {
+                plugins: [
+                    {
+                        resolve: "@scope/gatsby-plugin-analytics/nested",
+                        options: {}
+                    }
+                ]
+            };
+        "#;
+        let plugin = GatsbyPlugin;
+        let result = plugin.resolve_config(
+            std::path::Path::new("gatsby-config.js"),
+            source,
+            std::path::Path::new("/project"),
+        );
+        assert!(
+            result
+                .referenced_dependencies
+                .contains(&"@scope/gatsby-plugin-analytics".to_string())
+        );
+    }
+
+    #[test]
+    fn resolve_config_mixed_string_and_object_plugins() {
+        let source = r#"
+            import sharp from "sharp";
+            module.exports = {
+                plugins: [
+                    "gatsby-plugin-image",
+                    {
+                        resolve: "gatsby-source-filesystem",
+                        options: { name: "pages", path: "./src/pages" }
+                    },
+                    "gatsby-transformer-sharp",
+                    {
+                        resolve: "gatsby-plugin-manifest",
+                        options: { name: "App" }
+                    }
+                ]
+            };
+        "#;
+        let plugin = GatsbyPlugin;
+        let result = plugin.resolve_config(
+            std::path::Path::new("gatsby-config.js"),
+            source,
+            std::path::Path::new("/project"),
+        );
+        let deps = &result.referenced_dependencies;
+        // Import-level dependency
+        assert!(deps.contains(&"sharp".to_string()));
+        // String plugins
+        assert!(deps.contains(&"gatsby-plugin-image".to_string()));
+        assert!(deps.contains(&"gatsby-transformer-sharp".to_string()));
+        // Object plugins via resolve
+        assert!(deps.contains(&"gatsby-source-filesystem".to_string()));
+        assert!(deps.contains(&"gatsby-plugin-manifest".to_string()));
+    }
+
+    #[test]
+    fn trait_accessors() {
+        let plugin = GatsbyPlugin;
+        assert_eq!(plugin.name(), "gatsby");
+        assert_eq!(plugin.enablers(), &["gatsby"]);
+        assert!(!plugin.entry_patterns().is_empty());
+        assert!(!plugin.config_patterns().is_empty());
+        assert!(!plugin.always_used().is_empty());
+        assert_eq!(plugin.tooling_dependencies(), &["gatsby", "gatsby-cli"]);
+    }
+
+    #[test]
+    fn used_exports_covers_pages_and_templates() {
+        let plugin = GatsbyPlugin;
+        let exports = plugin.used_exports();
+        assert_eq!(exports.len(), 2);
+        let (pages_pattern, pages_exports) = &exports[0];
+        assert!(pages_pattern.contains("src/pages"));
+        assert!(pages_exports.contains(&"default"));
+        assert!(pages_exports.contains(&"Head"));
+        assert!(pages_exports.contains(&"query"));
+        assert!(pages_exports.contains(&"getServerData"));
+
+        let (templates_pattern, templates_exports) = &exports[1];
+        assert!(templates_pattern.contains("src/templates"));
+        assert_eq!(pages_exports, templates_exports);
+    }
+
+    #[test]
+    fn resolve_config_ts_with_typed_variable() {
+        let source = r#"
+            import type { GatsbyConfig } from "gatsby";
+
+            const config: GatsbyConfig = {
+                plugins: [
+                    "gatsby-plugin-postcss",
+                    {
+                        resolve: "gatsby-source-contentful",
+                        options: { spaceId: "abc" }
+                    }
+                ]
+            };
+            export default config;
+        "#;
+        let plugin = GatsbyPlugin;
+        let result = plugin.resolve_config(
+            std::path::Path::new("gatsby-config.ts"),
+            source,
+            std::path::Path::new("/project"),
+        );
+        let deps = &result.referenced_dependencies;
+        assert!(deps.contains(&"gatsby".to_string()));
+        assert!(deps.contains(&"gatsby-plugin-postcss".to_string()));
+        assert!(deps.contains(&"gatsby-source-contentful".to_string()));
+    }
 }

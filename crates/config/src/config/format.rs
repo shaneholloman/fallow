@@ -72,4 +72,72 @@ mod tests {
         // Original still usable (Copy)
         assert!(matches!(original, OutputFormat::Json));
     }
+
+    #[test]
+    #[expect(
+        clippy::clone_on_copy,
+        reason = "explicitly testing the Clone impl for coverage"
+    )]
+    fn output_format_clone_all_variants() {
+        let variants = [
+            OutputFormat::Human,
+            OutputFormat::Json,
+            OutputFormat::Sarif,
+            OutputFormat::Compact,
+            OutputFormat::Markdown,
+            OutputFormat::CodeClimate,
+            OutputFormat::Badge,
+        ];
+        for variant in variants {
+            let cloned = variant.clone();
+            // Debug output must match between original and clone
+            assert_eq!(format!("{cloned:?}"), format!("{variant:?}"));
+        }
+    }
+
+    #[test]
+    #[expect(
+        clippy::clone_on_copy,
+        reason = "explicitly testing the Clone impl for coverage"
+    )]
+    fn output_format_clone_preserves_variant() {
+        let badge = OutputFormat::Badge;
+        let cloned = badge.clone();
+        assert!(matches!(cloned, OutputFormat::Badge));
+
+        let codeclimate = OutputFormat::CodeClimate;
+        let cloned = codeclimate.clone();
+        assert!(matches!(cloned, OutputFormat::CodeClimate));
+    }
+
+    #[test]
+    fn output_format_default_matches_human_debug() {
+        // Default variant should produce "Human" debug string
+        assert_eq!(format!("{:?}", OutputFormat::default()), "Human");
+    }
+
+    #[test]
+    fn output_format_variants_are_distinct() {
+        // Verify each variant has a unique debug representation
+        let debug_strings: Vec<String> = [
+            OutputFormat::Human,
+            OutputFormat::Json,
+            OutputFormat::Sarif,
+            OutputFormat::Compact,
+            OutputFormat::Markdown,
+            OutputFormat::CodeClimate,
+            OutputFormat::Badge,
+        ]
+        .iter()
+        .map(|v| format!("{v:?}"))
+        .collect();
+
+        for (i, a) in debug_strings.iter().enumerate() {
+            for (j, b) in debug_strings.iter().enumerate() {
+                if i != j {
+                    assert_ne!(a, b, "variants at index {i} and {j} have the same debug output");
+                }
+            }
+        }
+    }
 }
