@@ -166,6 +166,25 @@ struct Cli {
     /// Skip specific analyses when no subcommand is given (comma-separated: dead-code,dupes,health)
     #[arg(long, value_delimiter = ',')]
     skip: Vec<AnalysisKind>,
+
+    /// Compute health score (0-100 with letter grade) in combined mode.
+    /// Use with `--trend` to show score deltas in PR comments.
+    #[arg(long)]
+    score: bool,
+
+    /// Compare current health metrics against the most recent saved snapshot
+    /// and show per-metric deltas. Implies --score.
+    #[arg(long)]
+    trend: bool,
+
+    /// Save a vital signs snapshot for trend tracking in combined mode.
+    /// Provide a path or omit for the default `.fallow/snapshots/` location.
+    #[expect(
+        clippy::option_option,
+        reason = "clap pattern: None=not passed, Some(None)=default path, Some(Some(path))=custom path"
+    )]
+    #[arg(long, value_name = "PATH", num_args = 0..=1, default_missing_value = "")]
+    save_snapshot: Option<Option<String>>,
 }
 
 #[derive(Subcommand)]
@@ -964,6 +983,9 @@ fn dispatch_bare_command(
         run_check,
         run_dupes,
         run_health,
+        score: cli.score || cli.trend,
+        trend: cli.trend,
+        save_snapshot: cli.save_snapshot.as_ref(),
         regression_opts: build_regression_opts(
             cli.fail_on_regression,
             tolerance,

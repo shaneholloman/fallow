@@ -2,7 +2,7 @@
 # Differences from GitHub: no > [!NOTE] / > [!WARNING] callouts
 
 def pct(n): n | . * 10 | round / 10;
-def signed(n): if n > 0 then "+\(pct(n))" elif n < 0 then "\(pct(n))" else "0" end;
+def signed(n): if n > 0 then "+\(pct(n))" elif n < 0 then "\(pct(n))" else "0.0" end;
 def metric_delta(name):
   (.health_trend.metrics // []) | map(select(.name == name)) | first // null;
 def suppression_docs: "https://docs.fallow.tools/configuration/suppression";

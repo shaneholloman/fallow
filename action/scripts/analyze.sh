@@ -99,6 +99,15 @@ build_command_args() {
       if [ "${INPUT_FORMAT:-}" = "sarif" ] && [ "${HAS_SARIF_FILE:-false}" = "true" ]; then
         ARGS+=(--sarif-file fallow-results.sarif)
       fi
+      [ "${INPUT_SCORE:-}" = "true" ] && ARGS+=(--score)
+      [ "${INPUT_TREND:-}" = "true" ] && ARGS+=(--trend)
+      if [ -n "${INPUT_SAVE_SNAPSHOT:-}" ]; then
+        if [ "$INPUT_SAVE_SNAPSHOT" = "true" ]; then
+          ARGS+=(--save-snapshot)
+        else
+          ARGS+=(--save-snapshot "$INPUT_SAVE_SNAPSHOT")
+        fi
+      fi
       [ "${INPUT_FAIL_ON_REGRESSION:-}" = "true" ] && ARGS+=(--fail-on-regression)
       [ -n "${INPUT_TOLERANCE:-}" ] && [ "${INPUT_TOLERANCE:-}" != "0" ] && ARGS+=(--tolerance "$INPUT_TOLERANCE")
       [ -n "${INPUT_REGRESSION_BASELINE:-}" ] && ARGS+=(--regression-baseline "$INPUT_REGRESSION_BASELINE")

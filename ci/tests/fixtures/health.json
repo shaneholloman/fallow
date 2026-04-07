@@ -33,7 +33,9 @@
       "total_cyclomatic": 103,
       "total_cognitive": 135,
       "function_count": 5,
-      "lines": 224
+      "lines": 224,
+      "crap_max": 4422.0,
+      "crap_above_threshold": 2
     },
     {
       "path": "src/helpers/format.ts",
@@ -45,7 +47,9 @@
       "total_cyclomatic": 7,
       "total_cognitive": 3,
       "function_count": 4,
-      "lines": 33
+      "lines": 33,
+      "crap_max": 7.0,
+      "crap_above_threshold": 0
     },
     {
       "path": "src/helpers/api.ts",
@@ -57,7 +61,9 @@
       "total_cyclomatic": 6,
       "total_cognitive": 2,
       "function_count": 4,
-      "lines": 31
+      "lines": 31,
+      "crap_max": 6.0,
+      "crap_above_threshold": 0
     },
     {
       "path": "src/app/page.tsx",
@@ -69,7 +75,9 @@
       "total_cyclomatic": 1,
       "total_cognitive": 0,
       "function_count": 1,
-      "lines": 21
+      "lines": 21,
+      "crap_max": 1.0,
+      "crap_above_threshold": 0
     },
     {
       "path": "src/app/layout.tsx",
@@ -81,7 +89,9 @@
       "total_cyclomatic": 1,
       "total_cognitive": 0,
       "function_count": 1,
-      "lines": 18
+      "lines": 18,
+      "crap_max": 1.0,
+      "crap_above_threshold": 0
     },
     {
       "path": "next.config.ts",
@@ -93,7 +103,9 @@
       "total_cyclomatic": 3,
       "total_cognitive": 1,
       "function_count": 2,
-      "lines": 45
+      "lines": 45,
+      "crap_max": 3.0,
+      "crap_above_threshold": 0
     }
   ],
   "targets": [

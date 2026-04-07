@@ -32,6 +32,9 @@ pub struct CombinedOptions<'a> {
     pub run_check: bool,
     pub run_dupes: bool,
     pub run_health: bool,
+    pub score: bool,
+    pub trend: bool,
+    pub save_snapshot: Option<&'a Option<String>>,
     pub regression_opts: regression::RegressionOpts<'a>,
 }
 
@@ -561,14 +564,16 @@ fn build_health_opts<'a>(opts: &'a CombinedOptions<'a>) -> HealthOptions<'a> {
         hotspots: true,
         targets: true,
         effort: None,
-        score: false,
+        score: opts.score || opts.trend,
         min_score: None,
         since: None,
         min_commits: None,
         explain: opts.explain,
         summary: opts.summary,
-        save_snapshot: None,
-        trend: false,
+        save_snapshot: opts
+            .save_snapshot
+            .map(|opt| std::path::PathBuf::from(opt.as_deref().unwrap_or_default())),
+        trend: opts.trend,
         group_by: opts.group_by,
     }
 }

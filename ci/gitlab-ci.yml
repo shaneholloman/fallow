@@ -320,6 +320,17 @@ variables:
         fix)
           [ "$FALLOW_DRY_RUN" = "true" ] && ARGS+=(--dry-run) || ARGS+=(--yes)
           ;;
+        "")
+          [ "$FALLOW_SCORE" = "true" ]        && ARGS+=(--score)
+          [ "$FALLOW_TREND" = "true" ]        && ARGS+=(--trend)
+          if [ -n "$FALLOW_SAVE_SNAPSHOT" ]; then
+            if [ "$FALLOW_SAVE_SNAPSHOT" = "true" ]; then
+              ARGS+=(--save-snapshot)
+            else
+              ARGS+=(--save-snapshot "$FALLOW_SAVE_SNAPSHOT")
+            fi
+          fi
+          ;;
       esac
 
       EXTRA_ARGS=()

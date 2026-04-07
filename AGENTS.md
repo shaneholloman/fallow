@@ -93,6 +93,9 @@ fallow --skip health --format json        # check + dupes only
 **Flags:**
 - `--only <dead-code,dupes,health>` -- run only these analyses (comma-separated)
 - `--skip <dead-code,dupes,health>` -- skip these analyses (comma-separated)
+- `--score` -- compute health score (0-100 with letter grade). Enables the health delta header in PR comments.
+- `--trend` -- compare current health metrics against saved snapshot. Implies `--score`.
+- `--save-snapshot [PATH]` -- save vital signs snapshot for trend tracking
 - `--ci` -- CI mode: sarif + quiet + fail-on-issues
 - `--fail-on-issues` -- exit 1 if any issues are found
 

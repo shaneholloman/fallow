@@ -1,6 +1,6 @@
 def count(obj; key): obj | if . then .[key] // 0 else 0 end;
 def pct(n): n | . * 10 | round / 10;
-def signed(n): if n > 0 then "+\(pct(n))" elif n < 0 then "\(pct(n))" else "0" end;
+def signed(n): if n > 0 then "+\(pct(n))" elif n < 0 then "\(pct(n))" else "0.0" end;
 def rel_path: split("/") | if length > 3 then .[-3:] | join("/") else join("/") end;
 def dead_code_docs: "https://docs.fallow.tools/explanations/dead-code";
 def docs(anchor): dead_code_docs + "#" + anchor;
