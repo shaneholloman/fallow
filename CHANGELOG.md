@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.19.1] - 2026-04-07
+
+### Fixed
+
+- **Value/type declaration merging no longer flagged as `duplicate-export`** -- TypeScript allows a const and a type to share the same name (`export const Status = z.enum([...]); export type Status = z.infer<typeof Status>`). This idiomatic pattern (common with Zod, Prisma, and class+interface merging) was falsely reported as a duplicate export. Detection now tracks the type-only flag and skips groups that span both value and type namespaces. ([#81](https://github.com/fallow-rs/fallow/discussions/81))
+
 ## [2.19.0] - 2026-04-07
 
 ### Added
@@ -998,7 +1004,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--changed-since` and `--fail-on-issues` for CI
 - Cross-workspace resolution for npm/yarn/pnpm workspaces
 
-[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.19.0...HEAD
+[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.19.1...HEAD
+[2.19.1]: https://github.com/fallow-rs/fallow/compare/v2.19.0...v2.19.1
 [2.19.0]: https://github.com/fallow-rs/fallow/compare/v2.18.3...v2.19.0
 [2.18.3]: https://github.com/fallow-rs/fallow/compare/v2.18.2...v2.18.3
 [2.18.2]: https://github.com/fallow-rs/fallow/compare/v2.18.1...v2.18.2
