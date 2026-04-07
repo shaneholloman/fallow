@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.19.2] - 2026-04-08
+
+### Fixed
+
+- **Angular implicit member reference detection** -- `@Component`/`@Directive` metadata extraction now covers inline `template:` strings, `host:` binding expressions, `inputs:`/`outputs:` arrays, and `queries:` metadata. Angular 17+ signal APIs (`input()`, `input.required()`, `output()`, `model()`, `viewChild()`, `viewChildren()`, `contentChild()`, `contentChildren()`) on Angular-decorated classes are treated as framework-managed, preventing false `unused-class-members` reports. ([#82](https://github.com/fallow-rs/fallow/issues/82))
+
+### Changed
+
+- **Module splits for maintainability** -- split `graph/build.rs` narrowing helpers into `graph/narrowing.rs` and `analyze/predicates.rs` into `predicates/{file,import,lifecycle}.rs` for better cohesion. No API changes.
+- **Test coverage improvements** -- added 258 tests across 12 files, improving overall line coverage from 90.2% to 90.9%.
+
 ## [2.19.1] - 2026-04-07
 
 ### Fixed
@@ -1004,7 +1015,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--changed-since` and `--fail-on-issues` for CI
 - Cross-workspace resolution for npm/yarn/pnpm workspaces
 
-[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.19.1...HEAD
+[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.19.2...HEAD
+[2.19.2]: https://github.com/fallow-rs/fallow/compare/v2.19.1...v2.19.2
 [2.19.1]: https://github.com/fallow-rs/fallow/compare/v2.19.0...v2.19.1
 [2.19.0]: https://github.com/fallow-rs/fallow/compare/v2.18.3...v2.19.0
 [2.18.3]: https://github.com/fallow-rs/fallow/compare/v2.18.2...v2.18.3

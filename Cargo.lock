@@ -617,7 +617,7 @@ dependencies = [
 
 [[package]]
 name = "fallow-cli"
-version = "2.19.1"
+version = "2.19.2"
 dependencies = [
  "clap",
  "colored",
@@ -645,7 +645,7 @@ dependencies = [
 
 [[package]]
 name = "fallow-config"
-version = "2.19.1"
+version = "2.19.2"
 dependencies = [
  "dunce",
  "glob",
@@ -665,7 +665,7 @@ dependencies = [
 
 [[package]]
 name = "fallow-core"
-version = "2.19.1"
+version = "2.19.2"
 dependencies = [
  "criterion",
  "dhat",
@@ -698,7 +698,7 @@ dependencies = [
 
 [[package]]
 name = "fallow-extract"
-version = "2.19.1"
+version = "2.19.2"
 dependencies = [
  "bitcode",
  "fallow-types",
@@ -718,7 +718,7 @@ dependencies = [
 
 [[package]]
 name = "fallow-graph"
-version = "2.19.1"
+version = "2.19.2"
 dependencies = [
  "dunce",
  "fallow-config",
@@ -735,7 +735,7 @@ dependencies = [
 
 [[package]]
 name = "fallow-lsp"
-version = "2.19.1"
+version = "2.19.2"
 dependencies = [
  "fallow-config",
  "fallow-core",
@@ -749,7 +749,7 @@ dependencies = [
 
 [[package]]
 name = "fallow-mcp"
-version = "2.19.1"
+version = "2.19.2"
 dependencies = [
  "rmcp",
  "schemars",
@@ -761,7 +761,7 @@ dependencies = [
 
 [[package]]
 name = "fallow-types"
-version = "2.19.1"
+version = "2.19.2"
 dependencies = [
  "bitcode",
  "oxc_span",
