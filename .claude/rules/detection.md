@@ -25,6 +25,7 @@ Non-obvious implementation details for each detection feature. These are NOT dis
 - **Pnpm virtual store**: `.pnpm` paths mapped back to workspace source files. Handles injected deps, scoped/unscoped packages, peer dependency suffixes.
 - **Package.json `imports` (`#subpath`)**: simple mappings, wildcard patterns, conditional exports. Per-package scoping.
 - **React Native platform extensions**: `.web.ts`, `.ios.ts`, `.android.ts`, `.native.ts` resolved alongside standard extensions
+- **HTML root-relative paths**: `/src/main.tsx` in HTML `<script src>` resolved against project root (Vite/Parcel convention). Converts to `./src/main.tsx` and resolves from `ctx.root`. HTML-only; in JS/TS, `/foo` remains an absolute filesystem path.
 - **Tsconfig path aliases**: per-file discovery resolves `@/utils` by finding nearest tsconfig.json per file
 
 ## Graph-level
