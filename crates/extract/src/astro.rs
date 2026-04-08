@@ -17,7 +17,7 @@ use fallow_types::discover::FileId;
 
 /// Regex to extract Astro frontmatter (content between `---` delimiters at file start).
 static ASTRO_FRONTMATTER_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
-    regex::Regex::new(r"(?s)\A\s*---[ \t]*\n(?P<body>.*?\n)---").expect("valid regex")
+    regex::Regex::new(r"(?s)\A\s*---[ \t]*\r?\n(?P<body>.*?\r?\n)---").expect("valid regex")
 });
 
 /// Extract frontmatter from an Astro component.
@@ -205,6 +205,15 @@ mod tests {
         let script = extract_astro_frontmatter(source).unwrap();
         assert!(script.body.contains("Component"));
         assert!(script.body.contains("Fragment"));
+    }
+
+    #[test]
+    fn frontmatter_with_crlf_line_endings() {
+        // Windows: git checkout converts LF to CRLF
+        let source = "---\r\nexport const x = 1;\r\n---\r\n<div />";
+        let script = extract_astro_frontmatter(source);
+        assert!(script.is_some());
+        assert!(script.unwrap().body.contains("export const x = 1;"));
     }
 
     #[test]
