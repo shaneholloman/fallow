@@ -30,17 +30,27 @@ const TOOLING_DEPENDENCIES: &[&str] = &[
     "@remix-run/serve",
 ];
 
-const ROUTE_EXPORTS: &[&str] = &[
+macro_rules! route_module_exports {
+    ($($export:literal),+ $(,)?) => {
+        const ROUTE_EXPORTS: &[&str] = &[$($export),+];
+        const ROOT_EXPORTS: &[&str] = &[$($export,)+ "Layout"];
+    };
+}
+
+route_module_exports!(
     "default",
     "loader",
+    "clientLoader",
     "action",
+    "clientAction",
     "meta",
     "links",
     "headers",
     "handle",
     "ErrorBoundary",
     "HydrateFallback",
-];
+    "shouldRevalidate",
+);
 
 define_plugin! {
     struct RemixPlugin => "remix",
@@ -48,5 +58,32 @@ define_plugin! {
     entry_patterns: ENTRY_PATTERNS,
     always_used: ALWAYS_USED,
     tooling_dependencies: TOOLING_DEPENDENCIES,
-    used_exports: [("app/routes/**/*.{ts,tsx,js,jsx}", ROUTE_EXPORTS)],
+    used_exports: [
+        ("app/routes/**/*.{ts,tsx,js,jsx}", ROUTE_EXPORTS),
+        ("app/root.{ts,tsx,js,jsx}", ROOT_EXPORTS),
+    ],
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn used_exports_cover_root_client_data_and_layout() {
+        let plugin = RemixPlugin;
+        let exports = plugin.used_exports();
+
+        assert!(exports.iter().any(|(pattern, names)| {
+            pattern == &"app/root.{ts,tsx,js,jsx}"
+                && names.contains(&"Layout")
+                && names.contains(&"clientLoader")
+                && names.contains(&"clientAction")
+        }));
+        assert!(exports.iter().any(|(pattern, names)| {
+            pattern == &"app/routes/**/*.{ts,tsx,js,jsx}"
+                && names.contains(&"shouldRevalidate")
+                && names.contains(&"clientLoader")
+                && names.contains(&"clientAction")
+        }));
+    }
 }

@@ -20,10 +20,17 @@ pub use walk::{PRODUCTION_EXCLUDE_PATTERNS, SOURCE_EXTENSIONS, discover_files};
 /// Most hidden directories (`.git`, `.cache`, etc.) should be skipped, but certain
 /// convention directories contain source or config files that fallow needs to see:
 /// - `.storybook` — Storybook configuration (the Storybook plugin depends on this)
+/// - `.vitepress` — VitePress configuration and theme files
 /// - `.well-known` — Standard web convention directory
 /// - `.changeset` — Changesets configuration
 /// - `.github` — GitHub workflows and CI scripts
-const ALLOWED_HIDDEN_DIRS: &[&str] = &[".storybook", ".well-known", ".changeset", ".github"];
+const ALLOWED_HIDDEN_DIRS: &[&str] = &[
+    ".storybook",
+    ".vitepress",
+    ".well-known",
+    ".changeset",
+    ".github",
+];
 
 #[cfg(test)]
 mod tests {
@@ -36,7 +43,7 @@ mod tests {
         // Guard: if a new dir is added, add a test for it
         assert_eq!(
             ALLOWED_HIDDEN_DIRS.len(),
-            4,
+            5,
             "update tests when adding new allowed hidden dirs"
         );
     }

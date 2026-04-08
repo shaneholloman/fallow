@@ -38,7 +38,8 @@ const ALWAYS_USED: &[&str] = &[
 const TOOLING_DEPENDENCIES: &[&str] = &["gatsby", "gatsby-cli"];
 
 // Gatsby page exports
-const PAGE_EXPORTS: &[&str] = &["default", "Head", "query", "getServerData"];
+const PAGE_EXPORTS: &[&str] = &["default", "Head", "query", "config", "getServerData"];
+const FUNCTION_EXPORTS: &[&str] = &["default", "config"];
 
 impl Plugin for GatsbyPlugin {
     fn name(&self) -> &'static str {
@@ -69,6 +70,7 @@ impl Plugin for GatsbyPlugin {
         vec![
             ("src/pages/**/*.{ts,tsx,js,jsx}", PAGE_EXPORTS),
             ("src/templates/**/*.{ts,tsx,js,jsx}", PAGE_EXPORTS),
+            ("src/api/**/*.{ts,js}", FUNCTION_EXPORTS),
         ]
     }
 
@@ -438,17 +440,22 @@ mod tests {
     fn used_exports_covers_pages_and_templates() {
         let plugin = GatsbyPlugin;
         let exports = plugin.used_exports();
-        assert_eq!(exports.len(), 2);
+        assert_eq!(exports.len(), 3);
         let (pages_pattern, pages_exports) = &exports[0];
         assert!(pages_pattern.contains("src/pages"));
         assert!(pages_exports.contains(&"default"));
         assert!(pages_exports.contains(&"Head"));
         assert!(pages_exports.contains(&"query"));
+        assert!(pages_exports.contains(&"config"));
         assert!(pages_exports.contains(&"getServerData"));
 
         let (templates_pattern, templates_exports) = &exports[1];
         assert!(templates_pattern.contains("src/templates"));
         assert_eq!(pages_exports, templates_exports);
+
+        let (functions_pattern, function_exports) = &exports[2];
+        assert!(functions_pattern.contains("src/api"));
+        assert_eq!(function_exports, &FUNCTION_EXPORTS);
     }
 
     #[test]

@@ -14,7 +14,7 @@ const ENTRY_PATTERNS: &[&str] = &[
     "app/entry.server.{ts,tsx,js,jsx}",
 ];
 
-const ALWAYS_USED: &[&str] = &["react-router.config.{ts,js}"];
+const ALWAYS_USED: &[&str] = &["react-router.config.{ts,js}", "app/routes.{ts,js,mts,mjs}"];
 
 const TOOLING_DEPENDENCIES: &[&str] = &[
     "@react-router/dev",
@@ -22,7 +22,14 @@ const TOOLING_DEPENDENCIES: &[&str] = &[
     "@react-router/node",
 ];
 
-const ROUTE_EXPORTS: &[&str] = &[
+macro_rules! route_module_exports {
+    ($($export:literal),+ $(,)?) => {
+        const ROUTE_EXPORTS: &[&str] = &[$($export),+];
+        const ROOT_EXPORTS: &[&str] = &[$($export,)+ "Layout"];
+    };
+}
+
+route_module_exports!(
     "default",
     "loader",
     "clientLoader",
@@ -35,7 +42,11 @@ const ROUTE_EXPORTS: &[&str] = &[
     "ErrorBoundary",
     "HydrateFallback",
     "shouldRevalidate",
-];
+    "middleware",
+    "clientMiddleware",
+);
+
+const ROUTE_CONFIG_EXPORTS: &[&str] = &["default"];
 
 define_plugin! {
     struct ReactRouterPlugin => "react-router",
@@ -43,5 +54,32 @@ define_plugin! {
     entry_patterns: ENTRY_PATTERNS,
     always_used: ALWAYS_USED,
     tooling_dependencies: TOOLING_DEPENDENCIES,
-    used_exports: [("app/routes/**/*.{ts,tsx,js,jsx}", ROUTE_EXPORTS)],
+    used_exports: [
+        ("app/routes/**/*.{ts,tsx,js,jsx}", ROUTE_EXPORTS),
+        ("app/root.{ts,tsx,js,jsx}", ROOT_EXPORTS),
+        ("app/routes.{ts,js,mts,mjs}", ROUTE_CONFIG_EXPORTS),
+    ],
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn used_exports_cover_root_and_route_config() {
+        let plugin = ReactRouterPlugin;
+        let exports = plugin.used_exports();
+
+        assert!(exports.iter().any(|(pattern, names)| {
+            pattern == &"app/root.{ts,tsx,js,jsx}" && names.contains(&"Layout")
+        }));
+        assert!(exports.iter().any(|(pattern, names)| {
+            pattern == &"app/routes/**/*.{ts,tsx,js,jsx}"
+                && names.contains(&"clientMiddleware")
+                && names.contains(&"middleware")
+        }));
+        assert!(exports.iter().any(|(pattern, names)| {
+            pattern == &"app/routes.{ts,js,mts,mjs}" && names == &["default"]
+        }));
+    }
 }

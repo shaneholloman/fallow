@@ -167,6 +167,7 @@ mod tests {
     #[test]
     fn allowed_hidden_dirs() {
         assert!(is_allowed_hidden_dir(OsStr::new(".storybook")));
+        assert!(is_allowed_hidden_dir(OsStr::new(".vitepress")));
         assert!(is_allowed_hidden_dir(OsStr::new(".well-known")));
         assert!(is_allowed_hidden_dir(OsStr::new(".changeset")));
         assert!(is_allowed_hidden_dir(OsStr::new(".github")));
