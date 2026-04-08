@@ -19,6 +19,11 @@ use fallow_core::results::AnalysisResults;
 use fallow_core::trace::{CloneTrace, DependencyTrace, ExportTrace, FileTrace, PipelineTimings};
 
 pub use grouping::OwnershipResolver;
+#[allow(
+    unused_imports,
+    reason = "used by binary crate modules (combined.rs, audit.rs)"
+)]
+pub use json::strip_root_prefix;
 
 /// Shared context for all report dispatch functions.
 ///
@@ -254,7 +259,9 @@ pub fn print_duplication_report(
             }
             ExitCode::SUCCESS
         }
-        OutputFormat::Json => json::print_duplication_json(report, ctx.elapsed, ctx.explain),
+        OutputFormat::Json => {
+            json::print_duplication_json(report, ctx.root, ctx.elapsed, ctx.explain)
+        }
         OutputFormat::Compact => {
             compact::print_duplication_compact(report, ctx.root);
             ExitCode::SUCCESS

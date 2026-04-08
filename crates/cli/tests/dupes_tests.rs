@@ -98,6 +98,44 @@ fn dupes_top_flag() {
 }
 
 // ---------------------------------------------------------------------------
+// Path relativization (regression: #85)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn dupes_json_paths_are_relative() {
+    let output = run_fallow("dupes", "duplicate-code", &["--format", "json", "--quiet"]);
+    let json = parse_json(&output);
+    let groups = json["clone_groups"].as_array().unwrap();
+    assert!(!groups.is_empty(), "fixture should have clone groups");
+
+    // All instance paths must be relative (no leading /)
+    for group in groups {
+        for instance in group["instances"].as_array().unwrap() {
+            let path = instance["file"].as_str().unwrap();
+            assert!(
+                !path.starts_with('/'),
+                "clone group instance path should be relative, got: {path}"
+            );
+        }
+    }
+
+    // Clone families should also have relative paths
+    if let Some(families) = json.get("clone_families").and_then(|f| f.as_array()) {
+        for family in families {
+            if let Some(files) = family.get("files").and_then(|f| f.as_array()) {
+                for file in files {
+                    let path = file.as_str().unwrap();
+                    assert!(
+                        !path.starts_with('/'),
+                        "clone family file path should be relative, got: {path}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Human output snapshot
 // ---------------------------------------------------------------------------
 

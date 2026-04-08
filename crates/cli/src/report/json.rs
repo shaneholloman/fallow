@@ -216,7 +216,7 @@ pub fn build_json(
 ///
 /// This converts absolute paths (e.g., `/home/runner/work/repo/repo/src/utils.ts`)
 /// to relative paths (`src/utils.ts`) for all output fields.
-fn strip_root_prefix(value: &mut serde_json::Value, prefix: &str) {
+pub fn strip_root_prefix(value: &mut serde_json::Value, prefix: &str) {
     match value {
         serde_json::Value::String(s) => {
             if let Some(rest) = s.strip_prefix(prefix) {
@@ -869,6 +869,7 @@ pub(super) fn print_health_json(
 
 pub(super) fn print_duplication_json(
     report: &DuplicationReport,
+    root: &Path,
     elapsed: Duration,
     explain: bool,
 ) -> ExitCode {
@@ -881,6 +882,8 @@ pub(super) fn print_duplication_json(
     };
 
     let mut output = build_json_envelope(report_value, elapsed);
+    let root_prefix = format!("{}/", root.display());
+    strip_root_prefix(&mut output, &root_prefix);
     inject_dupes_actions(&mut output);
 
     if explain {

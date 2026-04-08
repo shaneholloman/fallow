@@ -209,6 +209,7 @@ fn print_combined_report(
                 check_result,
                 dupes_result,
                 health_result,
+                opts.root,
                 total_elapsed,
                 opts.explain,
             );
@@ -396,6 +397,7 @@ fn print_combined_json(
     check: Option<&CheckResult>,
     dupes: Option<&DupesResult>,
     health: Option<&HealthResult>,
+    root: &std::path::Path,
     elapsed: std::time::Duration,
     _explain: bool,
 ) -> ExitCode {
@@ -444,9 +446,12 @@ fn print_combined_json(
         }
     }
 
+    let root_prefix = format!("{}/", root.display());
+
     if let Some(result) = dupes {
         match serde_json::to_value(&result.report) {
-            Ok(json) => {
+            Ok(mut json) => {
+                report::strip_root_prefix(&mut json, &root_prefix);
                 combined.insert("dupes".into(), json);
             }
             Err(e) => {
@@ -461,7 +466,8 @@ fn print_combined_json(
 
     if let Some(result) = health {
         match serde_json::to_value(&result.report) {
-            Ok(json) => {
+            Ok(mut json) => {
+                report::strip_root_prefix(&mut json, &root_prefix);
                 combined.insert("health".into(), json);
             }
             Err(e) => {

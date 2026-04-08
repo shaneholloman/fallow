@@ -661,6 +661,8 @@ fn print_audit_json(result: &AuditResult) -> ExitCode {
     if let Some(ref dupes) = result.dupes {
         match serde_json::to_value(&dupes.report) {
             Ok(mut json) => {
+                let root_prefix = format!("{}/", dupes.config.root.display());
+                report::strip_root_prefix(&mut json, &root_prefix);
                 report::inject_dupes_actions(&mut json);
                 obj.insert("duplication".into(), json);
             }
@@ -677,6 +679,8 @@ fn print_audit_json(result: &AuditResult) -> ExitCode {
     if let Some(ref health) = result.health {
         match serde_json::to_value(&health.report) {
             Ok(mut json) => {
+                let root_prefix = format!("{}/", health.config.root.display());
+                report::strip_root_prefix(&mut json, &root_prefix);
                 report::inject_health_actions(&mut json);
                 obj.insert("complexity".into(), json);
             }
