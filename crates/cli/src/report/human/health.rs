@@ -265,6 +265,25 @@ fn render_health_trend(lines: &mut Vec<String>, report: &crate::health_types::He
         format!("(vs {date}{sha_str})").dimmed(),
     ));
 
+    // Warn if coverage model changed between snapshots
+    if let (Some(prev_model), Some(cur_model)) = (
+        &trend.compared_to.coverage_model,
+        &report.summary.coverage_model,
+    ) && prev_model != cur_model
+    {
+        let prev_str = serde_json::to_string(prev_model).unwrap_or_default();
+        let cur_str = serde_json::to_string(cur_model).unwrap_or_default();
+        lines.push(format!(
+            "  {}",
+            format!(
+                "note: CRAP model changed ({} \u{2192} {}); score delta may reflect model change, not code change",
+                prev_str.trim_matches('"'),
+                cur_str.trim_matches('"'),
+            )
+            .yellow()
+        ));
+    }
+
     // All-stable collapse: single dimmed line instead of N identical rows
     let all_stable = trend
         .metrics
@@ -575,9 +594,24 @@ fn render_file_scores(
         ));
         lines.push(String::new());
     }
+    let crap_note = if matches!(
+        report.summary.coverage_model,
+        Some(crate::health_types::CoverageModel::Istanbul)
+    ) {
+        let match_info = match (
+            report.summary.istanbul_matched,
+            report.summary.istanbul_total,
+        ) {
+            (Some(m), Some(t)) if t > 0 => format!(" ({m}/{t} functions matched)"),
+            _ => String::new(),
+        };
+        format!("CRAP from Istanbul coverage data{match_info}.")
+    } else {
+        "CRAP estimated from export references (85% direct, 40% indirect, 0% untested). Use --coverage for exact scores.".to_string()
+    };
     lines.push(format!(
         "  {}",
-        format!("Composite file quality scores based on complexity, coupling, and dead code. Risk: low <15, moderate 15-30, high >=30. CRAP estimated from export references (85% direct, 40% indirect, 0% untested). Use --coverage for exact scores \u{2014} {DOCS_HEALTH}#file-health-scores").dimmed()
+        format!("Composite file quality scores based on complexity, coupling, and dead code. Risk: low <15, moderate 15-30, high >=30. {crap_note} {DOCS_HEALTH}#file-health-scores").dimmed()
     ));
     lines.push(String::new());
 }
@@ -1041,6 +1075,8 @@ mod tests {
                 files_scored: None,
                 average_maintainability: None,
                 coverage_model: None,
+                istanbul_matched: None,
+                istanbul_total: None,
             },
             vital_signs: None,
             health_score: None,
@@ -1081,6 +1117,8 @@ mod tests {
                 files_scored: None,
                 average_maintainability: None,
                 coverage_model: None,
+                istanbul_matched: None,
+                istanbul_total: None,
             },
             vital_signs: None,
             health_score: None,
@@ -1126,6 +1164,8 @@ mod tests {
                 files_scored: None,
                 average_maintainability: None,
                 coverage_model: None,
+                istanbul_matched: None,
+                istanbul_total: None,
             },
             vital_signs: None,
             health_score: None,
@@ -1178,6 +1218,8 @@ mod tests {
                 files_scored: None,
                 average_maintainability: None,
                 coverage_model: None,
+                istanbul_matched: None,
+                istanbul_total: None,
             },
             vital_signs: None,
             health_score: None,
@@ -1210,6 +1252,8 @@ mod tests {
                 files_scored: None,
                 average_maintainability: None,
                 coverage_model: None,
+                istanbul_matched: None,
+                istanbul_total: None,
             },
             vital_signs: None,
             health_score: None,

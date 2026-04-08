@@ -412,6 +412,7 @@ fn run_audit_health<'a>(
         trend: false,
         group_by: opts.group_by,
         coverage: None,
+        coverage_root: None,
     }) {
         Ok(r) => Ok(Some(r)),
         Err(code) => Err(code),

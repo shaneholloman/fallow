@@ -279,6 +279,10 @@ pub struct HealthParams {
     /// Path to Istanbul-format coverage data (coverage-final.json) for accurate per-function CRAP scores.
     /// Accepts a file path or a directory containing coverage-final.json.
     pub coverage: Option<String>,
+
+    /// Rebase file paths in coverage data by stripping this prefix and prepending the project root.
+    /// Use when coverage was generated in a different environment (CI runner, Docker).
+    pub coverage_root: Option<String>,
 }
 
 #[derive(Default, Deserialize, JsonSchema)]

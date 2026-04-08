@@ -65,6 +65,8 @@ pub struct HealthOptions<'a> {
     pub group_by: Option<crate::GroupBy>,
     /// Path to Istanbul-format coverage data (coverage-final.json) for accurate CRAP scores.
     pub coverage: Option<&'a std::path::Path>,
+    /// Rebase file paths in coverage data by stripping this prefix and prepending project root.
+    pub coverage_root: Option<&'a std::path::Path>,
 }
 
 /// Run health analysis and return results without printing.
@@ -145,7 +147,8 @@ pub fn execute_health(opts: &HealthOptions<'_>) -> Result<HealthResult, ExitCode
     // Load Istanbul coverage data for accurate CRAP scoring.
     // Priority: explicit --coverage flag > auto-detected coverage-final.json.
     let istanbul_coverage = if let Some(coverage_path) = opts.coverage {
-        match scoring::load_istanbul_coverage(coverage_path) {
+        match scoring::load_istanbul_coverage(coverage_path, opts.coverage_root, Some(&config.root))
+        {
             Ok(cov) => Some(cov),
             Err(e) => {
                 emit_error(&format!("coverage: {e}"), 2, opts.output);
@@ -153,8 +156,15 @@ pub fn execute_health(opts: &HealthOptions<'_>) -> Result<HealthResult, ExitCode
             }
         }
     } else if let Some(auto_path) = scoring::auto_detect_coverage(&config.root) {
-        // Auto-detected coverage file: best-effort, don't fail if it can't be parsed
-        scoring::load_istanbul_coverage(&auto_path).ok()
+        // Auto-detected coverage file: best-effort, don't fail if it can't be parsed.
+        // Note in CI environments so pipelines know scores may vary with coverage presence.
+        if std::env::var("CI").is_ok_and(|v| !v.is_empty()) {
+            eprintln!(
+                "note: using auto-detected coverage at {}; pass --coverage explicitly for deterministic CI scores",
+                auto_path.display()
+            );
+        }
+        scoring::load_istanbul_coverage(&auto_path, opts.coverage_root, Some(&config.root)).ok()
     } else {
         None
     };
@@ -232,6 +242,13 @@ pub fn execute_health(opts: &HealthOptions<'_>) -> Result<HealthResult, ExitCode
         None
     };
 
+    // Determine coverage model for snapshot and report
+    let active_coverage_model = if istanbul_coverage.is_some() {
+        Some(crate::health_types::CoverageModel::Istanbul)
+    } else {
+        Some(crate::health_types::CoverageModel::StaticEstimated)
+    };
+
     if let Some(ref snapshot_path) = opts.save_snapshot {
         save_snapshot(
             opts,
@@ -240,6 +257,7 @@ pub fn execute_health(opts: &HealthOptions<'_>) -> Result<HealthResult, ExitCode
             &counts,
             hotspot_summary.as_ref(),
             health_score.as_ref(),
+            active_coverage_model,
         )?;
     }
 
@@ -480,6 +498,7 @@ fn save_snapshot(
     counts: &crate::health_types::VitalSignsCounts,
     hotspot_summary: Option<&crate::health_types::HotspotSummary>,
     health_score: Option<&crate::health_types::HealthScore>,
+    coverage_model: Option<crate::health_types::CoverageModel>,
 ) -> Result<(), ExitCode> {
     let shallow = hotspot_summary.is_some_and(|s| s.shallow_clone);
     let snapshot = vital_signs::build_snapshot(
@@ -488,6 +507,7 @@ fn save_snapshot(
         opts.root,
         shallow,
         health_score,
+        coverage_model,
     );
     let explicit = if snapshot_path.as_os_str().is_empty() {
         None
@@ -568,6 +588,11 @@ fn assemble_health_report(
         None
     };
 
+    // Extract Istanbul match stats before score_output is consumed
+    let (ist_matched, ist_total) = score_output
+        .as_ref()
+        .map_or((0, 0), |o| (o.istanbul_matched, o.istanbul_total));
+
     // Extract file scores for the report (apply --top after hotspot/target computation)
     let file_scores = if opts.file_scores {
         let mut scores = score_output.map(|o| o.scores).unwrap_or_default();
@@ -609,6 +634,16 @@ fn assemble_health_report(
                 } else {
                     crate::health_types::CoverageModel::StaticEstimated
                 })
+            } else {
+                None
+            },
+            istanbul_matched: if has_istanbul_coverage {
+                Some(ist_matched)
+            } else {
+                None
+            },
+            istanbul_total: if has_istanbul_coverage {
+                Some(ist_total)
             } else {
                 None
             },

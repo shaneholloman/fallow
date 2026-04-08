@@ -1047,6 +1047,8 @@ mod tests {
                 files_scored: None,
                 average_maintainability: None,
                 coverage_model: None,
+                istanbul_matched: None,
+                istanbul_total: None,
             },
             vital_signs: None,
             health_score: None,

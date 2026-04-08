@@ -663,6 +663,7 @@ fn health_args_with_all_options_including_targets_and_snapshot() {
         effort: Some("high".to_string()),
         summary: Some(true),
         coverage: Some("coverage/coverage-final.json".to_string()),
+        coverage_root: Some("/home/runner/work/myapp".to_string()),
     };
     let args = build_health_args(&params);
     // Every single flag should be present
@@ -684,6 +685,8 @@ fn health_args_with_all_options_including_targets_and_snapshot() {
     assert!(args.contains(&"--trend".to_string()));
     assert!(args.contains(&"--coverage".to_string()));
     assert!(args.contains(&"coverage/coverage-final.json".to_string()));
+    assert!(args.contains(&"--coverage-root".to_string()));
+    assert!(args.contains(&"/home/runner/work/myapp".to_string()));
 }
 
 // ── Unicode in paths for all arg builders ─────────────────────────

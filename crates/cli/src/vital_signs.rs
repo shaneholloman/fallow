@@ -286,6 +286,7 @@ pub fn build_snapshot(
     root: &Path,
     shallow_clone: bool,
     health_score: Option<&HealthScore>,
+    coverage_model: Option<crate::health_types::CoverageModel>,
 ) -> VitalSignsSnapshot {
     let now = chrono_timestamp();
 
@@ -300,6 +301,7 @@ pub fn build_snapshot(
         counts,
         score: health_score.map(|s| s.score),
         grade: health_score.map(|s| s.grade.to_string()),
+        coverage_model,
     }
 }
 
@@ -426,8 +428,7 @@ pub fn compute_trend(
         git_sha: prev.git_sha.clone(),
         score: prev.score,
         grade: prev.grade.clone(),
-        // Snapshots don't yet store coverage_model; populated when schema adds it.
-        coverage_model: None,
+        coverage_model: prev.coverage_model.clone(),
     };
 
     let mut metrics = Vec::new();
@@ -816,7 +817,7 @@ mod tests {
             total_deps: 42,
         };
         let health_score = compute_health_score(&vs, 1200);
-        let snapshot = build_snapshot(vs, counts, root, false, Some(&health_score));
+        let snapshot = build_snapshot(vs, counts, root, false, Some(&health_score), None);
         let saved_path = save_snapshot(&snapshot, root, None).unwrap();
 
         assert!(saved_path.exists());
@@ -859,7 +860,7 @@ mod tests {
             files_scored: None,
             total_deps: 0,
         };
-        let snapshot = build_snapshot(vs, counts, root, false, None);
+        let snapshot = build_snapshot(vs, counts, root, false, None, None);
         let saved = save_snapshot(&snapshot, root, Some(&explicit)).unwrap();
         assert_eq!(saved, explicit);
         assert!(explicit.exists());
@@ -892,7 +893,7 @@ mod tests {
             files_scored: None,
             total_deps: 0,
         };
-        let snapshot = build_snapshot(vs, counts, root, false, None);
+        let snapshot = build_snapshot(vs, counts, root, false, None, None);
         let saved = save_snapshot(&snapshot, root, Some(&nested)).unwrap();
         assert_eq!(saved, nested);
         assert!(nested.exists());
@@ -1255,6 +1256,7 @@ mod tests {
             },
             score,
             grade: score.map(|s| letter_grade(s).to_string()),
+            coverage_model: None,
         }
     }
 }

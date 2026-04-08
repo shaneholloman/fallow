@@ -26,6 +26,9 @@ pub(super) struct FileScoreOutput {
     pub cycle_members: rustc_hash::FxHashMap<std::path::PathBuf, Vec<std::path::PathBuf>>,
     /// Aggregate counts from AnalysisResults for vital signs.
     pub analysis_counts: crate::vital_signs::AnalysisCounts,
+    /// Istanbul match stats: functions matched / total (only meaningful with Istanbul model).
+    pub istanbul_matched: usize,
+    pub istanbul_total: usize,
 }
 
 /// Aggregate complexity totals from a parsed module.
@@ -125,16 +128,26 @@ fn compute_crap_scores_binary(
     ((max * 10.0).round() / 10.0, above)
 }
 
+/// Istanbul CRAP result: CRAP scores plus match statistics.
+pub(super) struct IstanbulCrapResult {
+    pub max_crap: f64,
+    pub above_threshold: usize,
+    /// Functions that found a match in Istanbul data.
+    pub matched: usize,
+    /// Total functions evaluated.
+    pub total: usize,
+}
+
 /// Compute per-function CRAP scores using Istanbul coverage data.
 ///
 /// For each function, looks up its per-function statement coverage percentage
 /// from the Istanbul data and applies the canonical CRAP formula:
 /// `CRAP = CC^2 * (1 - cov/100)^3 + CC`
 ///
-/// Functions not found in the coverage data fall back to the binary model
+/// Functions not found in the coverage data fall back to the estimated model
 /// using the file's test-reachability status.
 ///
-/// Returns `(max_crap, count_above_threshold)`.
+/// Returns CRAP scores and match statistics for reporting.
 #[expect(
     clippy::suboptimal_flops,
     reason = "cc * cc + cc matches the CRAP formula specification"
@@ -143,17 +156,24 @@ fn compute_crap_scores_istanbul(
     complexity: &[fallow_types::extract::FunctionComplexity],
     file_coverage: Option<&IstanbulFileCoverage>,
     is_test_reachable: bool,
-) -> (f64, usize) {
+) -> IstanbulCrapResult {
     if complexity.is_empty() {
-        return (0.0, 0);
+        return IstanbulCrapResult {
+            max_crap: 0.0,
+            above_threshold: 0,
+            matched: 0,
+            total: 0,
+        };
     }
     let mut max = 0.0_f64;
     let mut above = 0usize;
+    let mut matched = 0usize;
     for f in complexity {
         let cc = f64::from(f.cyclomatic);
         let crap = if let Some(cov_pct) =
             file_coverage.and_then(|fc| fc.lookup(f.name.as_str(), f.line))
         {
+            matched += 1;
             crap_formula(cc, cov_pct)
         } else if is_test_reachable {
             cc
@@ -165,7 +185,12 @@ fn compute_crap_scores_istanbul(
             above += 1;
         }
     }
-    ((max * 10.0).round() / 10.0, above)
+    IstanbulCrapResult {
+        max_crap: (max * 10.0).round() / 10.0,
+        above_threshold: above,
+        matched,
+        total: complexity.len(),
+    }
 }
 
 /// Estimated coverage for functions directly referenced by test-reachable modules.
@@ -308,7 +333,15 @@ pub(super) fn auto_detect_coverage(root: &std::path::Path) -> Option<std::path::
 /// If `path` is a directory, looks for `coverage-final.json` inside it.
 /// Parses the Istanbul JSON format and pre-computes per-function statement
 /// coverage percentages for efficient lookup during CRAP scoring.
-pub(super) fn load_istanbul_coverage(path: &std::path::Path) -> Result<IstanbulCoverage, String> {
+///
+/// When `coverage_root` is provided, file paths in the Istanbul data are rebased:
+/// the `coverage_root` prefix is stripped and `project_root` is prepended, enabling
+/// cross-environment matching (e.g., coverage from CI used on a local checkout).
+pub(super) fn load_istanbul_coverage(
+    path: &std::path::Path,
+    coverage_root: Option<&std::path::Path>,
+    project_root: Option<&std::path::Path>,
+) -> Result<IstanbulCoverage, String> {
     let file_path = if path.is_dir() {
         let candidate = path.join("coverage-final.json");
         if candidate.is_file() {
@@ -336,7 +369,16 @@ pub(super) fn load_istanbul_coverage(path: &std::path::Path) -> Result<IstanbulC
 
     let mut files = rustc_hash::FxHashMap::default();
     for file_cov in raw.values() {
-        let file_path = std::path::PathBuf::from(&file_cov.path);
+        let raw_path = std::path::PathBuf::from(&file_cov.path);
+        // Rebase path if --coverage-root was provided
+        let file_path = if let (Some(cov_root), Some(proj_root)) = (coverage_root, project_root) {
+            raw_path
+                .strip_prefix(cov_root)
+                .map(|rel| proj_root.join(rel))
+                .unwrap_or(raw_path)
+        } else {
+            raw_path
+        };
         let canonical = dunce::canonicalize(&file_path).unwrap_or(file_path);
 
         let mut functions = rustc_hash::FxHashMap::default();
@@ -663,6 +705,8 @@ pub(super) fn compute_file_scores(
     let coverage = compute_coverage_gaps(&graph, file_paths, &module_by_id);
 
     let mut scores = Vec::with_capacity(graph.modules.len());
+    let mut istanbul_matched = 0usize;
+    let mut istanbul_total = 0usize;
 
     for node in &graph.modules {
         let Some(path) = file_paths.get(&node.file_id) else {
@@ -742,21 +786,32 @@ pub(super) fn compute_file_scores(
             )
         });
         let is_test_reachable = node.is_test_reachable() || is_coverage_suppressed;
-        let (crap_max, crap_above_threshold) = module.map_or((0.0, 0), |m| {
-            if let Some(istanbul) = istanbul_coverage {
-                let canonical =
-                    dunce::canonicalize(&path_owned).unwrap_or_else(|_| path_owned.clone());
-                compute_crap_scores_istanbul(
-                    &m.complexity,
-                    istanbul.get(&canonical),
-                    is_test_reachable,
-                )
-            } else {
-                // Tier 2: graph-based estimation using export test references
+        let (crap_max, crap_above_threshold) = if let Some(istanbul) = istanbul_coverage {
+            let canonical = dunce::canonicalize(&path_owned).unwrap_or_else(|_| path_owned.clone());
+            let result = module.map_or(
+                IstanbulCrapResult {
+                    max_crap: 0.0,
+                    above_threshold: 0,
+                    matched: 0,
+                    total: 0,
+                },
+                |m| {
+                    compute_crap_scores_istanbul(
+                        &m.complexity,
+                        istanbul.get(&canonical),
+                        is_test_reachable,
+                    )
+                },
+            );
+            istanbul_matched += result.matched;
+            istanbul_total += result.total;
+            (result.max_crap, result.above_threshold)
+        } else {
+            module.map_or((0.0, 0), |m| {
                 let test_refs = build_test_referenced_exports(&node.exports, &graph.modules);
                 compute_crap_scores_estimated(&m.complexity, &test_refs, is_test_reachable)
-            }
-        });
+            })
+        };
 
         scores.push(FileHealthScore {
             path: path_owned,
@@ -819,6 +874,8 @@ pub(super) fn compute_file_scores(
             circular_deps: results.circular_dependencies.len(),
             total_deps,
         },
+        istanbul_matched,
+        istanbul_total,
     })
 }
 
@@ -2445,9 +2502,9 @@ mod tests {
         // 80% coverage: CRAP = 100 * 0.008 + 10 = 10.8
         functions.insert(("test_fn".to_string(), 1), 80.0);
         let file_cov = IstanbulFileCoverage { functions };
-        let (max, above) = compute_crap_scores_istanbul(&funcs, Some(&file_cov), false);
-        assert!((max - 10.8).abs() < 0.1);
-        assert_eq!(above, 0);
+        let result = compute_crap_scores_istanbul(&funcs, Some(&file_cov), false);
+        assert!((result.max_crap - 10.8).abs() < 0.1);
+        assert_eq!(result.above_threshold, 0);
     }
 
     #[test]
@@ -2457,18 +2514,18 @@ mod tests {
         let file_cov = IstanbulFileCoverage {
             functions: rustc_hash::FxHashMap::default(),
         };
-        let (max, above) = compute_crap_scores_istanbul(&funcs, Some(&file_cov), false);
-        assert!((max - 42.0).abs() < f64::EPSILON);
-        assert_eq!(above, 1);
+        let result = compute_crap_scores_istanbul(&funcs, Some(&file_cov), false);
+        assert!((result.max_crap - 42.0).abs() < f64::EPSILON);
+        assert_eq!(result.above_threshold, 1);
     }
 
     #[test]
     fn istanbul_crap_falls_back_to_binary_when_no_file_coverage() {
         let funcs = vec![make_fn_complexity(5)];
         // No file coverage at all, test-reachable: CRAP = CC = 5
-        let (max, above) = compute_crap_scores_istanbul(&funcs, None, true);
-        assert!((max - 5.0).abs() < f64::EPSILON);
-        assert_eq!(above, 0);
+        let result = compute_crap_scores_istanbul(&funcs, None, true);
+        assert!((result.max_crap - 5.0).abs() < f64::EPSILON);
+        assert_eq!(result.above_threshold, 0);
     }
 
     #[test]
@@ -2478,9 +2535,9 @@ mod tests {
         functions.insert(("test_fn".to_string(), 1), 0.0);
         let file_cov = IstanbulFileCoverage { functions };
         // 0% coverage: CRAP = 25 * 1 + 5 = 30 (same as binary untested)
-        let (max, above) = compute_crap_scores_istanbul(&funcs, Some(&file_cov), false);
-        assert!((max - 30.0).abs() < f64::EPSILON);
-        assert_eq!(above, 1);
+        let result = compute_crap_scores_istanbul(&funcs, Some(&file_cov), false);
+        assert!((result.max_crap - 30.0).abs() < f64::EPSILON);
+        assert_eq!(result.above_threshold, 1);
     }
 
     // --- compute_crap_scores_estimated ---

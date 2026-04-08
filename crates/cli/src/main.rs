@@ -449,6 +449,14 @@ enum Command {
         /// --coverage-gaps. Also configurable via FALLOW_COVERAGE env var.
         #[arg(long, value_name = "PATH")]
         coverage: Option<PathBuf>,
+
+        /// Rebase file paths in coverage data by stripping this prefix and
+        /// prepending the project root. Use when coverage was generated in a
+        /// different environment (CI runner, Docker). Example: if coverage paths
+        /// start with /home/runner/work/myapp and the project root is ./,
+        /// pass --coverage-root /home/runner/work/myapp.
+        #[arg(long, value_name = "PATH")]
+        coverage_root: Option<PathBuf>,
     },
 
     /// Audit changed files for dead code, complexity, and duplication.
@@ -1194,6 +1202,7 @@ fn dispatch_subcommand(
             save_snapshot,
             trend,
             coverage,
+            coverage_root,
         } => {
             // Resolve coverage: CLI flag > FALLOW_COVERAGE env var
             let coverage =
@@ -1222,6 +1231,7 @@ fn dispatch_subcommand(
                 save_snapshot.as_ref(),
                 trend,
                 coverage.as_deref(),
+                coverage_root.as_deref(),
             )
         }
         Command::Audit => audit::run_audit(&audit::AuditOptions {
@@ -1275,6 +1285,7 @@ fn dispatch_health(
     save_snapshot: Option<&Option<String>>,
     trend: bool,
     coverage: Option<&std::path::Path>,
+    coverage_root: Option<&std::path::Path>,
 ) -> ExitCode {
     let (output, quiet, _fail_on_issues) = apply_ci_defaults(
         cli.ci,
@@ -1332,6 +1343,7 @@ fn dispatch_health(
         trend,
         group_by: cli.group_by,
         coverage,
+        coverage_root,
     })
 }
 

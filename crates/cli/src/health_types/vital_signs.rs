@@ -2,7 +2,8 @@
 
 /// Current snapshot schema version. Independent of the report's SCHEMA_VERSION.
 /// v2: Added `score` and `grade` fields.
-pub const SNAPSHOT_SCHEMA_VERSION: u32 = 2;
+/// v3: Added `coverage_model` field.
+pub const SNAPSHOT_SCHEMA_VERSION: u32 = 3;
 
 /// Project-wide vital signs — a fixed set of metrics for trend tracking.
 ///
@@ -88,6 +89,9 @@ pub struct VitalSignsSnapshot {
     /// Letter grade (A/B/C/D/F). Added in schema v2.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub grade: Option<String>,
+    /// Coverage model used for CRAP computation. Added in schema v3.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub coverage_model: Option<super::CoverageModel>,
 }
 
 #[cfg(test)]
@@ -151,6 +155,7 @@ mod tests {
             },
             score: Some(78.5),
             grade: Some("B".into()),
+            coverage_model: Some(crate::health_types::CoverageModel::StaticEstimated),
         };
         let json = serde_json::to_string_pretty(&snapshot).unwrap();
         let rt: VitalSignsSnapshot = serde_json::from_str(&json).unwrap();
@@ -190,8 +195,8 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_schema_version_is_two() {
-        assert_eq!(SNAPSHOT_SCHEMA_VERSION, 2);
+    fn snapshot_schema_version_is_three() {
+        assert_eq!(SNAPSHOT_SCHEMA_VERSION, 3);
     }
 
     #[test]

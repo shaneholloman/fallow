@@ -146,6 +146,14 @@ pub struct HealthSummary {
     /// Coverage model used for CRAP computation (None when file scores not computed).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub coverage_model: Option<CoverageModel>,
+    /// Number of functions matched against Istanbul coverage data.
+    /// Only present when `coverage_model` is `istanbul`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub istanbul_matched: Option<usize>,
+    /// Total functions that could potentially be matched.
+    /// Only present when `coverage_model` is `istanbul`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub istanbul_total: Option<usize>,
 }
 
 /// Per-file health score combining complexity, coupling, and dead code metrics.
@@ -199,7 +207,7 @@ pub struct FileHealthScore {
 }
 
 /// Coverage model used for CRAP score computation.
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CoverageModel {
     /// Binary model: test-reachable = CC, untested = CC^2 + CC.

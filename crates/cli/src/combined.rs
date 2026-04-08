@@ -627,6 +627,7 @@ fn build_health_opts<'a>(opts: &'a CombinedOptions<'a>) -> HealthOptions<'a> {
         trend: opts.trend,
         group_by: opts.group_by,
         coverage: None,
+        coverage_root: None,
     }
 }
 

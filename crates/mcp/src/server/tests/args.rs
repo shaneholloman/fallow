@@ -523,6 +523,7 @@ fn health_args_with_all_options() {
         effort: Some("high".to_string()),
         summary: Some(true),
         coverage: Some("coverage/coverage-final.json".to_string()),
+        coverage_root: Some("/ci/build".to_string()),
     };
     let args = build_health_args(&params);
     assert_eq!(
@@ -570,6 +571,8 @@ fn health_args_with_all_options() {
             "--summary",
             "--coverage",
             "coverage/coverage-final.json",
+            "--coverage-root",
+            "/ci/build",
         ]
     );
 }
