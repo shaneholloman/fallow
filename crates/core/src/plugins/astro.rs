@@ -42,6 +42,7 @@ const ENDPOINT_EXPORTS: &[&str] = &[
     "HEAD",
     "OPTIONS",
     "ALL",
+    "getStaticPaths",
     "prerender",
 ];
 const MIDDLEWARE_EXPORTS: &[&str] = &["onRequest"];
