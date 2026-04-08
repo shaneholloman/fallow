@@ -766,4 +766,112 @@ mod tests {
         };
         assert!(t.any_active());
     }
+
+    // ── Boundary violations filter ──────────────────────────────
+
+    #[test]
+    fn apply_boundary_violations_filter() {
+        let mut results = make_results();
+        results
+            .boundary_violations
+            .push(fallow_core::results::BoundaryViolation {
+                from_path: PathBuf::from("/project/src/bad.ts"),
+                to_path: PathBuf::from("/project/lib/secret.ts"),
+                from_zone: "src".to_string(),
+                to_zone: "lib".to_string(),
+                import_specifier: "../lib/secret".to_string(),
+                line: 1,
+                col: 0,
+            });
+        let mut f = no_filters();
+        f.boundary_violations = true;
+        f.apply(&mut results);
+
+        assert_eq!(results.boundary_violations.len(), 1);
+        assert!(results.unused_files.is_empty());
+        assert!(results.unused_exports.is_empty());
+        assert!(results.unused_dependencies.is_empty());
+        assert!(results.circular_dependencies.is_empty());
+    }
+
+    // ── Combined filter for multiple types ──────────────────────
+
+    #[test]
+    fn apply_all_filter_types_simultaneously() {
+        let mut results = make_results();
+        results
+            .circular_dependencies
+            .push(fallow_core::results::CircularDependency {
+                files: vec![
+                    PathBuf::from("/project/src/a.ts"),
+                    PathBuf::from("/project/src/b.ts"),
+                ],
+                length: 2,
+                line: 1,
+                col: 0,
+                is_cross_package: false,
+            });
+        results
+            .boundary_violations
+            .push(fallow_core::results::BoundaryViolation {
+                from_path: PathBuf::from("/project/src/x.ts"),
+                to_path: PathBuf::from("/project/lib/y.ts"),
+                from_zone: "src".to_string(),
+                to_zone: "lib".to_string(),
+                import_specifier: "../lib/y".to_string(),
+                line: 1,
+                col: 0,
+            });
+
+        // Enable all filters
+        let f = IssueFilters {
+            unused_files: true,
+            unused_exports: true,
+            unused_deps: true,
+            unused_types: true,
+            unused_enum_members: true,
+            unused_class_members: true,
+            unresolved_imports: true,
+            unlisted_deps: true,
+            duplicate_exports: true,
+            circular_deps: true,
+            boundary_violations: true,
+        };
+        let total_before = results.total_issues();
+        f.apply(&mut results);
+        // With all filters enabled, all issues should be preserved
+        assert_eq!(results.total_issues(), total_before);
+    }
+
+    // ── Optional and type-only dependency filters ───────────────
+
+    #[test]
+    fn apply_unused_deps_clears_optional_and_type_only() {
+        let mut results = make_results();
+        results
+            .unused_optional_dependencies
+            .push(UnusedDependency {
+                package_name: "fsevents".into(),
+                location: DependencyLocation::OptionalDependencies,
+                path: PathBuf::from("/project/package.json"),
+                line: 5,
+            });
+        results
+            .type_only_dependencies
+            .push(fallow_core::results::TypeOnlyDependency {
+                package_name: "zod".into(),
+                path: PathBuf::from("/project/package.json"),
+                line: 8,
+            });
+
+        let mut f = no_filters();
+        f.unused_exports = true; // Only keep unused exports
+        f.apply(&mut results);
+
+        assert!(results.unused_dependencies.is_empty());
+        assert!(results.unused_dev_dependencies.is_empty());
+        assert!(results.unused_optional_dependencies.is_empty());
+        assert!(results.type_only_dependencies.is_empty());
+        assert_eq!(results.unused_exports.len(), 1);
+    }
 }

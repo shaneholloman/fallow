@@ -1021,4 +1021,449 @@ mod tests {
         let (cat, _) = result.unwrap();
         assert!(matches!(cat, RecommendationCategory::UrgentChurnComplexity));
     }
+
+    // --- compute_effort_estimate ---
+
+    #[test]
+    fn effort_high_for_large_file() {
+        let score = make_score(|s| s.lines = 600);
+        let t = default_thresholds();
+        assert!(matches!(
+            compute_effort_estimate(&score, &t),
+            EffortEstimate::High
+        ));
+    }
+
+    #[test]
+    fn effort_high_for_high_fan_in() {
+        let score = make_score(|s| s.fan_in = 25);
+        let t = default_thresholds();
+        assert!(matches!(
+            compute_effort_estimate(&score, &t),
+            EffortEstimate::High
+        ));
+    }
+
+    #[test]
+    fn effort_high_for_many_complex_functions() {
+        let score = make_score(|s| {
+            s.function_count = 20;
+            s.complexity_density = 0.6;
+        });
+        let t = default_thresholds();
+        assert!(matches!(
+            compute_effort_estimate(&score, &t),
+            EffortEstimate::High
+        ));
+    }
+
+    #[test]
+    fn effort_low_for_small_simple_file() {
+        let score = make_score(|s| {
+            s.lines = 50;
+            s.function_count = 2;
+            s.fan_in = 1;
+        });
+        let t = default_thresholds();
+        assert!(matches!(
+            compute_effort_estimate(&score, &t),
+            EffortEstimate::Low
+        ));
+    }
+
+    #[test]
+    fn effort_medium_for_moderate_file() {
+        let score = make_score(|s| {
+            s.lines = 200;
+            s.function_count = 8;
+            s.fan_in = 3;
+        });
+        let t = default_thresholds();
+        assert!(matches!(
+            compute_effort_estimate(&score, &t),
+            EffortEstimate::Medium
+        ));
+    }
+
+    // --- build_evidence ---
+
+    #[test]
+    fn evidence_dead_code_includes_unused_exports() {
+        let mut unused = rustc_hash::FxHashMap::default();
+        unused.insert(
+            std::path::PathBuf::from("/src/foo.ts"),
+            vec!["bar".to_string(), "baz".to_string()],
+        );
+        let cycle_members = rustc_hash::FxHashMap::default();
+        let ev = build_evidence(
+            &RecommendationCategory::RemoveDeadCode,
+            std::path::Path::new("/src/foo.ts"),
+            &unused,
+            None,
+            &cycle_members,
+        );
+        assert!(ev.is_some());
+        let ev = ev.unwrap();
+        assert_eq!(ev.unused_exports, vec!["bar", "baz"]);
+        assert!(ev.complex_functions.is_empty());
+        assert!(ev.cycle_path.is_empty());
+    }
+
+    #[test]
+    fn evidence_dead_code_none_when_no_exports() {
+        let unused = rustc_hash::FxHashMap::default();
+        let cycle_members = rustc_hash::FxHashMap::default();
+        let ev = build_evidence(
+            &RecommendationCategory::RemoveDeadCode,
+            std::path::Path::new("/src/foo.ts"),
+            &unused,
+            None,
+            &cycle_members,
+        );
+        assert!(ev.is_none());
+    }
+
+    #[test]
+    fn evidence_extract_complex_functions() {
+        let unused = rustc_hash::FxHashMap::default();
+        let cycle_members = rustc_hash::FxHashMap::default();
+        let fns = vec![
+            ("processData".to_string(), 10u32, 40u16),
+            ("handleEvent".to_string(), 25u32, 35u16),
+            ("simpleHelper".to_string(), 50u32, 5u16),
+        ];
+        let ev = build_evidence(
+            &RecommendationCategory::ExtractComplexFunctions,
+            std::path::Path::new("/src/foo.ts"),
+            &unused,
+            Some(&fns),
+            &cycle_members,
+        );
+        assert!(ev.is_some());
+        let ev = ev.unwrap();
+        assert!(ev.unused_exports.is_empty());
+        // Only functions above COGNITIVE_EXTRACTION_THRESHOLD (25) included
+        assert_eq!(ev.complex_functions.len(), 2);
+        assert_eq!(ev.complex_functions[0].name, "processData");
+        assert_eq!(ev.complex_functions[1].name, "handleEvent");
+    }
+
+    #[test]
+    fn evidence_break_circular_dep() {
+        let unused = rustc_hash::FxHashMap::default();
+        let mut cycle_members = rustc_hash::FxHashMap::default();
+        cycle_members.insert(
+            std::path::PathBuf::from("/src/a.ts"),
+            vec![
+                std::path::PathBuf::from("/src/b.ts"),
+                std::path::PathBuf::from("/src/c.ts"),
+            ],
+        );
+        let ev = build_evidence(
+            &RecommendationCategory::BreakCircularDependency,
+            std::path::Path::new("/src/a.ts"),
+            &unused,
+            None,
+            &cycle_members,
+        );
+        assert!(ev.is_some());
+        let ev = ev.unwrap();
+        assert_eq!(ev.cycle_path.len(), 2);
+        assert!(ev.unused_exports.is_empty());
+    }
+
+    #[test]
+    fn evidence_add_test_coverage_includes_all_fns() {
+        let unused = rustc_hash::FxHashMap::default();
+        let cycle_members = rustc_hash::FxHashMap::default();
+        let fns = vec![("render".to_string(), 5u32, 12u16)];
+        let ev = build_evidence(
+            &RecommendationCategory::AddTestCoverage,
+            std::path::Path::new("/src/foo.ts"),
+            &unused,
+            Some(&fns),
+            &cycle_members,
+        );
+        assert!(ev.is_some());
+        let ev = ev.unwrap();
+        assert_eq!(ev.complex_functions.len(), 1);
+        assert_eq!(ev.complex_functions[0].name, "render");
+    }
+
+    #[test]
+    fn evidence_split_high_impact_returns_none() {
+        let unused = rustc_hash::FxHashMap::default();
+        let cycle_members = rustc_hash::FxHashMap::default();
+        let ev = build_evidence(
+            &RecommendationCategory::SplitHighImpact,
+            std::path::Path::new("/src/foo.ts"),
+            &unused,
+            None,
+            &cycle_members,
+        );
+        assert!(ev.is_none());
+    }
+
+    // --- percentile_usize ---
+
+    #[test]
+    fn percentile_empty_returns_zero() {
+        assert!((percentile_usize(&[], 0.5)).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn percentile_single_element() {
+        assert!((percentile_usize(&[42], 0.5) - 42.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn percentile_p50_median() {
+        let data = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+        let p50 = percentile_usize(&data, 0.50);
+        assert!((p50 - 5.0).abs() < f64::EPSILON);
+    }
+
+    // --- rule priority ordering ---
+
+    #[test]
+    fn rule_urgent_churn_overrides_circular_dep() {
+        // Both Rule 1 (urgent churn) and Rule 2 (circular dep) could match
+        // Rule 1 has higher priority
+        let score = make_score(|s| {
+            s.complexity_density = 0.8;
+            s.fan_in = 10;
+        });
+        let hotspot = HotspotEntry {
+            path: std::path::PathBuf::from("/src/foo.ts"),
+            score: 60.0,
+            commits: 20,
+            weighted_commits: 15.0,
+            lines_added: 500,
+            lines_deleted: 100,
+            complexity_density: 0.8,
+            fan_in: 10,
+            trend: fallow_core::churn::ChurnTrend::Accelerating,
+        };
+        let t = default_thresholds();
+        let result = try_match_rules(&score, Some(&hotspot), true, false, None, 0, &t);
+        assert!(result.is_some());
+        let (cat, _) = result.unwrap();
+        assert!(
+            matches!(cat, RecommendationCategory::UrgentChurnComplexity),
+            "Rule 1 should win over Rule 2"
+        );
+    }
+
+    #[test]
+    fn rule_extract_two_complex_functions() {
+        let score = make_score(|_| {});
+        let fns = vec![
+            ("processData".to_string(), 10u32, 40u16),
+            ("handleEvent".to_string(), 25u32, 35u16),
+        ];
+        let t = default_thresholds();
+        let result = try_match_rules(&score, None, false, false, Some(&fns), 0, &t);
+        assert!(result.is_some());
+        let (cat, rec) = result.unwrap();
+        assert!(matches!(
+            cat,
+            RecommendationCategory::ExtractComplexFunctions
+        ));
+        assert!(rec.contains("processData"));
+        assert!(rec.contains("handleEvent"));
+    }
+
+    // --- contributing factors ---
+
+    #[test]
+    fn contributing_factor_hotspot() {
+        let scores = vec![make_score(|s| {
+            s.complexity_density = 0.5;
+            s.fan_in = 15;
+        })];
+        let hotspots = vec![HotspotEntry {
+            path: std::path::PathBuf::from("/src/foo.ts"),
+            score: 45.0,
+            commits: 10,
+            weighted_commits: 8.0,
+            lines_added: 200,
+            lines_deleted: 50,
+            complexity_density: 0.5,
+            fan_in: 15,
+            trend: fallow_core::churn::ChurnTrend::Stable,
+        }];
+        let value_exports: rustc_hash::FxHashMap<std::path::PathBuf, usize> =
+            rustc_hash::FxHashMap::default();
+        let aux = TargetAuxData {
+            circular_files: &rustc_hash::FxHashSet::default(),
+            top_complex_fns: &rustc_hash::FxHashMap::default(),
+            entry_points: &rustc_hash::FxHashSet::default(),
+            value_export_counts: &value_exports,
+            unused_export_names: &rustc_hash::FxHashMap::default(),
+            cycle_members: &rustc_hash::FxHashMap::default(),
+        };
+        let (targets, _) = compute_refactoring_targets(&scores, &aux, &hotspots);
+        assert!(!targets.is_empty());
+        let target = &targets[0];
+        assert!(target
+            .factors
+            .iter()
+            .any(|f| f.metric == "hotspot_score"));
+    }
+
+    #[test]
+    fn contributing_factor_crap() {
+        let scores = vec![make_score(|s| {
+            s.complexity_density = 0.5;
+            s.crap_above_threshold = 3;
+            s.crap_max = 72.0;
+        })];
+        let value_exports: rustc_hash::FxHashMap<std::path::PathBuf, usize> =
+            rustc_hash::FxHashMap::default();
+        let aux = TargetAuxData {
+            circular_files: &rustc_hash::FxHashSet::default(),
+            top_complex_fns: &rustc_hash::FxHashMap::default(),
+            entry_points: &rustc_hash::FxHashSet::default(),
+            value_export_counts: &value_exports,
+            unused_export_names: &rustc_hash::FxHashMap::default(),
+            cycle_members: &rustc_hash::FxHashMap::default(),
+        };
+        let (targets, _) = compute_refactoring_targets(&scores, &aux, &[]);
+        assert!(!targets.is_empty());
+        let target = &targets[0];
+        assert!(target.factors.iter().any(|f| f.metric == "crap_max"));
+    }
+
+    #[test]
+    fn contributing_factor_circular_dependency() {
+        let mut circular = rustc_hash::FxHashSet::default();
+        circular.insert(std::path::PathBuf::from("/src/foo.ts"));
+        let value_exports: rustc_hash::FxHashMap<std::path::PathBuf, usize> =
+            rustc_hash::FxHashMap::default();
+        let scores = vec![make_score(|s| s.complexity_density = 0.1)];
+        let aux = TargetAuxData {
+            circular_files: &circular,
+            top_complex_fns: &rustc_hash::FxHashMap::default(),
+            entry_points: &rustc_hash::FxHashSet::default(),
+            value_export_counts: &value_exports,
+            unused_export_names: &rustc_hash::FxHashMap::default(),
+            cycle_members: &rustc_hash::FxHashMap::default(),
+        };
+        let (targets, _) = compute_refactoring_targets(&scores, &aux, &[]);
+        assert!(!targets.is_empty());
+        let target = &targets[0];
+        assert!(target
+            .factors
+            .iter()
+            .any(|f| f.metric == "circular_dependency"));
+    }
+
+    #[test]
+    fn contributing_factor_dead_code_with_value_exports() {
+        let mut value_exports = rustc_hash::FxHashMap::default();
+        value_exports.insert(std::path::PathBuf::from("/src/foo.ts"), 6_usize);
+        let scores = vec![make_score(|s| s.dead_code_ratio = 0.7)];
+        let aux = TargetAuxData {
+            circular_files: &rustc_hash::FxHashSet::default(),
+            top_complex_fns: &rustc_hash::FxHashMap::default(),
+            entry_points: &rustc_hash::FxHashSet::default(),
+            value_export_counts: &value_exports,
+            unused_export_names: &rustc_hash::FxHashMap::default(),
+            cycle_members: &rustc_hash::FxHashMap::default(),
+        };
+        let (targets, _) = compute_refactoring_targets(&scores, &aux, &[]);
+        assert!(!targets.is_empty());
+        let target = &targets[0];
+        assert!(target
+            .factors
+            .iter()
+            .any(|f| f.metric == "dead_code_ratio"));
+    }
+
+    #[test]
+    fn contributing_factor_fan_out() {
+        let value_exports: rustc_hash::FxHashMap<std::path::PathBuf, usize> =
+            rustc_hash::FxHashMap::default();
+        let scores = vec![make_score(|s| {
+            s.fan_out = 20;
+            s.maintainability_index = 50.0;
+        })];
+        let aux = TargetAuxData {
+            circular_files: &rustc_hash::FxHashSet::default(),
+            top_complex_fns: &rustc_hash::FxHashMap::default(),
+            entry_points: &rustc_hash::FxHashSet::default(),
+            value_export_counts: &value_exports,
+            unused_export_names: &rustc_hash::FxHashMap::default(),
+            cycle_members: &rustc_hash::FxHashMap::default(),
+        };
+        let (targets, _) = compute_refactoring_targets(&scores, &aux, &[]);
+        assert!(!targets.is_empty());
+        let target = &targets[0];
+        assert!(target.factors.iter().any(|f| f.metric == "fan_out"));
+    }
+
+    #[test]
+    fn contributing_factor_cognitive_complexity() {
+        let mut top_fns = rustc_hash::FxHashMap::default();
+        top_fns.insert(
+            std::path::PathBuf::from("/src/foo.ts"),
+            vec![("complexFn".to_string(), 10u32, 30u16)],
+        );
+        let value_exports: rustc_hash::FxHashMap<std::path::PathBuf, usize> =
+            rustc_hash::FxHashMap::default();
+        let scores = vec![make_score(|_| {})];
+        let aux = TargetAuxData {
+            circular_files: &rustc_hash::FxHashSet::default(),
+            top_complex_fns: &top_fns,
+            entry_points: &rustc_hash::FxHashSet::default(),
+            value_export_counts: &value_exports,
+            unused_export_names: &rustc_hash::FxHashMap::default(),
+            cycle_members: &rustc_hash::FxHashMap::default(),
+        };
+        let (targets, _) = compute_refactoring_targets(&scores, &aux, &[]);
+        assert!(!targets.is_empty());
+        let target = &targets[0];
+        assert!(target
+            .factors
+            .iter()
+            .any(|f| f.metric == "cognitive_complexity"));
+    }
+
+    #[test]
+    fn no_targets_for_clean_files() {
+        let scores = vec![make_score(|s| {
+            s.path = std::path::PathBuf::from("/src/clean.ts");
+            s.complexity_density = 0.1;
+            s.fan_in = 2;
+            s.fan_out = 3;
+            s.dead_code_ratio = 0.0;
+        })];
+        let value_exports: rustc_hash::FxHashMap<std::path::PathBuf, usize> =
+            rustc_hash::FxHashMap::default();
+        let aux = TargetAuxData {
+            circular_files: &rustc_hash::FxHashSet::default(),
+            top_complex_fns: &rustc_hash::FxHashMap::default(),
+            entry_points: &rustc_hash::FxHashSet::default(),
+            value_export_counts: &value_exports,
+            unused_export_names: &rustc_hash::FxHashMap::default(),
+            cycle_members: &rustc_hash::FxHashMap::default(),
+        };
+        let (targets, _) = compute_refactoring_targets(&scores, &aux, &[]);
+        assert!(targets.is_empty());
+    }
+
+    #[test]
+    fn rule_split_high_impact_moderate_fan_in_many_functions() {
+        // Rule 3 alternate path: fan_in >= p75 AND function_count >= 5
+        let score = make_score(|s| {
+            s.complexity_density = 0.5;
+            s.fan_in = 10; // equals p75 in default thresholds
+            s.function_count = 8;
+        });
+        let t = default_thresholds();
+        let result = try_match_rules(&score, None, false, false, None, 0, &t);
+        assert!(result.is_some());
+        let (cat, _) = result.unwrap();
+        assert!(matches!(cat, RecommendationCategory::SplitHighImpact));
+    }
 }

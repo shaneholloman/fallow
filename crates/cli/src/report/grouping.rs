@@ -643,4 +643,238 @@ mod tests {
     fn mode_label_directory() {
         assert_eq!(OwnershipResolver::Directory.mode_label(), "directory");
     }
+
+    #[test]
+    fn mode_label_package() {
+        let pr = PackageResolver {
+            workspaces: vec![],
+        };
+        assert_eq!(OwnershipResolver::Package(pr).mode_label(), "package");
+    }
+
+    // ── PackageResolver ─────────────────────────────────────────
+
+    #[test]
+    fn package_resolver_matches_longest_prefix() {
+        let ws = vec![
+            fallow_config::WorkspaceInfo {
+                name: "packages/ui".to_string(),
+                root: PathBuf::from("/root/packages/ui"),
+                is_internal_dependency: false,
+            },
+            fallow_config::WorkspaceInfo {
+                name: "packages".to_string(),
+                root: PathBuf::from("/root/packages"),
+                is_internal_dependency: false,
+            },
+        ];
+        let pr = PackageResolver::new(Path::new("/root"), &ws);
+        // A file in packages/ui/ should match the more specific workspace
+        assert_eq!(
+            pr.resolve(Path::new("packages/ui/Button.ts")),
+            "packages/ui"
+        );
+    }
+
+    #[test]
+    fn package_resolver_root_fallback() {
+        let ws = vec![fallow_config::WorkspaceInfo {
+            name: "packages/ui".to_string(),
+            root: PathBuf::from("/root/packages/ui"),
+            is_internal_dependency: false,
+        }];
+        let pr = PackageResolver::new(Path::new("/root"), &ws);
+        // A file outside any workspace returns (root)
+        assert_eq!(pr.resolve(Path::new("src/app.ts")), ROOT_PACKAGE_LABEL);
+    }
+
+    #[test]
+    fn package_mode_groups_by_workspace() {
+        let ws = vec![
+            fallow_config::WorkspaceInfo {
+                name: "ui".to_string(),
+                root: PathBuf::from("/root/packages/ui"),
+                is_internal_dependency: false,
+            },
+            fallow_config::WorkspaceInfo {
+                name: "auth".to_string(),
+                root: PathBuf::from("/root/packages/auth"),
+                is_internal_dependency: false,
+            },
+        ];
+        let pr = PackageResolver::new(Path::new("/root"), &ws);
+        let resolver = OwnershipResolver::Package(pr);
+
+        let mut results = AnalysisResults::default();
+        results
+            .unused_files
+            .push(unused_file("/root/packages/ui/Button.ts"));
+        results
+            .unused_files
+            .push(unused_file("/root/packages/auth/login.ts"));
+        results
+            .unused_files
+            .push(unused_file("/root/src/main.ts"));
+
+        let groups = group_analysis_results(&results, &root(), &resolver);
+        assert_eq!(groups.len(), 3);
+
+        let ui_group = groups.iter().find(|g| g.key == "ui");
+        let auth_group = groups.iter().find(|g| g.key == "auth");
+        let root_group = groups.iter().find(|g| g.key == ROOT_PACKAGE_LABEL);
+
+        assert!(ui_group.is_some());
+        assert!(auth_group.is_some());
+        assert!(root_group.is_some());
+    }
+
+    // ── resolve_with_rule ───────────────────────────────────────
+
+    #[test]
+    fn resolve_with_rule_directory_mode_no_rule() {
+        let (key, rule) =
+            OwnershipResolver::Directory.resolve_with_rule(Path::new("src/file.ts"));
+        assert_eq!(key, "src");
+        assert!(rule.is_none());
+    }
+
+    #[test]
+    fn resolve_with_rule_owner_mode_with_match() {
+        let co = CodeOwners::parse("/src/ @frontend\n").unwrap();
+        let resolver = OwnershipResolver::Owner(co);
+        let (key, rule) = resolver.resolve_with_rule(Path::new("src/file.ts"));
+        assert_eq!(key, "@frontend");
+        assert!(rule.is_some());
+        assert!(rule.unwrap().contains("src"));
+    }
+
+    #[test]
+    fn resolve_with_rule_owner_mode_no_match() {
+        let co = CodeOwners::parse("/src/ @frontend\n").unwrap();
+        let resolver = OwnershipResolver::Owner(co);
+        let (key, rule) = resolver.resolve_with_rule(Path::new("docs/readme.md"));
+        assert_eq!(key, UNOWNED_LABEL);
+        assert!(rule.is_none());
+    }
+
+    #[test]
+    fn resolve_with_rule_package_mode_no_rule() {
+        let pr = PackageResolver {
+            workspaces: vec![],
+        };
+        let resolver = OwnershipResolver::Package(pr);
+        let (key, rule) = resolver.resolve_with_rule(Path::new("src/file.ts"));
+        assert_eq!(key, ROOT_PACKAGE_LABEL);
+        assert!(rule.is_none());
+    }
+
+    // ── Missing issue type groupings ────────────────────────────
+
+    #[test]
+    fn group_unused_optional_deps() {
+        let mut results = AnalysisResults::default();
+        results
+            .unused_optional_dependencies
+            .push(UnusedDependency {
+                package_name: "fsevents".to_string(),
+                location: fallow_core::results::DependencyLocation::OptionalDependencies,
+                path: PathBuf::from("/root/package.json"),
+                line: 5,
+            });
+
+        let groups = group_analysis_results(&results, &root(), &OwnershipResolver::Directory);
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].results.unused_optional_dependencies.len(), 1);
+    }
+
+    #[test]
+    fn group_type_only_deps() {
+        let mut results = AnalysisResults::default();
+        results
+            .type_only_dependencies
+            .push(fallow_core::results::TypeOnlyDependency {
+                package_name: "zod".to_string(),
+                path: PathBuf::from("/root/package.json"),
+                line: 8,
+            });
+
+        let groups = group_analysis_results(&results, &root(), &OwnershipResolver::Directory);
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].results.type_only_dependencies.len(), 1);
+    }
+
+    #[test]
+    fn group_test_only_deps() {
+        let mut results = AnalysisResults::default();
+        results
+            .test_only_dependencies
+            .push(fallow_core::results::TestOnlyDependency {
+                package_name: "vitest".to_string(),
+                path: PathBuf::from("/root/package.json"),
+                line: 10,
+            });
+
+        let groups = group_analysis_results(&results, &root(), &OwnershipResolver::Directory);
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].results.test_only_dependencies.len(), 1);
+    }
+
+    #[test]
+    fn group_unused_enum_members() {
+        let mut results = AnalysisResults::default();
+        results
+            .unused_enum_members
+            .push(fallow_core::results::UnusedMember {
+                path: PathBuf::from("/root/src/types.ts"),
+                parent_name: "Status".to_string(),
+                member_name: "Deprecated".to_string(),
+                kind: fallow_core::extract::MemberKind::EnumMember,
+                line: 5,
+                col: 0,
+            });
+
+        let groups = group_analysis_results(&results, &root(), &OwnershipResolver::Directory);
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].key, "src");
+        assert_eq!(groups[0].results.unused_enum_members.len(), 1);
+    }
+
+    #[test]
+    fn group_unused_class_members() {
+        let mut results = AnalysisResults::default();
+        results
+            .unused_class_members
+            .push(fallow_core::results::UnusedMember {
+                path: PathBuf::from("/root/lib/service.ts"),
+                parent_name: "UserService".to_string(),
+                member_name: "legacyMethod".to_string(),
+                kind: fallow_core::extract::MemberKind::ClassMethod,
+                line: 42,
+                col: 0,
+            });
+
+        let groups = group_analysis_results(&results, &root(), &OwnershipResolver::Directory);
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].key, "lib");
+        assert_eq!(groups[0].results.unused_class_members.len(), 1);
+    }
+
+    #[test]
+    fn group_unresolved_imports() {
+        let mut results = AnalysisResults::default();
+        results
+            .unresolved_imports
+            .push(fallow_core::results::UnresolvedImport {
+                path: PathBuf::from("/root/src/app.ts"),
+                specifier: "./missing".to_string(),
+                line: 1,
+                col: 0,
+                specifier_col: 0,
+            });
+
+        let groups = group_analysis_results(&results, &root(), &OwnershipResolver::Directory);
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].key, "src");
+        assert_eq!(groups[0].results.unresolved_imports.len(), 1);
+    }
 }
