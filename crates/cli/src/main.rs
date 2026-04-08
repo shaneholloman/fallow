@@ -713,8 +713,7 @@ fn setup_tracing(quiet: bool, is_watch: bool) {
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
         .with_env_filter(
-            tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive(default_level.into()),
+            tracing_subscriber::EnvFilter::from_default_env().add_directive(default_level.into()),
         )
         .with_target(false)
         .with_timer(tracing_subscriber::fmt::time::uptime())
