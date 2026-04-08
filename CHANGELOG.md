@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.20.0] - 2026-04-08
+
+### Added
+
+- **Tiered CRAP scoring with graph-based estimation** -- CRAP scores now use a per-function spectrum instead of per-file binary. Functions whose exports are directly referenced by tests get 85% estimated coverage, indirectly test-reachable functions get 40%, untested files get 0%. The real CRAP formula (CC^2 * (1-cov/100)^3 + CC) is applied with these estimates. Zero config, zero extra latency.
+- **Istanbul coverage integration** -- new `--coverage <PATH>` flag (or `FALLOW_COVERAGE` env var) reads `coverage-final.json` from Jest, Vitest, c8, nyc for exact per-function CRAP scores. Auto-detects coverage data from `coverage/coverage-final.json` and `.nyc_output/coverage-final.json`.
+- **`oxc_coverage_instrument` dependency** -- uses the published fallow-rs/oxc-coverage-instrument crate for parsing Istanbul-format coverage data.
+
+### Changed
+
+- **Default CRAP model is now `static_estimated`** -- replaces the binary `static_binary` model. The `coverage_model` field in JSON output reflects which model was used: `"static_estimated"` (default) or `"istanbul"` (when coverage data is available).
+- **Updated `--explain` CRAP description** -- now documents the tiered estimation model and upgrade path to Istanbul coverage.
+- **Updated human output footer** -- file scores footer now describes the estimation model and mentions `--coverage` for exact scores.
+
 ## [2.19.3] - 2026-04-08
 
 ### Fixed
@@ -1021,7 +1035,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--changed-since` and `--fail-on-issues` for CI
 - Cross-workspace resolution for npm/yarn/pnpm workspaces
 
-[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.19.3...HEAD
+[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.20.0...HEAD
+[2.20.0]: https://github.com/fallow-rs/fallow/compare/v2.19.3...v2.20.0
 [2.19.3]: https://github.com/fallow-rs/fallow/compare/v2.19.2...v2.19.3
 [2.19.2]: https://github.com/fallow-rs/fallow/compare/v2.19.1...v2.19.2
 [2.19.1]: https://github.com/fallow-rs/fallow/compare/v2.19.0...v2.19.1
