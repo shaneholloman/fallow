@@ -2657,4 +2657,182 @@ mod tests {
         // 1 unused / 2 value exports = 0.5
         assert!((ratio - 0.5).abs() < f64::EPSILON);
     }
+
+    // --- IstanbulFileCoverage::lookup ---
+
+    #[test]
+    fn istanbul_lookup_exact_match() {
+        let mut functions = rustc_hash::FxHashMap::default();
+        functions.insert(("handleClick".to_string(), 10), 85.0);
+        let fc = IstanbulFileCoverage { functions };
+        assert!((fc.lookup("handleClick", 10).unwrap() - 85.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn istanbul_lookup_fuzzy_match_within_offset() {
+        let mut functions = rustc_hash::FxHashMap::default();
+        functions.insert(("handleClick".to_string(), 10), 72.0);
+        let fc = IstanbulFileCoverage { functions };
+        // Line 11 is within offset of 2 from line 10
+        assert!((fc.lookup("handleClick", 11).unwrap() - 72.0).abs() < f64::EPSILON);
+        // Line 12 is within offset of 2
+        assert!((fc.lookup("handleClick", 12).unwrap() - 72.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn istanbul_lookup_fuzzy_match_outside_offset() {
+        let mut functions = rustc_hash::FxHashMap::default();
+        functions.insert(("handleClick".to_string(), 10), 72.0);
+        let fc = IstanbulFileCoverage { functions };
+        // Line 13 is 3 away from line 10, exceeds offset of 2
+        assert!(fc.lookup("handleClick", 13).is_none());
+    }
+
+    #[test]
+    fn istanbul_lookup_name_mismatch() {
+        let mut functions = rustc_hash::FxHashMap::default();
+        functions.insert(("handleClick".to_string(), 10), 85.0);
+        let fc = IstanbulFileCoverage { functions };
+        assert!(fc.lookup("handleSubmit", 10).is_none());
+    }
+
+    #[test]
+    fn istanbul_lookup_empty() {
+        let fc = IstanbulFileCoverage {
+            functions: rustc_hash::FxHashMap::default(),
+        };
+        assert!(fc.lookup("anything", 1).is_none());
+    }
+
+    #[test]
+    fn istanbul_lookup_fuzzy_picks_closest() {
+        let mut functions = rustc_hash::FxHashMap::default();
+        // Two entries for same name at lines 8 and 12
+        functions.insert(("render".to_string(), 8), 60.0);
+        functions.insert(("render".to_string(), 12), 90.0);
+        let fc = IstanbulFileCoverage { functions };
+        // Looking up line 10: distance to 8 is 2, distance to 12 is 2
+        // Both within offset, min_by_key picks closest (tie broken by iteration)
+        let result = fc.lookup("render", 10);
+        assert!(result.is_some());
+        // Either match is acceptable since both are distance 2
+        let pct = result.unwrap();
+        assert!((pct - 60.0).abs() < f64::EPSILON || (pct - 90.0).abs() < f64::EPSILON);
+    }
+
+    // --- build_test_referenced_exports ---
+
+    #[test]
+    fn build_test_refs_empty() {
+        let exports: Vec<fallow_core::graph::ExportSymbol> = vec![];
+        let modules: Vec<fallow_core::graph::ModuleNode> = vec![];
+        let refs = build_test_referenced_exports(&exports, &modules);
+        assert!(refs.is_empty());
+    }
+
+    #[test]
+    fn build_test_refs_empty_inputs() {
+        let exports: Vec<fallow_core::graph::ExportSymbol> = vec![];
+        let modules: Vec<fallow_core::graph::ModuleNode> = vec![];
+        let refs = build_test_referenced_exports(&exports, &modules);
+        assert!(refs.is_empty());
+    }
+
+    // --- compute_crap_scores_istanbul: additional edge cases ---
+
+    #[test]
+    fn istanbul_crap_empty_complexity() {
+        let result = compute_crap_scores_istanbul(&[], None, false);
+        assert!((result.max_crap).abs() < f64::EPSILON);
+        assert_eq!(result.above_threshold, 0);
+        assert_eq!(result.matched, 0);
+        assert_eq!(result.total, 0);
+    }
+
+    #[test]
+    fn istanbul_crap_match_statistics() {
+        let funcs = vec![
+            make_fn_complexity(5),
+            {
+                let mut f = make_fn_complexity(3);
+                f.name = "other_fn".into();
+                f.line = 10;
+                f
+            },
+        ];
+        let mut functions = rustc_hash::FxHashMap::default();
+        // Only match first function
+        functions.insert(("test_fn".to_string(), 1), 80.0);
+        let file_cov = IstanbulFileCoverage { functions };
+        let result = compute_crap_scores_istanbul(&funcs, Some(&file_cov), true);
+        assert_eq!(result.matched, 1);
+        assert_eq!(result.total, 2);
+    }
+
+    // --- compute_crap_scores_estimated: multiple functions ---
+
+    #[test]
+    fn estimated_crap_multiple_functions_mixed_coverage() {
+        let funcs = vec![
+            make_fn_complexity(10), // name "test_fn" line 1
+            {
+                let mut f = make_fn_complexity(3);
+                f.name = "helper".into();
+                f.line = 20;
+                f
+            },
+        ];
+        let mut refs = rustc_hash::FxHashSet::default();
+        refs.insert("test_fn".to_string()); // Only test_fn is directly referenced
+        let (max, above) = compute_crap_scores_estimated(&funcs, &refs, true);
+        // test_fn: CC=10, 85% coverage -> CRAP ~10.3
+        // helper: CC=3, 40% coverage (indirect) -> CRAP = 9*0.216+3 = 4.944
+        assert!(max > 10.0);
+        assert_eq!(above, 0); // Neither exceeds 30
+    }
+
+    // --- compute_crap_scores_binary ---
+
+    #[test]
+    fn binary_crap_test_reachable() {
+        let funcs = vec![make_fn_complexity(10)];
+        let (max, above) = compute_crap_scores_binary(&funcs, true);
+        // Test-reachable: CRAP = CC = 10
+        assert!((max - 10.0).abs() < f64::EPSILON);
+        assert_eq!(above, 0);
+    }
+
+    #[test]
+    fn binary_crap_not_reachable() {
+        let funcs = vec![make_fn_complexity(6)];
+        let (max, above) = compute_crap_scores_binary(&funcs, false);
+        // Not test-reachable: CRAP = 36 + 6 = 42
+        assert!((max - 42.0).abs() < f64::EPSILON);
+        assert_eq!(above, 1);
+    }
+
+    #[test]
+    fn binary_crap_threshold_boundary() {
+        // CC=5 untested: 25 + 5 = 30 (exactly at threshold)
+        let funcs = vec![make_fn_complexity(5)];
+        let (max, above) = compute_crap_scores_binary(&funcs, false);
+        assert!((max - 30.0).abs() < f64::EPSILON);
+        assert_eq!(above, 1); // >= threshold
+    }
+
+    #[test]
+    fn binary_crap_empty() {
+        let (max, above) = compute_crap_scores_binary(&[], true);
+        assert!((max).abs() < f64::EPSILON);
+        assert_eq!(above, 0);
+    }
+
+    #[test]
+    fn binary_crap_multiple_functions() {
+        let funcs = vec![make_fn_complexity(3), make_fn_complexity(8)];
+        let (max, above) = compute_crap_scores_binary(&funcs, false);
+        // CC=3: 9+3=12 (below threshold), CC=8: 64+8=72 (above threshold)
+        assert!((max - 72.0).abs() < f64::EPSILON);
+        assert_eq!(above, 1);
+    }
 }
