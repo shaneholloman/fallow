@@ -805,6 +805,21 @@ mod tests {
         assert!(usage.used_bindings.contains("format"));
     }
 
+    #[test]
+    fn snippet_typed_params_do_not_stack_overflow() {
+        // Regression: `{ href, content }: Props` caused infinite recursion in
+        // `extract_pattern_binding_names` because the type annotation prevented
+        // `strip_wrapping` from matching, sending the input into a self-recursive
+        // comma-split path that never progressed.
+        let usage = collect_template_usage(
+            "{#snippet Link({ href, content }: Props)}<a {href}>{content}</a>{/snippet}",
+            &imported(&["href", "content"]),
+        );
+
+        // href and content are snippet-local bindings, so they shadow imports
+        assert!(usage.is_empty());
+    }
+
     // --- @html ---
 
     #[test]

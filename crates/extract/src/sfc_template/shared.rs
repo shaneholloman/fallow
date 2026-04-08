@@ -237,6 +237,13 @@ pub(super) fn extract_pattern_binding_names(pattern: &str) -> Vec<String> {
         return Vec::new();
     }
 
+    // Strip trailing TypeScript type annotations from destructuring patterns.
+    // e.g. `{ href, content }: Props` → `{ href, content }`
+    //      `[a, b]: number[]`         → `[a, b]`
+    // Without this, the pattern falls through to the comma-split path which
+    // recurses infinitely because `split_top_level` returns the whole string.
+    let pattern = strip_trailing_type_annotation(pattern);
+
     if let Some(inner) = strip_wrapping(pattern, '{', '}') {
         return split_top_level(inner, ',')
             .into_iter()
@@ -353,6 +360,39 @@ fn strip_wrapping(source: &str, open: char, close: char) -> Option<&str> {
         .and_then(|inner| inner.strip_suffix(close))
 }
 
+/// Strip a trailing TypeScript type annotation from a destructuring pattern.
+///
+/// Handles patterns like `{ a, b }: SomeType` → `{ a, b }` by finding the
+/// matching closing delimiter (`}` or `]`) and discarding everything after it.
+/// Returns the input unchanged when there is no trailing annotation.
+fn strip_trailing_type_annotation(pattern: &str) -> &str {
+    let first = match pattern.bytes().next() {
+        Some(b'{') => b'}',
+        Some(b'[') => b']',
+        _ => return pattern,
+    };
+
+    let mut depth: u32 = 0;
+    for (i, byte) in pattern.bytes().enumerate() {
+        match byte {
+            b'{' | b'[' | b'(' => depth += 1,
+            b'}' | b']' | b')' => {
+                depth -= 1;
+                if byte == first && depth == 0 {
+                    // Found the matching close; if `: ...` follows, strip it.
+                    let rest = pattern[i + 1..].trim_start();
+                    if rest.starts_with(':') {
+                        return &pattern[..=i];
+                    }
+                    return pattern;
+                }
+            }
+            _ => {}
+        }
+    }
+    pattern
+}
+
 fn trim_outer_parens(source: &str) -> &str {
     source
         .strip_prefix('(')
@@ -380,7 +420,8 @@ mod tests {
         merge_expression_usage, merge_expression_usage_allow_dollar_refs,
         merge_pattern_binding_usage, merge_statement_usage,
         merge_statement_usage_allow_dollar_refs, split_top_level, split_top_level_once,
-        strip_wrapping, trim_outer_parens, uppercase_first, valid_identifier,
+        strip_trailing_type_annotation, strip_wrapping, trim_outer_parens, uppercase_first,
+        valid_identifier,
     };
     use crate::template_usage::TemplateUsage;
 
@@ -823,6 +864,42 @@ mod tests {
     #[test]
     fn strip_wrapping_mismatched() {
         assert_eq!(strip_wrapping("{a, b", '{', '}'), None);
+    }
+
+    // --- strip_trailing_type_annotation ---
+
+    #[test]
+    fn strip_type_from_object_destructure() {
+        assert_eq!(
+            strip_trailing_type_annotation("{ href, content }: Props"),
+            "{ href, content }"
+        );
+    }
+
+    #[test]
+    fn strip_type_from_array_destructure() {
+        assert_eq!(strip_trailing_type_annotation("[a, b]: number[]"), "[a, b]");
+    }
+
+    #[test]
+    fn strip_type_preserves_plain_destructure() {
+        assert_eq!(
+            strip_trailing_type_annotation("{ href, content }"),
+            "{ href, content }"
+        );
+    }
+
+    #[test]
+    fn strip_type_preserves_identifier() {
+        assert_eq!(strip_trailing_type_annotation("item"), "item");
+    }
+
+    #[test]
+    fn strip_type_nested_braces() {
+        assert_eq!(
+            strip_trailing_type_annotation("{ a: { b, c } }: Type"),
+            "{ a: { b, c } }"
+        );
     }
 
     // --- split_top_level ---
