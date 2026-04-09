@@ -384,13 +384,12 @@ fn clone_group_key(group: &fallow_core::duplicates::CloneGroup, root: &Path) -> 
         .instances
         .iter()
         .map(|i| {
-            let relative = i
-                .file
-                .strip_prefix(root)
-                .unwrap_or(&i.file)
-                .to_string_lossy()
-                .replace('\\', "/");
-            format!("{}:{}-{}", relative, i.start_line, i.end_line)
+            format!(
+                "{}:{}-{}",
+                relative_path(&i.file, root),
+                i.start_line,
+                i.end_line
+            )
         })
         .collect();
     parts.sort();
@@ -501,24 +500,21 @@ impl HealthBaselineData {
 
 /// Generate a stable key for a refactoring target: `relative_path:category`.
 fn target_baseline_key(target: &crate::health_types::RefactoringTarget, root: &Path) -> String {
-    let relative = target
-        .path
-        .strip_prefix(root)
-        .unwrap_or(&target.path)
-        .to_string_lossy()
-        .replace('\\', "/");
-    format!("{}:{}", relative, target.category.label())
+    format!(
+        "{}:{}",
+        relative_path(&target.path, root),
+        target.category.label()
+    )
 }
 
 /// Generate a stable key for a health finding.
 fn health_finding_key(finding: &crate::health_types::HealthFinding, root: &Path) -> String {
-    let relative = finding
-        .path
-        .strip_prefix(root)
-        .unwrap_or(&finding.path)
-        .to_string_lossy()
-        .replace('\\', "/");
-    format!("{}:{}:{}", relative, finding.name, finding.line)
+    format!(
+        "{}:{}:{}",
+        relative_path(&finding.path, root),
+        finding.name,
+        finding.line
+    )
 }
 
 /// Filter health findings to only include those not present in the baseline.

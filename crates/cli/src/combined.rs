@@ -434,6 +434,17 @@ fn print_combined_json(
                         ),
                     );
                 }
+                if let Some((entries, matched)) = result.baseline_matched
+                    && let serde_json::Value::Object(ref mut map) = json
+                {
+                    map.insert(
+                        "baseline".to_string(),
+                        serde_json::json!({
+                            "entries": entries,
+                            "matched": matched,
+                        }),
+                    );
+                }
                 combined.insert("check".into(), json);
             }
             Err(e) => {
