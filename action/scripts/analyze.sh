@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
-set -o pipefail
+# Composite action runners inject -e (errexit) via the shell invocation.
+# This script handles errors explicitly with if-guards and || true, so
+# disable errexit to avoid false exits from intentional non-zero returns
+# (e.g., grep -q not finding a match, git diff on shallow clones).
+set +e -o pipefail
 
 # Run fallow analysis with CLI argument construction (deduped)
 # Required env: INPUT_COMMAND, INPUT_ROOT, INPUT_CONFIG, INPUT_FORMAT, INPUT_PRODUCTION,
