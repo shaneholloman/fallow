@@ -4,9 +4,6 @@ expression: redacted
 ---
 ■ Metrics: avg cyclomatic 7.0 · p90 cyclomatic 13
 
-  Function size: 100% low · 0% medium · 0% high · 0% very high  (1-15 / 16-30 / 31-60 / >60 LOC)
-  Parameters:    100% low · 0% medium · 0% high · 0% very high  (0-2 / 3-4 / 5-6 / >=7 params)
-
 ● High complexity functions (1)
   src/complex.ts
     :1 classify

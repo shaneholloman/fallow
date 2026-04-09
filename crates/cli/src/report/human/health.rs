@@ -416,10 +416,6 @@ fn render_vital_signs(lines: &mut Vec<String>, report: &crate::health_types::Hea
 }
 
 fn render_risk_profiles(lines: &mut Vec<String>, report: &crate::health_types::HealthReport) {
-    // Suppress when trend is active (the trend table shows deltas for risk metrics)
-    if report.health_trend.is_some() {
-        return;
-    }
     let Some(ref vs) = report.vital_signs else {
         return;
     };
@@ -431,7 +427,12 @@ fn render_risk_profiles(lines: &mut Vec<String>, report: &crate::health_types::H
         )
     };
 
-    if let Some(ref profile) = vs.unit_size_profile {
+    let before = lines.len();
+
+    // Show function size profile when approaching or exceeding the penalty threshold (5% very high)
+    if let Some(ref profile) = vs.unit_size_profile
+        && profile.very_high_risk >= 3.0
+    {
         lines.push(format!(
             "  {} {}  {}",
             "Function size:".dimmed(),
@@ -439,7 +440,11 @@ fn render_risk_profiles(lines: &mut Vec<String>, report: &crate::health_types::H
             "(1-15 / 16-30 / 31-60 / >60 LOC)".dimmed()
         ));
     }
-    if let Some(ref profile) = vs.unit_interfacing_profile {
+
+    // Show parameter profile only when it carries signal (any functions in high or very high bins)
+    if let Some(ref profile) = vs.unit_interfacing_profile
+        && (profile.very_high_risk > 0.0 || profile.high_risk > 1.0)
+    {
         lines.push(format!(
             "  {}    {}  {}",
             "Parameters:".dimmed(),
@@ -447,7 +452,8 @@ fn render_risk_profiles(lines: &mut Vec<String>, report: &crate::health_types::H
             "(0-2 / 3-4 / 5-6 / >=7 params)".dimmed()
         ));
     }
-    if vs.unit_size_profile.is_some() || vs.unit_interfacing_profile.is_some() {
+
+    if lines.len() > before {
         lines.push(String::new());
     }
 }
