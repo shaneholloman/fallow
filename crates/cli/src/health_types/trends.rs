@@ -30,6 +30,9 @@ pub struct TrendPoint {
     /// Coverage model used for CRAP computation in this snapshot.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub coverage_model: Option<super::CoverageModel>,
+    /// Schema version of the compared snapshot.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub snapshot_schema_version: Option<u32>,
 }
 
 /// A single metric's trend between two snapshots.

@@ -98,6 +98,7 @@ pub(in crate::report) fn build_health_human_lines(
     render_health_score(&mut lines, report);
     render_health_trend(&mut lines, report);
     render_vital_signs(&mut lines, report);
+    render_risk_profiles(&mut lines, report);
     render_findings(&mut lines, report, root);
     render_coverage_gaps(&mut lines, report, root);
     render_file_scores(&mut lines, report, root);
@@ -175,6 +176,16 @@ fn render_health_score(lines: &mut Vec<String>, report: &crate::health_types::He
         && cd > 0.0
     {
         parts.push(format!("circular dependencies -{cd:.1}"));
+    }
+    if let Some(us) = p.unit_size
+        && us > 0.0
+    {
+        parts.push(format!("unit size -{us:.1}"));
+    }
+    if let Some(cp) = p.coupling
+        && cp > 0.0
+    {
+        parts.push(format!("coupling -{cp:.1}"));
     }
     if !parts.is_empty() {
         lines.push(format!(
@@ -284,6 +295,20 @@ fn render_health_trend(lines: &mut Vec<String>, report: &crate::health_types::He
         ));
     }
 
+    // Warn if snapshot schema version differs (new penalties may affect score)
+    if let Some(prev_version) = trend.compared_to.snapshot_schema_version
+        && prev_version < crate::health_types::SNAPSHOT_SCHEMA_VERSION
+    {
+        lines.push(format!(
+            "  {}",
+            format!(
+                "note: score formula updated in snapshot v{} (added unit size and coupling penalties); score delta may reflect formula change, not code change",
+                crate::health_types::SNAPSHOT_SCHEMA_VERSION
+            )
+                .yellow()
+        ));
+    }
+
     // All-stable collapse: single dimmed line instead of N identical rows
     let all_stable = trend
         .metrics
@@ -388,6 +413,43 @@ fn render_vital_signs(lines: &mut Vec<String>, report: &crate::health_types::Hea
         parts.join(" \u{00b7} ").dimmed()
     ));
     lines.push(String::new());
+}
+
+fn render_risk_profiles(lines: &mut Vec<String>, report: &crate::health_types::HealthReport) {
+    // Suppress when trend is active (the trend table shows deltas for risk metrics)
+    if report.health_trend.is_some() {
+        return;
+    }
+    let Some(ref vs) = report.vital_signs else {
+        return;
+    };
+
+    let format_profile = |profile: &crate::health_types::RiskProfile| -> String {
+        format!(
+            "{:.0}% low \u{00b7} {:.0}% medium \u{00b7} {:.0}% high \u{00b7} {:.0}% very high",
+            profile.low_risk, profile.medium_risk, profile.high_risk, profile.very_high_risk
+        )
+    };
+
+    if let Some(ref profile) = vs.unit_size_profile {
+        lines.push(format!(
+            "  {} {}  {}",
+            "Function size:".dimmed(),
+            format_profile(profile).dimmed(),
+            "(1-15 / 16-30 / 31-60 / >60 LOC)".dimmed()
+        ));
+    }
+    if let Some(ref profile) = vs.unit_interfacing_profile {
+        lines.push(format!(
+            "  {}    {}  {}",
+            "Parameters:".dimmed(),
+            format_profile(profile).dimmed(),
+            "(0-2 / 3-4 / 5-6 / >=7 params)".dimmed()
+        ));
+    }
+    if vs.unit_size_profile.is_some() || vs.unit_interfacing_profile.is_some() {
+        lines.push(String::new());
+    }
 }
 
 fn render_findings(
@@ -1106,6 +1168,7 @@ mod tests {
                 cyclomatic: 25,
                 cognitive: 30,
                 line_count: 80,
+                param_count: 0,
                 exceeded: crate::health_types::ExceededThreshold::Both,
             }],
             summary: crate::health_types::HealthSummary {
@@ -1153,6 +1216,7 @@ mod tests {
                 cyclomatic: 25,
                 cognitive: 20,
                 line_count: 50,
+                param_count: 0,
                 exceeded: crate::health_types::ExceededThreshold::Both,
             }],
             summary: crate::health_types::HealthSummary {
@@ -1196,6 +1260,7 @@ mod tests {
                     cyclomatic: 25,
                     cognitive: 20,
                     line_count: 40,
+                    param_count: 0,
                     exceeded: crate::health_types::ExceededThreshold::Both,
                 },
                 crate::health_types::HealthFinding {
@@ -1206,6 +1271,7 @@ mod tests {
                     cyclomatic: 22,
                     cognitive: 18,
                     line_count: 30,
+                    param_count: 0,
                     exceeded: crate::health_types::ExceededThreshold::Both,
                 },
             ],
@@ -1357,6 +1423,8 @@ mod tests {
                 hotspots: Some(0.0),
                 unused_deps: Some(0.0),
                 circular_deps: Some(0.0),
+                unit_size: None,
+                coupling: None,
             },
         });
         let lines = build_health_human_lines(&report, &root);
@@ -1385,6 +1453,8 @@ mod tests {
                 hotspots: Some(2.0),
                 unused_deps: Some(1.0),
                 circular_deps: Some(1.0),
+                unit_size: None,
+                coupling: None,
             },
         });
         let lines = build_health_human_lines(&report, &root);
@@ -1412,6 +1482,8 @@ mod tests {
                 hotspots: None,
                 unused_deps: None,
                 circular_deps: None,
+                unit_size: None,
+                coupling: None,
             },
         });
         let lines = build_health_human_lines(&report, &root);
@@ -1435,6 +1507,8 @@ mod tests {
                 hotspots: None,
                 unused_deps: None,
                 circular_deps: None,
+                unit_size: None,
+                coupling: None,
             },
         });
         let lines = build_health_human_lines(&report, &root);
@@ -1458,6 +1532,8 @@ mod tests {
                 hotspots: None,
                 unused_deps: None,
                 circular_deps: None,
+                unit_size: None,
+                coupling: None,
             },
         });
         let lines = build_health_human_lines(&report, &root);
@@ -1482,6 +1558,8 @@ mod tests {
                 hotspots: Some(0.0),
                 unused_deps: Some(0.0),
                 circular_deps: Some(0.0),
+                unit_size: None,
+                coupling: None,
             },
         });
         let lines = build_health_human_lines(&report, &root);
@@ -1505,6 +1583,8 @@ mod tests {
                 hotspots: Some(0.0),
                 unused_deps: Some(0.0),
                 circular_deps: Some(0.0),
+                unit_size: None,
+                coupling: None,
             },
         });
         let lines = build_health_human_lines(&report, &root);
@@ -1527,6 +1607,7 @@ mod tests {
                 score: Some(72.0),
                 grade: Some("B".into()),
                 coverage_model: None,
+                snapshot_schema_version: None,
             },
             metrics: vec![
                 crate::health_types::TrendMetric {
@@ -1578,6 +1659,7 @@ mod tests {
                 score: None,
                 grade: None,
                 coverage_model: None,
+                snapshot_schema_version: None,
             },
             metrics: vec![crate::health_types::TrendMetric {
                 name: "unused_deps",
@@ -1610,6 +1692,7 @@ mod tests {
                 score: Some(80.0),
                 grade: Some("B".into()),
                 coverage_model: None,
+                snapshot_schema_version: None,
             },
             metrics: vec![
                 crate::health_types::TrendMetric {
@@ -1657,6 +1740,7 @@ mod tests {
                 score: None,
                 grade: None,
                 coverage_model: None,
+                snapshot_schema_version: None,
             },
             metrics: vec![crate::health_types::TrendMetric {
                 name: "score",
@@ -1696,6 +1780,10 @@ mod tests {
             unused_dep_count: Some(3),
             circular_dep_count: Some(1),
             counts: None,
+            unit_size_profile: None,
+            unit_interfacing_profile: None,
+            p95_fan_in: None,
+            coupling_high_pct: None,
         });
         let lines = build_health_human_lines(&report, &root);
         let text = plain(&lines);
@@ -1724,6 +1812,10 @@ mod tests {
             unused_dep_count: None,
             circular_dep_count: None,
             counts: None,
+            unit_size_profile: None,
+            unit_interfacing_profile: None,
+            p95_fan_in: None,
+            coupling_high_pct: None,
         });
         report.health_trend = Some(crate::health_types::HealthTrend {
             compared_to: crate::health_types::TrendPoint {
@@ -1732,6 +1824,7 @@ mod tests {
                 score: None,
                 grade: None,
                 coverage_model: None,
+                snapshot_schema_version: None,
             },
             metrics: vec![],
             snapshots_loaded: 1,
@@ -1759,6 +1852,10 @@ mod tests {
             unused_dep_count: None,
             circular_dep_count: None,
             counts: None,
+            unit_size_profile: None,
+            unit_interfacing_profile: None,
+            p95_fan_in: None,
+            coupling_high_pct: None,
         });
         let lines = build_health_human_lines(&report, &root);
         let text = plain(&lines);
@@ -1785,6 +1882,10 @@ mod tests {
             unused_dep_count: Some(0),
             circular_dep_count: Some(0),
             counts: None,
+            unit_size_profile: None,
+            unit_interfacing_profile: None,
+            p95_fan_in: None,
+            coupling_high_pct: None,
         });
         let lines = build_health_human_lines(&report, &root);
         let text = plain(&lines);
@@ -1808,6 +1909,10 @@ mod tests {
             unused_dep_count: Some(1),
             circular_dep_count: Some(2),
             counts: None,
+            unit_size_profile: None,
+            unit_interfacing_profile: None,
+            p95_fan_in: None,
+            coupling_high_pct: None,
         });
         let lines = build_health_human_lines(&report, &root);
         let text = plain(&lines);
@@ -2357,6 +2462,7 @@ mod tests {
             cyclomatic: 25,
             cognitive: 20,
             line_count: 80,
+            param_count: 0,
             exceeded: crate::health_types::ExceededThreshold::Both,
         }];
         report.health_score = Some(crate::health_types::HealthScore {
@@ -2371,6 +2477,8 @@ mod tests {
                 hotspots: Some(2.0),
                 unused_deps: Some(2.0),
                 circular_deps: Some(1.0),
+                unit_size: None,
+                coupling: None,
             },
         });
         report.file_scores = vec![crate::health_types::FileHealthScore {
@@ -2442,6 +2550,7 @@ mod tests {
             cyclomatic: 25, // exceeds 20
             cognitive: 10,  // does not exceed 15
             line_count: 50,
+            param_count: 0,
             exceeded: crate::health_types::ExceededThreshold::Cyclomatic,
         }];
         let lines = build_health_human_lines(&report, &root);
@@ -2463,6 +2572,7 @@ mod tests {
             cyclomatic: 10, // does not exceed 20
             cognitive: 25,  // exceeds 15
             line_count: 50,
+            param_count: 0,
             exceeded: crate::health_types::ExceededThreshold::Cognitive,
         }];
         let lines = build_health_human_lines(&report, &root);
@@ -2485,6 +2595,7 @@ mod tests {
                 cyclomatic: 25,
                 cognitive: 20,
                 line_count: 50,
+                param_count: 0,
                 exceeded: crate::health_types::ExceededThreshold::Both,
             },
             crate::health_types::HealthFinding {
@@ -2495,6 +2606,7 @@ mod tests {
                 cyclomatic: 22,
                 cognitive: 18,
                 line_count: 40,
+                param_count: 0,
                 exceeded: crate::health_types::ExceededThreshold::Both,
             },
         ];
@@ -2518,6 +2630,7 @@ mod tests {
             cyclomatic: 25,
             cognitive: 20,
             line_count: 50,
+            param_count: 0,
             exceeded: crate::health_types::ExceededThreshold::Both,
         }];
         let lines = build_health_human_lines(&report, &root);

@@ -423,7 +423,7 @@
     },
     "HealthFinding": {
       "type": "object",
-      "required": ["path", "name", "line", "col", "cyclomatic", "cognitive", "line_count", "exceeded"],
+      "required": ["path", "name", "line", "col", "cyclomatic", "cognitive", "line_count", "param_count", "exceeded"],
       "properties": {
         "path": {
           "type": "string",
@@ -452,6 +452,10 @@
         "line_count": {
           "type": "integer",
           "description": "Number of lines in the function body."
+        },
+        "param_count": {
+          "type": "integer",
+          "description": "Number of parameters (excluding TypeScript's this parameter)."
         },
         "exceeded": {
           "type": "string",
@@ -798,7 +802,9 @@
         "maintainability": { "type": ["number", "null"], "description": "Points lost from low maintainability index (max 15). Null if file-scores not computed." },
         "hotspots": { "type": ["number", "null"], "description": "Points lost from hotspot density (max 10). Null if hotspots not computed." },
         "unused_deps": { "type": ["number", "null"], "description": "Points lost from unused dependencies (max 10). Null if dead code pipeline not run." },
-        "circular_deps": { "type": ["number", "null"], "description": "Points lost from circular dependencies (max 10). Null if dead code pipeline not run." }
+        "circular_deps": { "type": ["number", "null"], "description": "Points lost from circular dependencies (max 10). Null if dead code pipeline not run." },
+        "unit_size": { "type": ["number", "null"], "description": "Points lost from oversized functions (max 10). Null if no functions analyzed." },
+        "coupling": { "type": ["number", "null"], "description": "Points lost from coupling concentration (max 5). Null if file scores not computed." }
       }
     },
 
@@ -819,7 +825,23 @@
         "counts": {
           "$ref": "#/definitions/VitalSignsCounts",
           "description": "Raw counts behind the vital signs percentages. Always present when vital_signs is present."
-        }
+        },
+        "unit_size_profile": { "$ref": "#/definitions/RiskProfile", "description": "Function size risk profile. Null if no functions analyzed." },
+        "unit_interfacing_profile": { "$ref": "#/definitions/RiskProfile", "description": "Parameter count risk profile. Null if no functions analyzed." },
+        "p95_fan_in": { "type": ["integer", "null"], "description": "95th percentile fan-in across all files. Null if file scores not computed." },
+        "coupling_high_pct": { "type": ["number", "null"], "description": "Percentage of files with fan-in above the effective threshold. Null if file scores not computed." }
+      }
+    },
+
+    "RiskProfile": {
+      "type": "object",
+      "description": "Risk profile: percentage of functions in each risk bin. Bins depend on the measured property (unit size or parameter count).",
+      "required": ["low_risk", "medium_risk", "high_risk", "very_high_risk"],
+      "properties": {
+        "low_risk": { "type": "number", "description": "Percentage of functions in the low-risk bin." },
+        "medium_risk": { "type": "number", "description": "Percentage of functions in the medium-risk bin." },
+        "high_risk": { "type": "number", "description": "Percentage of functions in the high-risk bin." },
+        "very_high_risk": { "type": "number", "description": "Percentage of functions in the very-high-risk bin." }
       }
     },
 

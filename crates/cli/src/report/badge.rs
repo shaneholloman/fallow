@@ -352,6 +352,8 @@ mod tests {
                 hotspots: None,
                 unused_deps: None,
                 circular_deps: None,
+                unit_size: None,
+                coupling: None,
             },
         });
         let code = print_health_badge(&report);

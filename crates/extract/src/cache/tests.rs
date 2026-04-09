@@ -1038,6 +1038,7 @@ fn module_to_cached_roundtrip_complexity() {
                 cyclomatic: 8,
                 cognitive: 15,
                 line_count: 20,
+                param_count: 4,
             },
             FunctionComplexity {
                 name: "simple".to_string(),
@@ -1046,6 +1047,7 @@ fn module_to_cached_roundtrip_complexity() {
                 cyclomatic: 1,
                 cognitive: 0,
                 line_count: 3,
+                param_count: 0,
             },
         ],
     };

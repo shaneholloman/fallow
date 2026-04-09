@@ -20,6 +20,8 @@ pub const COGNITIVE_EXTRACTION_THRESHOLD: u16 = 30;
 ///   - min(hotspot_count / total_files × 200, 10)
 ///   - min(unused_dep_count, 10)
 ///   - min(circular_dep_count, 10)
+///   - min(max(0, very_high_risk_pct − 5) × 0.5, 10)    [unit size]
+///   - min(max(0, p95_fan_in − 30) × 0.25, 5)            [coupling]
 /// ```
 ///
 /// Missing metrics (from pipelines that didn't run) don't penalize — run
@@ -66,6 +68,12 @@ pub struct HealthScorePenalties {
     /// Points lost from circular dependencies (max 10).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub circular_deps: Option<f64>,
+    /// Points lost from oversized functions (max 10).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unit_size: Option<f64>,
+    /// Points lost from coupling concentration (max 5).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coupling: Option<f64>,
 }
 
 /// Map a numeric score (0–100) to a letter grade.
@@ -108,6 +116,8 @@ pub struct HealthFinding {
     pub cognitive: u16,
     /// Number of lines in the function.
     pub line_count: u32,
+    /// Number of parameters.
+    pub param_count: u8,
     /// Which threshold was exceeded.
     pub exceeded: ExceededThreshold,
 }
@@ -334,6 +344,8 @@ mod tests {
                 hotspots: None,
                 unused_deps: Some(5.0),
                 circular_deps: Some(4.0),
+                unit_size: None,
+                coupling: None,
             },
         };
         let json = serde_json::to_string(&score).unwrap();

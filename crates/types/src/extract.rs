@@ -125,6 +125,8 @@ pub struct FunctionComplexity {
     pub cognitive: u16,
     /// Number of lines in the function body.
     pub line_count: u32,
+    /// Number of parameters (excluding TypeScript's `this` parameter).
+    pub param_count: u8,
 }
 
 /// A dynamic import with a pattern that can be partially resolved (e.g., template literals).
@@ -687,6 +689,7 @@ mod tests {
             cyclomatic: 15,
             cognitive: 25,
             line_count: 80,
+            param_count: 3,
         };
         let bytes = bitcode::encode(&fc);
         let decoded: FunctionComplexity = bitcode::decode(&bytes).unwrap();

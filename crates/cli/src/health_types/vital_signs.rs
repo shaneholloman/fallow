@@ -3,7 +3,9 @@
 /// Current snapshot schema version. Independent of the report's SCHEMA_VERSION.
 /// v2: Added `score` and `grade` fields.
 /// v3: Added `coverage_model` field.
-pub const SNAPSHOT_SCHEMA_VERSION: u32 = 3;
+/// v4: Added risk profiles (`unit_size_profile`, `unit_interfacing_profile`) and
+///     coupling concentration (`p95_fan_in`, `coupling_high_pct`).
+pub const SNAPSHOT_SCHEMA_VERSION: u32 = 4;
 
 /// Project-wide vital signs — a fixed set of metrics for trend tracking.
 ///
@@ -40,6 +42,41 @@ pub struct VitalSigns {
     /// Raw counts backing the percentages (for orientation header display).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub counts: Option<VitalSignsCounts>,
+    /// Function size risk profile: percentage of functions in each size bin.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub unit_size_profile: Option<RiskProfile>,
+    /// Parameter count risk profile: percentage of functions in each param bin.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub unit_interfacing_profile: Option<RiskProfile>,
+    /// 95th percentile fan-in across all files.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub p95_fan_in: Option<u32>,
+    /// Percentage of files with fan-in above the project's p95 threshold.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub coupling_high_pct: Option<f64>,
+}
+
+/// Risk profile: percentage of functions in each risk bin.
+///
+/// Bins are defined by thresholds that depend on the measured property:
+/// - **Unit size**: low risk (1-15 LOC), medium risk (16-30), high risk (31-60), very high risk (>60)
+/// - **Unit interfacing**: low risk (0-2 params), medium risk (3-4), high risk (5-6), very high risk (>=7)
+///
+/// Percentages sum to approximately 100.0 (subject to rounding).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[allow(
+    clippy::struct_field_names,
+    reason = "risk suffix conveys that higher values are worse"
+)]
+pub struct RiskProfile {
+    /// Percentage of functions in the low-risk bin.
+    pub low_risk: f64,
+    /// Percentage of functions in the medium-risk bin.
+    pub medium_risk: f64,
+    /// Percentage of functions in the high-risk bin.
+    pub high_risk: f64,
+    /// Percentage of functions in the very-high-risk bin.
+    pub very_high_risk: f64,
 }
 
 /// Raw counts backing the vital signs percentages.
@@ -111,6 +148,10 @@ mod tests {
             unused_dep_count: Some(4),
             circular_dep_count: Some(2),
             counts: None,
+            unit_size_profile: None,
+            unit_interfacing_profile: None,
+            p95_fan_in: None,
+            coupling_high_pct: None,
         };
         let json = serde_json::to_string(&vs).unwrap();
         let deserialized: VitalSigns = serde_json::from_str(&json).unwrap();
@@ -142,6 +183,10 @@ mod tests {
                 unused_dep_count: Some(4),
                 circular_dep_count: Some(2),
                 counts: None,
+                unit_size_profile: None,
+                unit_interfacing_profile: None,
+                p95_fan_in: None,
+                coupling_high_pct: None,
             },
             counts: VitalSignsCounts {
                 total_files: 1200,
@@ -180,6 +225,10 @@ mod tests {
             unused_dep_count: None,
             circular_dep_count: None,
             counts: None,
+            unit_size_profile: None,
+            unit_interfacing_profile: None,
+            p95_fan_in: None,
+            coupling_high_pct: None,
         };
         let json = serde_json::to_string(&vs).unwrap();
         assert!(!json.contains("dead_file_pct"));
@@ -195,8 +244,8 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_schema_version_is_three() {
-        assert_eq!(SNAPSHOT_SCHEMA_VERSION, 3);
+    fn snapshot_schema_version_is_four() {
+        assert_eq!(SNAPSHOT_SCHEMA_VERSION, 4);
     }
 
     #[test]

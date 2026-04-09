@@ -1120,6 +1120,7 @@ mod tests {
                 cyclomatic: 25,
                 cognitive: 10,
                 line_count: 80,
+                param_count: 0,
                 exceeded: crate::health_types::ExceededThreshold::Cyclomatic,
             }],
             summary: crate::health_types::HealthSummary {
@@ -1175,6 +1176,7 @@ mod tests {
                 cyclomatic: 8,
                 cognitive: 20,
                 line_count: 40,
+                param_count: 0,
                 exceeded: crate::health_types::ExceededThreshold::Cognitive,
             }],
             summary: crate::health_types::HealthSummary {
@@ -1224,6 +1226,7 @@ mod tests {
                 cyclomatic: 30,
                 cognitive: 45,
                 line_count: 100,
+                param_count: 0,
                 exceeded: crate::health_types::ExceededThreshold::Both,
             }],
             summary: crate::health_types::HealthSummary {

@@ -11,8 +11,8 @@ const SECS_PER_DAY: u64 = 86_400;
 
 use crate::health_types::{
     FileHealthScore, HOTSPOT_SCORE_THRESHOLD, HealthScore, HealthScorePenalties, HealthTrend,
-    HotspotEntry, SNAPSHOT_SCHEMA_VERSION, TrendCount, TrendDirection, TrendMetric, TrendPoint,
-    VitalSigns, VitalSignsCounts, VitalSignsSnapshot, letter_grade,
+    HotspotEntry, RiskProfile, SNAPSHOT_SCHEMA_VERSION, TrendCount, TrendDirection, TrendMetric,
+    TrendPoint, VitalSigns, VitalSignsCounts, VitalSignsSnapshot, letter_grade,
 };
 
 /// Data sources for computing vital signs.
@@ -125,6 +125,37 @@ pub fn compute_vital_signs(input: &VitalSignsInput<'_>) -> VitalSigns {
         total_deps: ac.total_deps,
     });
 
+    // Unit size risk profile: bin functions by line count
+    let unit_size_profile = if all_cyclomatic.is_empty() {
+        None
+    } else {
+        let all_line_counts: Vec<u32> = input
+            .modules
+            .iter()
+            .flat_map(|m| m.complexity.iter().map(|c| c.line_count))
+            .collect();
+        Some(compute_size_risk_profile(&all_line_counts))
+    };
+
+    // Unit interfacing risk profile: bin functions by param count
+    let unit_interfacing_profile = if all_cyclomatic.is_empty() {
+        None
+    } else {
+        let all_param_counts: Vec<u8> = input
+            .modules
+            .iter()
+            .flat_map(|m| m.complexity.iter().map(|c| c.param_count))
+            .collect();
+        Some(compute_interfacing_risk_profile(&all_param_counts))
+    };
+
+    // Coupling concentration: p95 fan-in and % of files above it
+    let (p95_fan_in, coupling_high_pct) = if let Some(scores) = input.file_scores {
+        compute_coupling_concentration(scores)
+    } else {
+        (None, None)
+    };
+
     VitalSigns {
         dead_file_pct,
         dead_export_pct,
@@ -136,7 +167,100 @@ pub fn compute_vital_signs(input: &VitalSignsInput<'_>) -> VitalSigns {
         unused_dep_count,
         circular_dep_count,
         counts,
+        unit_size_profile,
+        unit_interfacing_profile,
+        p95_fan_in,
+        coupling_high_pct,
     }
+}
+
+/// Compute unit size risk profile from function line counts.
+///
+/// Bins: low risk (1-15 LOC), medium risk (16-30), high risk (31-60), very high risk (>60).
+fn compute_size_risk_profile(line_counts: &[u32]) -> RiskProfile {
+    if line_counts.is_empty() {
+        return RiskProfile {
+            low_risk: 0.0,
+            medium_risk: 0.0,
+            high_risk: 0.0,
+            very_high_risk: 0.0,
+        };
+    }
+    let total = line_counts.len() as f64;
+    let low = line_counts.iter().filter(|&&lc| lc <= 15).count() as f64;
+    let medium = line_counts
+        .iter()
+        .filter(|&&lc| (16..=30).contains(&lc))
+        .count() as f64;
+    let high = line_counts
+        .iter()
+        .filter(|&&lc| (31..=60).contains(&lc))
+        .count() as f64;
+    let very_high = line_counts.iter().filter(|&&lc| lc > 60).count() as f64;
+    RiskProfile {
+        low_risk: (low / total * 1000.0).round() / 10.0,
+        medium_risk: (medium / total * 1000.0).round() / 10.0,
+        high_risk: (high / total * 1000.0).round() / 10.0,
+        very_high_risk: (very_high / total * 1000.0).round() / 10.0,
+    }
+}
+
+/// Compute unit interfacing risk profile from function parameter counts.
+///
+/// Bins: low risk (0-2 params), medium risk (3-4), high risk (5-6), very high risk (>=7).
+fn compute_interfacing_risk_profile(param_counts: &[u8]) -> RiskProfile {
+    if param_counts.is_empty() {
+        return RiskProfile {
+            low_risk: 0.0,
+            medium_risk: 0.0,
+            high_risk: 0.0,
+            very_high_risk: 0.0,
+        };
+    }
+    let total = param_counts.len() as f64;
+    let low = param_counts.iter().filter(|&&pc| pc <= 2).count() as f64;
+    let medium = param_counts
+        .iter()
+        .filter(|&&pc| (3..=4).contains(&pc))
+        .count() as f64;
+    let high = param_counts
+        .iter()
+        .filter(|&&pc| (5..=6).contains(&pc))
+        .count() as f64;
+    let very_high = param_counts.iter().filter(|&&pc| pc >= 7).count() as f64;
+    RiskProfile {
+        low_risk: (low / total * 1000.0).round() / 10.0,
+        medium_risk: (medium / total * 1000.0).round() / 10.0,
+        high_risk: (high / total * 1000.0).round() / 10.0,
+        very_high_risk: (very_high / total * 1000.0).round() / 10.0,
+    }
+}
+
+/// Compute coupling concentration from file health scores.
+///
+/// Returns (p95_fan_in, coupling_high_pct) where coupling_high_pct is the
+/// percentage of files with fan-in above the effective threshold (max(p95_fan_in, 10)).
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "fan-in values are bounded by project size"
+)]
+fn compute_coupling_concentration(scores: &[FileHealthScore]) -> (Option<u32>, Option<f64>) {
+    if scores.is_empty() {
+        return (None, None);
+    }
+    let mut fan_ins: Vec<usize> = scores.iter().map(|s| s.fan_in).collect();
+    fan_ins.sort_unstable();
+    let idx = (fan_ins.len() as f64 * 0.95).ceil() as usize;
+    let idx = idx.min(fan_ins.len()) - 1;
+    let p95 = fan_ins[idx] as u32;
+
+    // Use a floor of 10 for the "high coupling" threshold to avoid flagging
+    // small projects where p95 fan-in is naturally low
+    let threshold = (p95 as usize).max(10);
+    let high_count = fan_ins.iter().filter(|&&fi| fi > threshold).count();
+    let high_pct = (high_count as f64 / fan_ins.len() as f64 * 1000.0).round() / 10.0;
+
+    (Some(p95), Some(high_pct))
 }
 
 /// Compute a project-level health score from vital signs.
@@ -207,6 +331,23 @@ pub fn compute_health_score(vs: &VitalSigns, total_files: usize) -> HealthScore 
         score -= p;
     }
 
+    // Unit size penalty: penalize when >5% of functions are very high risk (>60 LOC), max 10
+    let unit_size_penalty = vs
+        .unit_size_profile
+        .as_ref()
+        .map(|profile| round1(((profile.very_high_risk - 5.0).max(0.0) * 0.5).min(10.0)));
+    if let Some(p) = unit_size_penalty {
+        score -= p;
+    }
+
+    // Coupling concentration penalty: penalize when p95 fan-in exceeds 30, max 5
+    let coupling_penalty = vs
+        .p95_fan_in
+        .map(|p95| round1(((f64::from(p95) - 30.0).max(0.0) * 0.25).min(5.0)));
+    if let Some(p) = coupling_penalty {
+        score -= p;
+    }
+
     let score = (score * 10.0).round() / 10.0;
     let score = score.clamp(0.0, 100.0);
     let grade = letter_grade(score);
@@ -223,6 +364,8 @@ pub fn compute_health_score(vs: &VitalSigns, total_files: usize) -> HealthScore 
             hotspots: hotspot_penalty,
             unused_deps: unused_deps_penalty,
             circular_deps: circular_deps_penalty,
+            unit_size: unit_size_penalty,
+            coupling: coupling_penalty,
         },
     }
 }
@@ -429,6 +572,7 @@ pub fn compute_trend(
         score: prev.score,
         grade: prev.grade.clone(),
         coverage_model: prev.coverage_model.clone(),
+        snapshot_schema_version: Some(prev.snapshot_schema_version),
     };
 
     let mut metrics = Vec::new();
@@ -572,6 +716,37 @@ pub fn compute_trend(
         ));
     }
 
+    // Unit size very-high-risk % — lower is better
+    if let (Some(prev_profile), Some(cur_profile)) = (
+        &prev.vital_signs.unit_size_profile,
+        &current_vs.unit_size_profile,
+    ) {
+        metrics.push(make_metric(
+            "unit_size_very_high_pct",
+            "Oversized Fns",
+            prev_profile.very_high_risk,
+            cur_profile.very_high_risk,
+            "%",
+            false,
+            None,
+            None,
+        ));
+    }
+
+    // P95 fan-in — lower is better
+    if let (Some(prev_val), Some(cur_val)) = (prev.vital_signs.p95_fan_in, current_vs.p95_fan_in) {
+        metrics.push(make_metric(
+            "p95_fan_in",
+            "P95 Fan-in",
+            f64::from(prev_val),
+            f64::from(cur_val),
+            "",
+            false,
+            None,
+            None,
+        ));
+    }
+
     // Determine overall direction
     let (improving, declining) =
         metrics
@@ -671,6 +846,7 @@ mod tests {
                 cyclomatic,
                 cognitive: 0,
                 line_count: 10,
+                param_count: 0,
             }],
         }
     }
@@ -805,6 +981,10 @@ mod tests {
             unused_dep_count: Some(4),
             circular_dep_count: Some(2),
             counts: None,
+            unit_size_profile: None,
+            unit_interfacing_profile: None,
+            p95_fan_in: None,
+            coupling_high_pct: None,
         };
         let counts = VitalSignsCounts {
             total_files: 1200,
@@ -849,6 +1029,10 @@ mod tests {
             unused_dep_count: None,
             circular_dep_count: None,
             counts: None,
+            unit_size_profile: None,
+            unit_interfacing_profile: None,
+            p95_fan_in: None,
+            coupling_high_pct: None,
         };
         let counts = VitalSignsCounts {
             total_files: 0,
@@ -882,6 +1066,10 @@ mod tests {
             unused_dep_count: None,
             circular_dep_count: None,
             counts: None,
+            unit_size_profile: None,
+            unit_interfacing_profile: None,
+            p95_fan_in: None,
+            coupling_high_pct: None,
         };
         let counts = VitalSignsCounts {
             total_files: 0,
@@ -925,6 +1113,10 @@ mod tests {
             unused_dep_count: Some(0),
             circular_dep_count: Some(0),
             counts: None,
+            unit_size_profile: None,
+            unit_interfacing_profile: None,
+            p95_fan_in: None,
+            coupling_high_pct: None,
         };
         let score = compute_health_score(&vs, 100);
         assert!((score.score - 100.0).abs() < f64::EPSILON);
@@ -945,6 +1137,10 @@ mod tests {
             unused_dep_count: None,
             circular_dep_count: None,
             counts: None,
+            unit_size_profile: None,
+            unit_interfacing_profile: None,
+            p95_fan_in: None,
+            coupling_high_pct: None,
         };
         let score = compute_health_score(&vs, 0);
         // Only complexity penalties apply (both 0 since below thresholds)
@@ -967,6 +1163,10 @@ mod tests {
             unused_dep_count: None,
             circular_dep_count: None,
             counts: None,
+            unit_size_profile: None,
+            unit_interfacing_profile: None,
+            p95_fan_in: None,
+            coupling_high_pct: None,
         };
         let score = compute_health_score(&vs, 100);
         // dead_file: min(50*0.2, 15) = 10
@@ -989,6 +1189,10 @@ mod tests {
             unused_dep_count: None,
             circular_dep_count: None,
             counts: None,
+            unit_size_profile: None,
+            unit_interfacing_profile: None,
+            p95_fan_in: None,
+            coupling_high_pct: None,
         };
         let score = compute_health_score(&vs, 100);
         // complexity: min((5.5-1.5)*5, 20) = 20
@@ -1011,6 +1215,10 @@ mod tests {
             unused_dep_count: Some(100),
             circular_dep_count: Some(50),
             counts: None,
+            unit_size_profile: None,
+            unit_interfacing_profile: None,
+            p95_fan_in: None,
+            coupling_high_pct: None,
         };
         let score = compute_health_score(&vs, 100);
         assert!((score.score).abs() < f64::EPSILON);
@@ -1030,6 +1238,10 @@ mod tests {
             unused_dep_count: None,
             circular_dep_count: None,
             counts: None,
+            unit_size_profile: None,
+            unit_interfacing_profile: None,
+            p95_fan_in: None,
+            coupling_high_pct: None,
         };
         // 5 hotspots in 100 files = 5% = 10 points
         let score_100 = compute_health_score(&vs, 100);
@@ -1131,6 +1343,10 @@ mod tests {
             unused_dep_count: Some(3),
             circular_dep_count: Some(1),
             counts: None,
+            unit_size_profile: None,
+            unit_interfacing_profile: None,
+            p95_fan_in: None,
+            coupling_high_pct: None,
         };
         let counts = VitalSignsCounts {
             total_files: 100,
@@ -1208,6 +1424,10 @@ mod tests {
             unused_dep_count: Some(4),
             circular_dep_count: Some(2),
             counts: None,
+            unit_size_profile: None,
+            unit_interfacing_profile: None,
+            p95_fan_in: None,
+            coupling_high_pct: None,
         }
     }
 
@@ -1243,6 +1463,10 @@ mod tests {
                 unused_dep_count: Some(4),
                 circular_dep_count: Some(2),
                 counts: None,
+                unit_size_profile: None,
+                unit_interfacing_profile: None,
+                p95_fan_in: None,
+                coupling_high_pct: None,
             },
             counts: VitalSignsCounts {
                 total_files: 100,

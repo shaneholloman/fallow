@@ -734,6 +734,7 @@ fn collect_findings(
                     cyclomatic: fc.cyclomatic,
                     cognitive: fc.cognitive,
                     line_count: fc.line_count,
+                    param_count: fc.param_count,
                     exceeded,
                 });
             }
@@ -935,6 +936,7 @@ mod tests {
             cyclomatic,
             cognitive,
             line_count,
+            param_count: 0,
         }
     }
 
@@ -1213,6 +1215,7 @@ mod tests {
                 cyclomatic: 25,
                 cognitive: 18,
                 line_count: 75,
+                param_count: 2,
             }],
         )];
         let mut file_paths = FxHashMap::default();

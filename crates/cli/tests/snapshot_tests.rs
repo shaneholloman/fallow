@@ -1764,6 +1764,7 @@ fn sample_health_report(root: &Path) -> HealthReport {
             cyclomatic: 25,
             cognitive: 30,
             line_count: 120,
+            param_count: 0,
             exceeded: ExceededThreshold::Both,
         }],
         summary: HealthSummary {
@@ -1849,6 +1850,10 @@ fn markdown_health_with_vital_signs_snapshot() {
         unused_dep_count: Some(3),
         circular_dep_count: Some(1),
         counts: None,
+        unit_size_profile: None,
+        unit_interfacing_profile: None,
+        p95_fan_in: None,
+        coupling_high_pct: None,
     });
     let output = build_health_markdown(&report, &root);
     insta::assert_snapshot!("markdown_health_with_vital_signs", output);
@@ -1919,6 +1924,10 @@ fn health_report_with_score(root: &Path) -> HealthReport {
         unused_dep_count: Some(22),
         circular_dep_count: Some(4),
         counts: None,
+        unit_size_profile: None,
+        unit_interfacing_profile: None,
+        p95_fan_in: None,
+        coupling_high_pct: None,
     });
     report.health_score = Some(HealthScore {
         score: 76.9,
@@ -1932,6 +1941,8 @@ fn health_report_with_score(root: &Path) -> HealthReport {
             hotspots: Some(0.0),
             unused_deps: Some(10.0),
             circular_deps: Some(4.0),
+            unit_size: None,
+            coupling: None,
         },
     });
     report
@@ -1978,6 +1989,7 @@ fn health_report_with_trend(root: &Path) -> HealthReport {
             score: Some(72.0),
             grade: Some("B".into()),
             coverage_model: None,
+            snapshot_schema_version: None,
         },
         metrics: vec![
             TrendMetric {

@@ -976,6 +976,7 @@ mod tests {
             cyclomatic: 25,
             cognitive: 30,
             line_count: 80,
+            param_count: 0,
             exceeded: crate::health_types::ExceededThreshold::Both,
         }
     }

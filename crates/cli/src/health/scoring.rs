@@ -1109,6 +1109,7 @@ mod tests {
                 cyclomatic: 7,
                 cognitive: 4,
                 line_count: 5,
+                param_count: 0,
             }],
         };
 
@@ -1144,6 +1145,7 @@ mod tests {
                     cyclomatic: 3,
                     cognitive: 2,
                     line_count: 1,
+                    param_count: 0,
                 },
                 fallow_types::extract::FunctionComplexity {
                     name: "b".into(),
@@ -1152,6 +1154,7 @@ mod tests {
                     cyclomatic: 5,
                     cognitive: 8,
                     line_count: 2,
+                    param_count: 0,
                 },
             ],
         };
@@ -1484,6 +1487,7 @@ mod tests {
                 cyclomatic: 5,
                 cognitive: 3,
                 line_count: 10,
+                param_count: 0,
             }],
         )];
 
@@ -1620,6 +1624,7 @@ mod tests {
                     cyclomatic: 2,
                     cognitive: 1,
                     line_count: 10,
+                    param_count: 0,
                 }],
             ),
             make_module_info(
@@ -1632,6 +1637,7 @@ mod tests {
                     cyclomatic: 3,
                     cognitive: 2,
                     line_count: 10,
+                    param_count: 0,
                 }],
             ),
         ];
@@ -1721,6 +1727,7 @@ mod tests {
                     cyclomatic: 30,
                     cognitive: 20,
                     line_count: 10,
+                    param_count: 0,
                 }],
             ),
             make_module_info(
@@ -1733,6 +1740,7 @@ mod tests {
                     cyclomatic: 1,
                     cognitive: 0,
                     line_count: 100,
+                    param_count: 0,
                 }],
             ),
         ];
@@ -1800,6 +1808,7 @@ mod tests {
                 cyclomatic: 1,
                 cognitive: 0,
                 line_count: 10,
+                param_count: 0,
             }],
         )];
 
@@ -1871,6 +1880,7 @@ mod tests {
                     cyclomatic: 10,
                     cognitive: 20,
                     line_count: 10,
+                    param_count: 0,
                 },
                 fallow_types::extract::FunctionComplexity {
                     name: "medium".into(),
@@ -1879,6 +1889,7 @@ mod tests {
                     cyclomatic: 5,
                     cognitive: 10,
                     line_count: 10,
+                    param_count: 0,
                 },
                 fallow_types::extract::FunctionComplexity {
                     name: "low".into(),
@@ -1887,6 +1898,7 @@ mod tests {
                     cyclomatic: 2,
                     cognitive: 5,
                     line_count: 10,
+                    param_count: 0,
                 },
                 fallow_types::extract::FunctionComplexity {
                     name: "trivial".into(),
@@ -1895,6 +1907,7 @@ mod tests {
                     cyclomatic: 1,
                     cognitive: 1,
                     line_count: 10,
+                    param_count: 0,
                 },
             ],
         )];
@@ -1983,6 +1996,7 @@ mod tests {
                     cyclomatic: 2,
                     cognitive: 1,
                     line_count: 10,
+                    param_count: 0,
                 }],
             ),
             make_module_info(
@@ -1995,6 +2009,7 @@ mod tests {
                     cyclomatic: 3,
                     cognitive: 2,
                     line_count: 10,
+                    param_count: 0,
                 }],
             ),
         ];
@@ -2072,6 +2087,7 @@ mod tests {
                 cyclomatic: 1,
                 cognitive: 0,
                 line_count: 10,
+                param_count: 0,
             }],
         );
         module.exports = vec![
@@ -2181,6 +2197,7 @@ mod tests {
                 cyclomatic: 2,
                 cognitive: 1,
                 line_count: 10,
+                param_count: 0,
             }],
         )];
 
@@ -2234,6 +2251,7 @@ mod tests {
                 cyclomatic: 7,
                 cognitive: 3,
                 line_count: 100,
+                param_count: 0,
             }],
         )];
 
@@ -2317,6 +2335,7 @@ mod tests {
                 cyclomatic: 2,
                 cognitive: 1,
                 line_count: 10,
+                param_count: 0,
             }],
         )];
 
@@ -2373,6 +2392,7 @@ mod tests {
                 cyclomatic: 1,
                 cognitive: 0,
                 line_count: 10,
+                param_count: 0,
             }],
         )];
 
@@ -2403,6 +2423,7 @@ mod tests {
             cyclomatic,
             cognitive: 0,
             line_count: 10,
+            param_count: 0,
         }
     }
 

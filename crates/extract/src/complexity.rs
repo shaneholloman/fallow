@@ -29,6 +29,8 @@ struct FunctionFrame {
     nesting_level: u16,
     /// Track the last logical operator for cognitive boolean sequence detection.
     last_logical_operator: Option<LogicalOperator>,
+    /// Number of parameters (excluding TypeScript's `this` parameter).
+    param_count: u8,
 }
 
 /// AST visitor that computes per-function complexity metrics.
@@ -52,7 +54,7 @@ impl ComplexityVisitor {
         }
     }
 
-    fn push_function(&mut self, name: String, span: Span) {
+    fn push_function(&mut self, name: String, span: Span, param_count: u8) {
         self.stack.push(FunctionFrame {
             name,
             span,
@@ -60,6 +62,7 @@ impl ComplexityVisitor {
             cognitive: 0,
             nesting_level: 0,
             last_logical_operator: None,
+            param_count,
         });
     }
 
@@ -79,6 +82,7 @@ impl ComplexityVisitor {
                 cyclomatic: frame.cyclomatic,
                 cognitive: frame.cognitive,
                 line_count: end_line.saturating_sub(line) + 1,
+                param_count: frame.param_count,
             });
         }
     }
@@ -102,6 +106,27 @@ impl ComplexityVisitor {
         if let Some(frame) = self.stack.last_mut() {
             frame.cognitive = frame.cognitive.saturating_add(1);
         }
+    }
+
+    /// Count function parameters, excluding TypeScript's `this` parameter.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "functions with >255 params are unrealistic"
+    )]
+    fn count_params(params: &FormalParameters<'_>) -> u8 {
+        let mut count = params
+            .items
+            .iter()
+            .filter(|p| {
+                // Skip TypeScript's `this` parameter (first param named `this`)
+                !matches!(&p.pattern, BindingPattern::BindingIdentifier(id) if id.name == "this")
+            })
+            .count();
+        // Rest parameter is stored separately from items
+        if params.rest.is_some() {
+            count += 1;
+        }
+        count as u8
     }
 
     /// Increase nesting level for the current function.
@@ -175,7 +200,8 @@ impl<'a> Visit<'a> for ComplexityVisitor {
             self.inc_nesting();
         }
 
-        self.push_function(name, func.span);
+        let param_count = Self::count_params(&func.params);
+        self.push_function(name, func.span, param_count);
         walk::walk_function(self, func, flags);
         self.pop_function();
 
@@ -196,7 +222,8 @@ impl<'a> Visit<'a> for ComplexityVisitor {
             self.inc_nesting();
         }
 
-        self.push_function(name, arrow.span);
+        let param_count = Self::count_params(&arrow.params);
+        self.push_function(name, arrow.span, param_count);
         walk::walk_arrow_function_expression(self, arrow);
         self.pop_function();
 
@@ -1042,5 +1069,49 @@ mod tests {
         let results = analyze("\n\nfunction foo() {\n  if (true) {}\n}\n");
         let f = find_fn(&results, "foo");
         assert_eq!(f.line, 3); // function starts on line 3
+    }
+
+    // ── Parameter counting ────────────────────────────────────────
+
+    #[test]
+    fn param_count_zero_for_no_params() {
+        let results = analyze("function foo() {}");
+        assert_eq!(find_fn(&results, "foo").param_count, 0);
+    }
+
+    #[test]
+    fn param_count_simple_params() {
+        let results = analyze("function foo(a, b, c) {}");
+        assert_eq!(find_fn(&results, "foo").param_count, 3);
+    }
+
+    #[test]
+    fn param_count_arrow_function() {
+        let results = analyze("const bar = (a, b, c, d, e) => {}");
+        assert_eq!(find_fn(&results, "bar").param_count, 5);
+    }
+
+    #[test]
+    fn param_count_excludes_ts_this_parameter() {
+        let results = analyze("function greet(this: Context, name: string) {}");
+        assert_eq!(find_fn(&results, "greet").param_count, 1);
+    }
+
+    #[test]
+    fn param_count_destructured_counts_as_one() {
+        let results = analyze("function foo({ a, b, c }: Options) {}");
+        assert_eq!(find_fn(&results, "foo").param_count, 1);
+    }
+
+    #[test]
+    fn param_count_rest_parameter() {
+        let results = analyze("function foo(a: number, ...rest: string[]) {}");
+        assert_eq!(find_fn(&results, "foo").param_count, 2);
+    }
+
+    #[test]
+    fn param_count_method_definition() {
+        let results = analyze("class Foo { bar(a: number, b: string) {} }");
+        assert_eq!(find_fn(&results, "bar").param_count, 2);
     }
 }
