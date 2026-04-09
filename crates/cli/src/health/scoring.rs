@@ -1469,14 +1469,7 @@ mod tests {
                 span: oxc_span::Span::empty(0),
                 members: vec![],
             }],
-            re_exports: vec![],
-            resolved_imports: vec![],
-            resolved_dynamic_imports: vec![],
-            resolved_dynamic_patterns: vec![],
-            member_accesses: vec![],
-            whole_object_uses: vec![],
-            has_cjs_exports: false,
-            unused_import_bindings: rustc_hash::FxHashSet::default(),
+            ..Default::default()
         }];
 
         let graph = build_test_graph(&files, std::slice::from_ref(&path_a), &resolved_modules);
@@ -1536,15 +1529,7 @@ mod tests {
         let resolved_modules = vec![fallow_core::resolve::ResolvedModule {
             file_id: fallow_core::discover::FileId(0),
             path: path_a.clone(),
-            exports: vec![],
-            re_exports: vec![],
-            resolved_imports: vec![],
-            resolved_dynamic_imports: vec![],
-            resolved_dynamic_patterns: vec![],
-            member_accesses: vec![],
-            whole_object_uses: vec![],
-            has_cjs_exports: false,
-            unused_import_bindings: rustc_hash::FxHashSet::default(),
+            ..Default::default()
         }];
 
         let graph = build_test_graph(&files, std::slice::from_ref(&path_a), &resolved_modules);
@@ -1590,28 +1575,12 @@ mod tests {
             fallow_core::resolve::ResolvedModule {
                 file_id: fallow_core::discover::FileId(0),
                 path: path_a,
-                exports: vec![],
-                re_exports: vec![],
-                resolved_imports: vec![],
-                resolved_dynamic_imports: vec![],
-                resolved_dynamic_patterns: vec![],
-                member_accesses: vec![],
-                whole_object_uses: vec![],
-                has_cjs_exports: false,
-                unused_import_bindings: rustc_hash::FxHashSet::default(),
+                ..Default::default()
             },
             fallow_core::resolve::ResolvedModule {
                 file_id: fallow_core::discover::FileId(1),
                 path: path_b.clone(),
-                exports: vec![],
-                re_exports: vec![],
-                resolved_imports: vec![],
-                resolved_dynamic_imports: vec![],
-                resolved_dynamic_patterns: vec![],
-                member_accesses: vec![],
-                whole_object_uses: vec![],
-                has_cjs_exports: false,
-                unused_import_bindings: rustc_hash::FxHashSet::default(),
+                ..Default::default()
             },
         ];
 
@@ -1692,28 +1661,12 @@ mod tests {
             fallow_core::resolve::ResolvedModule {
                 file_id: fallow_core::discover::FileId(0),
                 path: path_a.clone(),
-                exports: vec![],
-                re_exports: vec![],
-                resolved_imports: vec![],
-                resolved_dynamic_imports: vec![],
-                resolved_dynamic_patterns: vec![],
-                member_accesses: vec![],
-                whole_object_uses: vec![],
-                has_cjs_exports: false,
-                unused_import_bindings: rustc_hash::FxHashSet::default(),
+                ..Default::default()
             },
             fallow_core::resolve::ResolvedModule {
                 file_id: fallow_core::discover::FileId(1),
                 path: path_b,
-                exports: vec![],
-                re_exports: vec![],
-                resolved_imports: vec![],
-                resolved_dynamic_imports: vec![],
-                resolved_dynamic_patterns: vec![],
-                member_accesses: vec![],
-                whole_object_uses: vec![],
-                has_cjs_exports: false,
-                unused_import_bindings: rustc_hash::FxHashSet::default(),
+                ..Default::default()
             },
         ];
 
@@ -1790,14 +1743,7 @@ mod tests {
                 span: oxc_span::Span::empty(0),
                 members: vec![],
             }],
-            re_exports: vec![],
-            resolved_imports: vec![],
-            resolved_dynamic_imports: vec![],
-            resolved_dynamic_patterns: vec![],
-            member_accesses: vec![],
-            whole_object_uses: vec![],
-            has_cjs_exports: false,
-            unused_import_bindings: rustc_hash::FxHashSet::default(),
+            ..Default::default()
         }];
 
         let graph = build_test_graph(&files, &[], &resolved_modules);
@@ -1859,15 +1805,7 @@ mod tests {
         let resolved_modules = vec![fallow_core::resolve::ResolvedModule {
             file_id: fallow_core::discover::FileId(0),
             path: path_a.clone(),
-            exports: vec![],
-            re_exports: vec![],
-            resolved_imports: vec![],
-            resolved_dynamic_imports: vec![],
-            resolved_dynamic_patterns: vec![],
-            member_accesses: vec![],
-            whole_object_uses: vec![],
-            has_cjs_exports: false,
-            unused_import_bindings: rustc_hash::FxHashSet::default(),
+            ..Default::default()
         }];
 
         let graph = build_test_graph(&files, &[], &resolved_modules);
@@ -1962,28 +1900,12 @@ mod tests {
             fallow_core::resolve::ResolvedModule {
                 file_id: fallow_core::discover::FileId(0),
                 path: path_a.clone(),
-                exports: vec![],
-                re_exports: vec![],
-                resolved_imports: vec![],
-                resolved_dynamic_imports: vec![],
-                resolved_dynamic_patterns: vec![],
-                member_accesses: vec![],
-                whole_object_uses: vec![],
-                has_cjs_exports: false,
-                unused_import_bindings: rustc_hash::FxHashSet::default(),
+                ..Default::default()
             },
             fallow_core::resolve::ResolvedModule {
                 file_id: fallow_core::discover::FileId(1),
                 path: path_b.clone(),
-                exports: vec![],
-                re_exports: vec![],
-                resolved_imports: vec![],
-                resolved_dynamic_imports: vec![],
-                resolved_dynamic_patterns: vec![],
-                member_accesses: vec![],
-                whole_object_uses: vec![],
-                has_cjs_exports: false,
-                unused_import_bindings: rustc_hash::FxHashSet::default(),
+                ..Default::default()
             },
         ];
 
@@ -2085,14 +2007,7 @@ mod tests {
                     members: vec![],
                 },
             ],
-            re_exports: vec![],
-            resolved_imports: vec![],
-            resolved_dynamic_imports: vec![],
-            resolved_dynamic_patterns: vec![],
-            member_accesses: vec![],
-            whole_object_uses: vec![],
-            has_cjs_exports: false,
-            unused_import_bindings: rustc_hash::FxHashSet::default(),
+            ..Default::default()
         }];
 
         let graph = build_test_graph(&files, &[], &resolved_modules);
@@ -2182,6 +2097,133 @@ mod tests {
         assert_eq!(result.analysis_counts.unused_deps, 1);
     }
 
+    /// Regression: total_exports must count from graph (post-resolution), not extraction
+    /// modules. Re-export chain resolution synthesizes exports in graph.modules that don't
+    /// exist in extraction ModuleInfo.exports. Using extraction counts as denominator
+    /// caused dead_export_pct > 100%.
+    #[test]
+    fn total_exports_counts_graph_modules_not_extraction_modules() {
+        // Source module (a.ts) has 2 direct exports + 1 synthesized from re-export chain
+        let path_a = std::path::PathBuf::from("/src/a.ts");
+        let files = vec![fallow_core::discover::DiscoveredFile {
+            id: fallow_core::discover::FileId(0),
+            path: path_a.clone(),
+            size_bytes: 100,
+        }];
+
+        // Graph source: 3 exports (2 direct + 1 synthesized by re-export resolution)
+        let resolved_modules = vec![fallow_core::resolve::ResolvedModule {
+            file_id: fallow_core::discover::FileId(0),
+            path: path_a.clone(),
+            exports: vec![
+                fallow_types::extract::ExportInfo {
+                    name: fallow_core::extract::ExportName::Named("foo".into()),
+                    local_name: None,
+                    is_type_only: false,
+                    is_public: false,
+                    span: oxc_span::Span::empty(0),
+                    members: vec![],
+                },
+                fallow_types::extract::ExportInfo {
+                    name: fallow_core::extract::ExportName::Named("bar".into()),
+                    local_name: None,
+                    is_type_only: false,
+                    is_public: false,
+                    span: oxc_span::Span::empty(0),
+                    members: vec![],
+                },
+                // Simulates a synthesized export from re-export chain resolution
+                // (in real code these have Span(0,0) sentinel)
+                fallow_types::extract::ExportInfo {
+                    name: fallow_core::extract::ExportName::Named("baz".into()),
+                    local_name: None,
+                    is_type_only: false,
+                    is_public: false,
+                    span: oxc_span::Span::new(0, 0),
+                    members: vec![],
+                },
+            ],
+            re_exports: vec![],
+            resolved_imports: vec![],
+            resolved_dynamic_imports: vec![],
+            resolved_dynamic_patterns: vec![],
+            member_accesses: vec![],
+            whole_object_uses: vec![],
+            has_cjs_exports: false,
+            unused_import_bindings: rustc_hash::FxHashSet::default(),
+        }];
+
+        let graph = build_test_graph(&files, &[], &resolved_modules);
+
+        // Extraction module only knows about 2 direct exports (no synthesized re-exports)
+        let mut module = make_module_info(
+            0,
+            10,
+            vec![fallow_types::extract::FunctionComplexity {
+                name: "fn_a".into(),
+                line: 1,
+                col: 0,
+                cyclomatic: 1,
+                cognitive: 0,
+                line_count: 10,
+                param_count: 0,
+            }],
+        );
+        module.exports = vec![
+            fallow_types::extract::ExportInfo {
+                name: fallow_core::extract::ExportName::Named("foo".into()),
+                local_name: None,
+                is_type_only: false,
+                is_public: false,
+                span: oxc_span::Span::empty(0),
+                members: vec![],
+            },
+            fallow_types::extract::ExportInfo {
+                name: fallow_core::extract::ExportName::Named("bar".into()),
+                local_name: None,
+                is_type_only: false,
+                is_public: false,
+                span: oxc_span::Span::empty(0),
+                members: vec![],
+            },
+        ];
+        let modules = vec![module];
+
+        let mut file_paths: rustc_hash::FxHashMap<
+            fallow_core::discover::FileId,
+            &std::path::PathBuf,
+        > = rustc_hash::FxHashMap::default();
+        file_paths.insert(fallow_core::discover::FileId(0), &files[0].path);
+
+        // All 3 exports are unused
+        let mut results = fallow_types::results::AnalysisResults::default();
+        for name in ["foo", "bar", "baz"] {
+            results
+                .unused_exports
+                .push(fallow_types::results::UnusedExport {
+                    path: path_a.clone(),
+                    export_name: name.into(),
+                    is_type_only: false,
+                    line: 1,
+                    col: 0,
+                    span_start: 0,
+                    is_re_export: name == "baz",
+                });
+        }
+
+        let output = fallow_core::AnalysisOutput {
+            results,
+            timings: None,
+            graph: Some(graph),
+        };
+
+        let result = compute_file_scores(&modules, &file_paths, None, output, None).unwrap();
+        // total_exports = 3 (from graph, including synthesized re-export)
+        // Before the fix this was 2 (from extraction modules), causing 150% dead exports
+        assert_eq!(result.analysis_counts.total_exports, 3);
+        assert_eq!(result.analysis_counts.dead_exports, 3);
+    }
+
     #[test]
     fn compute_file_scores_module_not_in_file_paths_skipped() {
         // When file_paths doesn't contain a FileId, the module should be skipped
@@ -2195,15 +2237,7 @@ mod tests {
         let resolved_modules = vec![fallow_core::resolve::ResolvedModule {
             file_id: fallow_core::discover::FileId(0),
             path: path_a,
-            exports: vec![],
-            re_exports: vec![],
-            resolved_imports: vec![],
-            resolved_dynamic_imports: vec![],
-            resolved_dynamic_patterns: vec![],
-            member_accesses: vec![],
-            whole_object_uses: vec![],
-            has_cjs_exports: false,
-            unused_import_bindings: rustc_hash::FxHashSet::default(),
+            ..Default::default()
         }];
 
         let graph = build_test_graph(&files, &[], &resolved_modules);
