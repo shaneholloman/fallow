@@ -5,7 +5,7 @@ import * as path from "node:path";
 // fallow-ignore-next-line unlisted-dependency
 import * as vscode from "vscode";
 import { getLspPath, getProduction, getDuplicationMode, getDuplicationThreshold, getIssueTypes } from "./config.js";
-import { findBinaryInPath, getExecutableExtension } from "./binary-utils.js";
+import { findBinaryInPath, findLocalBinary, getExecutableExtension } from "./binary-utils.js";
 import { getInstalledBinaryPath } from "./download.js";
 import {
   buildFixArgs,
@@ -20,6 +20,11 @@ import type {
 } from "./types.js";
 
 const findCliBinary = (context: vscode.ExtensionContext): string | null => {
+  const local = findLocalBinary("fallow");
+  if (local) {
+    return local;
+  }
+
   const lspPath = getLspPath();
   if (lspPath) {
     const dir = path.dirname(lspPath);

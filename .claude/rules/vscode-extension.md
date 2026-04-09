@@ -15,10 +15,11 @@ Wraps the `fallow-lsp` binary with additional UI features. TypeScript codebase b
 - Tree view providers for dead code (by issue type) and duplicates (by clone family)
 
 ## Binary resolution order
-1. `fallow.lspPath` setting (explicit path)
-2. `fallow-lsp` in system `PATH`
-3. Previously downloaded binary in extension global storage
-4. Auto-download from GitHub releases (if `fallow.autoDownload` enabled)
+1. Local `node_modules/.bin/` in workspace root (devDependency install)
+2. `fallow.lspPath` setting (explicit path)
+3. `fallow-lsp` in system `PATH`
+4. Previously downloaded binary in extension global storage
+5. Auto-download from GitHub releases (if `fallow.autoDownload` enabled)
 
 ## Key behaviors
 - **Lazy CLI analysis** — deferred until sidebar is first made visible (avoids double analysis with LSP)

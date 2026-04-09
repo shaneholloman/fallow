@@ -10,7 +10,7 @@ import {
 } from "vscode-languageclient/node.js";
 import { Trace } from "vscode-languageserver-protocol";
 import { getLspPath, getTraceLevel, getAutoDownload, getIssueTypes } from "./config.js";
-import { findBinaryInPath } from "./binary-utils.js";
+import { findBinaryInPath, findLocalBinary } from "./binary-utils.js";
 import {
   downloadBinary,
   getInstalledBinaryPath,
@@ -22,6 +22,11 @@ const resolveBinaryPath = async (
   context: vscode.ExtensionContext,
   outputChannel?: vscode.OutputChannel
 ): Promise<string | null> => {
+  const local = findLocalBinary("fallow-lsp");
+  if (local) {
+    return local;
+  }
+
   const configPath = getLspPath();
   if (configPath) {
     if (fs.existsSync(configPath)) {
