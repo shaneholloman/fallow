@@ -2291,3 +2291,163 @@ fn no_re_exports_skips_chain_resolution() {
     assert_eq!(foo.references.len(), 1);
     assert_eq!(foo.references[0].from_file, FileId(0));
 }
+
+/// Regression test for quadratic duplicate detection in star re-export propagation.
+///
+/// When many consumers import the same named export through a star-re-exporting barrel,
+/// the reference list grows across iterations. The duplicate check must remain efficient
+/// (O(1) via HashSet, not O(n) via linear scan) to avoid quadratic blowup.
+///
+/// Layout:
+///   consumer_0..consumer_N each import { shared } from barrel
+///   barrel: export * from './source'
+///   source: export const shared = 1; export const other = 2;
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "test file/span counts are trivially small"
+)]
+#[test]
+fn star_re_export_many_consumers_no_quadratic_blowup() {
+    let consumer_count = 20;
+    let barrel_id = FileId(consumer_count as u32);
+    let source_id = FileId(consumer_count as u32 + 1);
+
+    let mut files: Vec<DiscoveredFile> = (0..consumer_count)
+        .map(|i| DiscoveredFile {
+            id: FileId(i as u32),
+            path: PathBuf::from(format!("/project/consumer{i}.ts")),
+            size_bytes: 50,
+        })
+        .collect();
+    files.push(DiscoveredFile {
+        id: barrel_id,
+        path: PathBuf::from("/project/barrel.ts"),
+        size_bytes: 50,
+    });
+    files.push(DiscoveredFile {
+        id: source_id,
+        path: PathBuf::from("/project/source.ts"),
+        size_bytes: 50,
+    });
+
+    let entry_points = vec![EntryPoint {
+        path: PathBuf::from("/project/consumer0.ts"),
+        source: EntryPointSource::PackageJsonMain,
+    }];
+
+    let mut resolved_modules: Vec<ResolvedModule> = (0..consumer_count)
+        .map(|i| ResolvedModule {
+            file_id: FileId(i as u32),
+            path: PathBuf::from(format!("/project/consumer{i}.ts")),
+            exports: vec![],
+            re_exports: vec![],
+            resolved_imports: vec![ResolvedImport {
+                info: ImportInfo {
+                    source: "./barrel".to_string(),
+                    imported_name: ImportedName::Named("shared".to_string()),
+                    local_name: "shared".to_string(),
+                    is_type_only: false,
+                    span: oxc_span::Span::new(0, 10),
+                    source_span: oxc_span::Span::default(),
+                },
+                target: ResolveResult::InternalModule(barrel_id),
+            }],
+            resolved_dynamic_imports: vec![],
+            resolved_dynamic_patterns: vec![],
+            member_accesses: vec![],
+            whole_object_uses: vec![],
+            has_cjs_exports: false,
+            unused_import_bindings: FxHashSet::default(),
+        })
+        .collect();
+
+    // barrel: export * from './source'
+    resolved_modules.push(ResolvedModule {
+        file_id: barrel_id,
+        path: PathBuf::from("/project/barrel.ts"),
+        exports: vec![],
+        re_exports: vec![ResolvedReExport {
+            info: fallow_types::extract::ReExportInfo {
+                source: "./source".to_string(),
+                imported_name: "*".to_string(),
+                exported_name: "*".to_string(),
+                is_type_only: false,
+            },
+            target: ResolveResult::InternalModule(source_id),
+        }],
+        resolved_imports: vec![],
+        resolved_dynamic_imports: vec![],
+        resolved_dynamic_patterns: vec![],
+        member_accesses: vec![],
+        whole_object_uses: vec![],
+        has_cjs_exports: false,
+        unused_import_bindings: FxHashSet::default(),
+    });
+
+    // source: export const shared = 1; export const other = 2;
+    resolved_modules.push(ResolvedModule {
+        file_id: source_id,
+        path: PathBuf::from("/project/source.ts"),
+        exports: vec![
+            fallow_types::extract::ExportInfo {
+                name: ExportName::Named("shared".to_string()),
+                local_name: Some("shared".to_string()),
+                is_type_only: false,
+                is_public: false,
+                span: oxc_span::Span::new(0, 20),
+                members: vec![],
+            },
+            fallow_types::extract::ExportInfo {
+                name: ExportName::Named("other".to_string()),
+                local_name: Some("other".to_string()),
+                is_type_only: false,
+                is_public: false,
+                span: oxc_span::Span::new(25, 45),
+                members: vec![],
+            },
+        ],
+        re_exports: vec![],
+        resolved_imports: vec![],
+        resolved_dynamic_imports: vec![],
+        resolved_dynamic_patterns: vec![],
+        member_accesses: vec![],
+        whole_object_uses: vec![],
+        has_cjs_exports: false,
+        unused_import_bindings: FxHashSet::default(),
+    });
+
+    let graph = ModuleGraph::build(&resolved_modules, &entry_points, &files);
+
+    // The source module's "shared" export should have references from all consumers
+    let source = &graph.modules[source_id.0 as usize];
+    let shared = source
+        .exports
+        .iter()
+        .find(|e| e.name.to_string() == "shared")
+        .expect("source should have 'shared' export");
+    assert_eq!(
+        shared.references.len(),
+        consumer_count,
+        "each consumer should add exactly one reference to the source export"
+    );
+
+    // The "other" export should have no references (nobody imports it)
+    let other = source
+        .exports
+        .iter()
+        .find(|e| e.name.to_string() == "other")
+        .expect("source should have 'other' export");
+    assert!(
+        other.references.is_empty(),
+        "'other' should have no references since no consumer imports it"
+    );
+
+    // Verify no duplicate references (the HashSet dedup must work correctly)
+    let unique_from_files: FxHashSet<FileId> =
+        shared.references.iter().map(|r| r.from_file).collect();
+    assert_eq!(
+        unique_from_files.len(),
+        consumer_count,
+        "all references should be from distinct consumers (no duplicates)"
+    );
+}

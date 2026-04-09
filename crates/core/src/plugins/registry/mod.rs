@@ -143,9 +143,7 @@ impl PluginRegistry {
         // with no config-parsing plugins (e.g., only React), avoiding O(files)
         // String allocations.
         let needs_relative_files = !config_matchers.is_empty()
-            || active
-                .iter()
-                .any(|p| p.package_json_config_key().is_some());
+            || active.iter().any(|p| p.package_json_config_key().is_some());
         let relative_files: Vec<(&PathBuf, String)> = if needs_relative_files {
             discovered_files
                 .iter()
