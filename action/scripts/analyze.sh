@@ -216,15 +216,20 @@ if [ -n "${INPUT_ARGS:-}" ]; then
   read -ra EXTRA_ARGS <<< "$INPUT_ARGS"
 fi
 
-# Run analysis — no --fail-on-issues so subsequent steps always run
-if ! fallow "${ARGS[@]}" "${EXTRA_ARGS[@]}" > fallow-results.json 2> fallow-stderr.log; then
-  if [ ! -s fallow-results.json ] || ! jq -e '.' fallow-results.json > /dev/null 2>&1; then
+# Run analysis — no --fail-on-issues so subsequent steps always run.
+# Bare invocations may emit an error JSON (e.g., health on a non-git repo)
+# followed by the actual combined results. Use jq -s 'last' to extract only
+# the final JSON object so downstream parsing sees a single valid result.
+if ! fallow "${ARGS[@]}" "${EXTRA_ARGS[@]}" > fallow-results-raw.json 2> fallow-stderr.log; then
+  if [ ! -s fallow-results-raw.json ] || ! jq -e '.' fallow-results-raw.json > /dev/null 2>&1; then
     echo "::error::Fallow failed to run"
     [ -s fallow-stderr.log ] && cat fallow-stderr.log
-    [ -s fallow-results.json ] && cat fallow-results.json
+    [ -s fallow-results-raw.json ] && cat fallow-results-raw.json
     exit 2
   fi
 fi
+jq -s 'last' fallow-results-raw.json > fallow-results.json
+rm -f fallow-results-raw.json
 
 # --- Fallback SARIF generation ---
 
