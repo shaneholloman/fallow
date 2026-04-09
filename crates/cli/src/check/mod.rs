@@ -243,6 +243,7 @@ pub fn execute_check(opts: &CheckOptions<'_>) -> Result<CheckResult, ExitCode> {
         &mut results,
         opts.save_baseline,
         opts.baseline,
+        &config.root,
         opts.quiet,
         opts.output,
     ) {
@@ -424,12 +425,13 @@ fn handle_baseline(
     results: &mut fallow_core::results::AnalysisResults,
     save_path: Option<&std::path::Path>,
     load_path: Option<&std::path::Path>,
+    root: &std::path::Path,
     quiet: bool,
     output: OutputFormat,
 ) -> Option<ExitCode> {
     // Save baseline if requested
     if let Some(baseline_path) = save_path {
-        let baseline_data = BaselineData::from_results(results);
+        let baseline_data = BaselineData::from_results(results, root);
         match serde_json::to_string_pretty(&baseline_data) {
             Ok(json) => {
                 if let Err(e) = std::fs::write(baseline_path, json) {
@@ -458,7 +460,7 @@ fn handle_baseline(
         match std::fs::read_to_string(baseline_path) {
             Ok(content) => match serde_json::from_str::<BaselineData>(&content) {
                 Ok(baseline_data) => {
-                    *results = filter_new_issues(std::mem::take(results), &baseline_data);
+                    *results = filter_new_issues(std::mem::take(results), &baseline_data, root);
                     if !quiet {
                         eprintln!("Comparing against baseline: {}", baseline_path.display());
                     }

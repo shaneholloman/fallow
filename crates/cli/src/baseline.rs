@@ -3,6 +3,14 @@ use std::path::Path;
 
 use fallow_core::duplicates::DuplicationReport;
 
+/// Strip the project root from a path to produce a portable relative key.
+fn relative_path(path: &Path, root: &Path) -> String {
+    path.strip_prefix(root)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
 /// Baseline data for comparison.
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct BaselineData {
@@ -44,34 +52,22 @@ pub struct BaselineData {
 }
 
 impl BaselineData {
-    pub fn from_results(results: &fallow_core::results::AnalysisResults) -> Self {
+    pub fn from_results(results: &fallow_core::results::AnalysisResults, root: &Path) -> Self {
         Self {
             unused_files: results
                 .unused_files
                 .iter()
-                .map(|f| f.path.to_string_lossy().replace('\\', "/"))
+                .map(|f| relative_path(&f.path, root))
                 .collect(),
             unused_exports: results
                 .unused_exports
                 .iter()
-                .map(|e| {
-                    format!(
-                        "{}:{}",
-                        e.path.to_string_lossy().replace('\\', "/"),
-                        e.export_name
-                    )
-                })
+                .map(|e| format!("{}:{}", relative_path(&e.path, root), e.export_name))
                 .collect(),
             unused_types: results
                 .unused_types
                 .iter()
-                .map(|e| {
-                    format!(
-                        "{}:{}",
-                        e.path.to_string_lossy().replace('\\', "/"),
-                        e.export_name
-                    )
-                })
+                .map(|e| format!("{}:{}", relative_path(&e.path, root), e.export_name))
                 .collect(),
             unused_dependencies: results
                 .unused_dependencies
@@ -86,7 +82,7 @@ impl BaselineData {
             circular_dependencies: results
                 .circular_dependencies
                 .iter()
-                .map(circular_dep_key)
+                .map(|c| circular_dep_key(c, root))
                 .collect(),
             unused_optional_dependencies: results
                 .unused_optional_dependencies
@@ -99,7 +95,7 @@ impl BaselineData {
                 .map(|m| {
                     format!(
                         "{}:{}.{}",
-                        m.path.to_string_lossy().replace('\\', "/"),
+                        relative_path(&m.path, root),
                         m.parent_name,
                         m.member_name
                     )
@@ -111,7 +107,7 @@ impl BaselineData {
                 .map(|m| {
                     format!(
                         "{}:{}.{}",
-                        m.path.to_string_lossy().replace('\\', "/"),
+                        relative_path(&m.path, root),
                         m.parent_name,
                         m.member_name
                     )
@@ -120,13 +116,7 @@ impl BaselineData {
             unresolved_imports: results
                 .unresolved_imports
                 .iter()
-                .map(|i| {
-                    format!(
-                        "{}:{}",
-                        i.path.to_string_lossy().replace('\\', "/"),
-                        i.specifier
-                    )
-                })
+                .map(|i| format!("{}:{}", relative_path(&i.path, root), i.specifier))
                 .collect(),
             unlisted_dependencies: results
                 .unlisted_dependencies
@@ -136,7 +126,7 @@ impl BaselineData {
             duplicate_exports: results
                 .duplicate_exports
                 .iter()
-                .map(duplicate_export_key)
+                .map(|d| duplicate_export_key(d, root))
                 .collect(),
             type_only_dependencies: results
                 .type_only_dependencies
@@ -151,39 +141,35 @@ impl BaselineData {
             boundary_violations: results
                 .boundary_violations
                 .iter()
-                .map(boundary_violation_key)
+                .map(|v| boundary_violation_key(v, root))
                 .collect(),
         }
     }
 }
 
 /// Generate a stable key for a boundary violation: `from_path->to_path`.
-fn boundary_violation_key(v: &fallow_core::results::BoundaryViolation) -> String {
+fn boundary_violation_key(v: &fallow_core::results::BoundaryViolation, root: &Path) -> String {
     format!(
         "{}->{}",
-        v.from_path.to_string_lossy().replace('\\', "/"),
-        v.to_path.to_string_lossy().replace('\\', "/"),
+        relative_path(&v.from_path, root),
+        relative_path(&v.to_path, root),
     )
 }
 
 /// Generate a stable key for a duplicate export: `name|sorted_paths`.
-fn duplicate_export_key(dup: &fallow_core::results::DuplicateExport) -> String {
+fn duplicate_export_key(dup: &fallow_core::results::DuplicateExport, root: &Path) -> String {
     let mut locs: Vec<String> = dup
         .locations
         .iter()
-        .map(|l| l.path.to_string_lossy().replace('\\', "/"))
+        .map(|l| relative_path(&l.path, root))
         .collect();
     locs.sort();
     format!("{}|{}", dup.export_name, locs.join("|"))
 }
 
 /// Generate a stable key for a circular dependency based on sorted file paths.
-fn circular_dep_key(dep: &fallow_core::results::CircularDependency) -> String {
-    let mut paths: Vec<String> = dep
-        .files
-        .iter()
-        .map(|f| f.to_string_lossy().replace('\\', "/"))
-        .collect();
+fn circular_dep_key(dep: &fallow_core::results::CircularDependency, root: &Path) -> String {
+    let mut paths: Vec<String> = dep.files.iter().map(|f| relative_path(f, root)).collect();
     paths.sort();
     paths.join("->")
 }
@@ -192,6 +178,7 @@ fn circular_dep_key(dep: &fallow_core::results::CircularDependency) -> String {
 pub fn filter_new_issues(
     mut results: fallow_core::results::AnalysisResults,
     baseline: &BaselineData,
+    root: &Path,
 ) -> fallow_core::results::AnalysisResults {
     let baseline_files: FxHashSet<&str> =
         baseline.unused_files.iter().map(String::as_str).collect();
@@ -212,21 +199,13 @@ pub fn filter_new_issues(
 
     results
         .unused_files
-        .retain(|f| !baseline_files.contains(f.path.to_string_lossy().replace('\\', "/").as_str()));
+        .retain(|f| !baseline_files.contains(relative_path(&f.path, root).as_str()));
     results.unused_exports.retain(|e| {
-        let key = format!(
-            "{}:{}",
-            e.path.to_string_lossy().replace('\\', "/"),
-            e.export_name
-        );
+        let key = format!("{}:{}", relative_path(&e.path, root), e.export_name);
         !baseline_exports.contains(key.as_str())
     });
     results.unused_types.retain(|e| {
-        let key = format!(
-            "{}:{}",
-            e.path.to_string_lossy().replace('\\', "/"),
-            e.export_name
-        );
+        let key = format!("{}:{}", relative_path(&e.path, root), e.export_name);
         !baseline_types.contains(key.as_str())
     });
     results
@@ -242,7 +221,7 @@ pub fn filter_new_issues(
         .map(String::as_str)
         .collect();
     results.circular_dependencies.retain(|c| {
-        let key = circular_dep_key(c);
+        let key = circular_dep_key(c, root);
         !baseline_circular.contains(key.as_str())
     });
 
@@ -263,7 +242,7 @@ pub fn filter_new_issues(
     results.unused_enum_members.retain(|m| {
         let key = format!(
             "{}:{}.{}",
-            m.path.to_string_lossy().replace('\\', "/"),
+            relative_path(&m.path, root),
             m.parent_name,
             m.member_name
         );
@@ -278,7 +257,7 @@ pub fn filter_new_issues(
     results.unused_class_members.retain(|m| {
         let key = format!(
             "{}:{}.{}",
-            m.path.to_string_lossy().replace('\\', "/"),
+            relative_path(&m.path, root),
             m.parent_name,
             m.member_name
         );
@@ -291,11 +270,7 @@ pub fn filter_new_issues(
         .map(String::as_str)
         .collect();
     results.unresolved_imports.retain(|i| {
-        let key = format!(
-            "{}:{}",
-            i.path.to_string_lossy().replace('\\', "/"),
-            i.specifier
-        );
+        let key = format!("{}:{}", relative_path(&i.path, root), i.specifier);
         !baseline_unresolved.contains(key.as_str())
     });
 
@@ -314,7 +289,7 @@ pub fn filter_new_issues(
         .map(String::as_str)
         .collect();
     results.duplicate_exports.retain(|d| {
-        let key = duplicate_export_key(d);
+        let key = duplicate_export_key(d, root);
         !baseline_dup_exports.contains(key.as_str())
     });
 
@@ -342,7 +317,7 @@ pub fn filter_new_issues(
         .map(String::as_str)
         .collect();
     results.boundary_violations.retain(|v| {
-        let key = boundary_violation_key(v);
+        let key = boundary_violation_key(v, root);
         !baseline_boundary.contains(key.as_str())
     });
 
@@ -622,7 +597,7 @@ mod tests {
     #[test]
     fn baseline_from_results_captures_all_fields() {
         let results = make_results();
-        let baseline = BaselineData::from_results(&results);
+        let baseline = BaselineData::from_results(&results, Path::new(""));
         assert_eq!(baseline.unused_files.len(), 2);
         assert!(baseline.unused_files.contains(&"src/old.ts".to_string()));
         assert!(baseline.unused_files.contains(&"src/dead.ts".to_string()));
@@ -635,7 +610,7 @@ mod tests {
     #[test]
     fn baseline_serialization_roundtrip() {
         let results = make_results();
-        let baseline = BaselineData::from_results(&results);
+        let baseline = BaselineData::from_results(&results, Path::new(""));
         let json = serde_json::to_string(&baseline).unwrap();
         let deserialized: BaselineData = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.unused_files, baseline.unused_files);
@@ -656,8 +631,8 @@ mod tests {
     #[test]
     fn filter_removes_baseline_issues() {
         let results = make_results();
-        let baseline = BaselineData::from_results(&results);
-        let filtered = filter_new_issues(results, &baseline);
+        let baseline = BaselineData::from_results(&results, Path::new(""));
+        let filtered = filter_new_issues(results, &baseline, Path::new(""));
         assert!(
             filtered.unused_files.is_empty(),
             "all files were in baseline"
@@ -710,7 +685,7 @@ mod tests {
             ],
             ..Default::default()
         };
-        let filtered = filter_new_issues(results, &baseline);
+        let filtered = filter_new_issues(results, &baseline, Path::new(""));
         assert_eq!(filtered.unused_files.len(), 1);
         assert_eq!(
             filtered.unused_files[0].path,
@@ -738,7 +713,7 @@ mod tests {
             boundary_violations: vec![],
         };
         let results = make_results();
-        let filtered = filter_new_issues(results, &baseline);
+        let filtered = filter_new_issues(results, &baseline, Path::new(""));
         assert_eq!(filtered.unused_files.len(), 2);
         assert_eq!(filtered.unused_exports.len(), 1);
     }
@@ -785,7 +760,7 @@ mod tests {
             ],
             ..Default::default()
         };
-        let filtered = filter_new_issues(results, &baseline);
+        let filtered = filter_new_issues(results, &baseline, Path::new(""));
         assert_eq!(filtered.unused_exports.len(), 1);
         assert_eq!(filtered.unused_exports[0].export_name, "helperB");
     }
@@ -1032,8 +1007,8 @@ mod tests {
             is_cross_package: false,
         };
         assert_eq!(
-            super::circular_dep_key(&dep_ab),
-            super::circular_dep_key(&dep_ba),
+            super::circular_dep_key(&dep_ab, Path::new("")),
+            super::circular_dep_key(&dep_ba, Path::new("")),
             "same files in different order should produce identical keys"
         );
     }
@@ -1057,8 +1032,8 @@ mod tests {
             is_cross_package: false,
         };
         assert_ne!(
-            super::circular_dep_key(&dep1),
-            super::circular_dep_key(&dep2),
+            super::circular_dep_key(&dep1, Path::new("")),
+            super::circular_dep_key(&dep2, Path::new("")),
         );
     }
 
@@ -1089,8 +1064,8 @@ mod tests {
             is_cross_package: false,
         };
         assert_eq!(
-            super::circular_dep_key(&dep_abc),
-            super::circular_dep_key(&dep_cab),
+            super::circular_dep_key(&dep_abc, Path::new("")),
+            super::circular_dep_key(&dep_cab, Path::new("")),
         );
     }
 
@@ -1187,7 +1162,7 @@ mod tests {
     #[test]
     fn baseline_from_results_captures_all_extended_fields() {
         let results = make_full_results();
-        let baseline = BaselineData::from_results(&results);
+        let baseline = BaselineData::from_results(&results, Path::new(""));
         assert_eq!(baseline.circular_dependencies.len(), 1);
         assert_eq!(baseline.unused_optional_dependencies, vec!["fsevents"]);
         assert_eq!(baseline.unused_enum_members.len(), 1);
@@ -1208,8 +1183,8 @@ mod tests {
     #[test]
     fn filter_removes_all_extended_baseline_issues() {
         let results = make_full_results();
-        let baseline = BaselineData::from_results(&results);
-        let filtered = filter_new_issues(results, &baseline);
+        let baseline = BaselineData::from_results(&results, Path::new(""));
+        let filtered = filter_new_issues(results, &baseline, Path::new(""));
         assert!(filtered.circular_dependencies.is_empty());
         assert!(filtered.unused_optional_dependencies.is_empty());
         assert!(filtered.unused_enum_members.is_empty());
@@ -1227,7 +1202,7 @@ mod tests {
         use fallow_core::results::CircularDependency;
         let baseline = BaselineData {
             circular_dependencies: vec!["src/a.ts->src/b.ts".to_string()],
-            ..BaselineData::from_results(&AnalysisResults::default())
+            ..BaselineData::from_results(&AnalysisResults::default(), Path::new(""))
         };
         let mut results = AnalysisResults::default();
         // One in baseline, one new
@@ -1245,7 +1220,7 @@ mod tests {
             col: 0,
             is_cross_package: false,
         });
-        let filtered = filter_new_issues(results, &baseline);
+        let filtered = filter_new_issues(results, &baseline, Path::new(""));
         assert_eq!(filtered.circular_dependencies.len(), 1);
     }
 
@@ -1254,7 +1229,7 @@ mod tests {
         use fallow_core::results::BoundaryViolation;
         let baseline = BaselineData {
             boundary_violations: vec!["src/a.ts->src/b.ts".to_string()],
-            ..BaselineData::from_results(&AnalysisResults::default())
+            ..BaselineData::from_results(&AnalysisResults::default(), Path::new(""))
         };
         let mut results = AnalysisResults::default();
         results.boundary_violations.push(BoundaryViolation {
@@ -1275,7 +1250,7 @@ mod tests {
             line: 1,
             col: 0,
         });
-        let filtered = filter_new_issues(results, &baseline);
+        let filtered = filter_new_issues(results, &baseline, Path::new(""));
         assert_eq!(filtered.boundary_violations.len(), 1);
     }
 
@@ -1350,8 +1325,8 @@ mod tests {
             ],
         };
         assert_eq!(
-            super::duplicate_export_key(&dup_ab),
-            super::duplicate_export_key(&dup_ba),
+            super::duplicate_export_key(&dup_ab, Path::new("")),
+            super::duplicate_export_key(&dup_ba, Path::new("")),
         );
     }
 
@@ -1369,7 +1344,78 @@ mod tests {
             line: 1,
             col: 0,
         };
-        let key = super::boundary_violation_key(&v);
+        let key = super::boundary_violation_key(&v, Path::new(""));
         assert_eq!(key, "src/ui/btn.ts->src/db/query.ts");
+    }
+
+    // ── cross-machine baseline portability (#87) ──────────────
+
+    /// Regression test: baseline saved on one machine (different absolute root)
+    /// must match issues found on another machine.
+    #[test]
+    fn baseline_keys_are_relative_to_root() {
+        use fallow_core::results::BoundaryViolation;
+
+        // Simulate saving baseline on a developer's machine
+        let local_root = Path::new("/Users/dev/project");
+        let mut results = AnalysisResults {
+            unused_files: vec![UnusedFile {
+                path: PathBuf::from("/Users/dev/project/src/old.ts"),
+            }],
+            unused_exports: vec![UnusedExport {
+                path: PathBuf::from("/Users/dev/project/src/utils.ts"),
+                export_name: "helper".to_string(),
+                is_type_only: false,
+                line: 5,
+                col: 0,
+                span_start: 40,
+                is_re_export: false,
+            }],
+            boundary_violations: vec![BoundaryViolation {
+                from_path: PathBuf::from("/Users/dev/project/src/ui/btn.ts"),
+                to_path: PathBuf::from("/Users/dev/project/src/db/query.ts"),
+                from_zone: "ui".to_string(),
+                to_zone: "db".to_string(),
+                import_specifier: "../db/query".to_string(),
+                line: 1,
+                col: 0,
+            }],
+            ..Default::default()
+        };
+
+        let baseline = BaselineData::from_results(&results, local_root);
+
+        // Keys should be relative
+        assert_eq!(baseline.unused_files, vec!["src/old.ts"]);
+        assert_eq!(baseline.unused_exports, vec!["src/utils.ts:helper"]);
+        assert_eq!(
+            baseline.boundary_violations,
+            vec!["src/ui/btn.ts->src/db/query.ts"]
+        );
+
+        // Simulate loading baseline on CI (different absolute root, same relative structure)
+        let ci_root = Path::new("/home/runner/work/project/project");
+        results.unused_files[0].path =
+            PathBuf::from("/home/runner/work/project/project/src/old.ts");
+        results.unused_exports[0].path =
+            PathBuf::from("/home/runner/work/project/project/src/utils.ts");
+        results.boundary_violations[0].from_path =
+            PathBuf::from("/home/runner/work/project/project/src/ui/btn.ts");
+        results.boundary_violations[0].to_path =
+            PathBuf::from("/home/runner/work/project/project/src/db/query.ts");
+
+        let filtered = filter_new_issues(results, &baseline, ci_root);
+        assert!(
+            filtered.unused_files.is_empty(),
+            "baseline should filter unused files across different roots"
+        );
+        assert!(
+            filtered.unused_exports.is_empty(),
+            "baseline should filter unused exports across different roots"
+        );
+        assert!(
+            filtered.boundary_violations.is_empty(),
+            "baseline should filter boundary violations across different roots"
+        );
     }
 }
