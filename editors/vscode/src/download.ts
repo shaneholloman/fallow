@@ -12,6 +12,7 @@ import { getExecutableExtension } from "./binary-utils.js";
 const GITHUB_REPO = "fallow-rs/fallow";
 const LSP_BINARY_NAME = "fallow-lsp";
 const CLI_BINARY_NAME = "fallow";
+const VERSION_FILE = ".fallow-version";
 
 interface GithubRelease {
   readonly tag_name: string;
@@ -109,8 +110,24 @@ const getInstallDir = (context: vscode.ExtensionContext): string => {
   return dir;
 };
 
+const writeVersionMarker = (dir: string, version: string): void => {
+  try {
+    fs.writeFileSync(path.join(dir, VERSION_FILE), version, "utf-8");
+  } catch {
+    // Best-effort — next activation falls back to --version
+  }
+};
+
+const readVersionMarker = (dir: string): string | null => {
+  try {
+    return fs.readFileSync(path.join(dir, VERSION_FILE), "utf-8").trim() || null;
+  } catch {
+    return null;
+  }
+};
+
 /** Query the version of a fallow binary. Returns the version string or null. */
-const getBinaryVersion = (binaryPath: string): string | null => {
+export const getBinaryVersion = (binaryPath: string): string | null => {
   try {
     // execFileSync is safe (no shell injection) — binary path is from our own storage dir.
     const output = execFileSync(binaryPath, ["--version"], {
@@ -145,12 +162,15 @@ export const getInstalledBinaryPath = (
     vscode.extensions.getExtension("fallow-rs.fallow-vscode")?.packageJSON
       ?.version as string | undefined;
   if (extensionVersion) {
-    const binaryVersion = getBinaryVersion(lspPath);
-    if (binaryVersion && binaryVersion !== extensionVersion) {
+    // Check version marker file first (written by downloadBinary), then fall
+    // back to running --version for binaries downloaded before the marker existed.
+    // If neither resolves, treat the binary as stale to avoid silent version skew.
+    const binaryVersion = readVersionMarker(dir) ?? getBinaryVersion(lspPath);
+    if (binaryVersion !== extensionVersion) {
       outputChannel?.appendLine(
-        `Fallow: installed binary is v${binaryVersion}, extension is v${extensionVersion}. Re-downloading.`
+        `Fallow: installed binary is v${binaryVersion ?? "unknown"}, extension is v${extensionVersion}. Re-downloading.`
       );
-      // Remove stale binaries to force a fresh download
+      // Remove stale binaries and version marker to force a fresh download
       try {
         fs.unlinkSync(lspPath);
         const cliPath = path.join(
@@ -159,6 +179,10 @@ export const getInstalledBinaryPath = (
         );
         if (fs.existsSync(cliPath)) {
           fs.unlinkSync(cliPath);
+        }
+        const versionPath = path.join(dir, VERSION_FILE);
+        if (fs.existsSync(versionPath)) {
+          fs.unlinkSync(versionPath);
         }
       } catch {
         // If deletion fails, still return null to trigger download
@@ -227,6 +251,15 @@ export const downloadBinary = async (
             `Fallow: no LSP binary found for ${target} in release ${release.tag_name}`
           );
           return null;
+        }
+
+        // Write version marker so future activations can detect stale binaries
+        // without needing to execute them.
+        const extensionVersion =
+          vscode.extensions.getExtension("fallow-rs.fallow-vscode")?.packageJSON
+            ?.version as string | undefined;
+        if (extensionVersion) {
+          writeVersionMarker(dir, extensionVersion);
         }
 
         // Download CLI binary (best-effort — tree views and commands need it)

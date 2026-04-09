@@ -13,10 +13,28 @@ import { getLspPath, getTraceLevel, getAutoDownload, getIssueTypes } from "./con
 import { findBinaryInPath, findLocalBinary } from "./binary-utils.js";
 import {
   downloadBinary,
+  getBinaryVersion,
   getInstalledBinaryPath,
 } from "./download.js";
 
 let client: LanguageClient | null = null;
+
+const warnIfVersionMismatch = (
+  binaryPath: string,
+  outputChannel?: vscode.OutputChannel
+): void => {
+  const extensionVersion =
+    vscode.extensions.getExtension("fallow-rs.fallow-vscode")?.packageJSON
+      ?.version as string | undefined;
+  if (!extensionVersion) return;
+
+  const binaryVersion = getBinaryVersion(binaryPath);
+  if (binaryVersion && binaryVersion !== extensionVersion) {
+    const msg = `Fallow: binary in PATH is v${binaryVersion}, extension is v${extensionVersion}. Update the binary or remove it from PATH to use the bundled version.`;
+    outputChannel?.appendLine(msg);
+    void vscode.window.showWarningMessage(msg);
+  }
+};
 
 const resolveBinaryPath = async (
   context: vscode.ExtensionContext,
@@ -44,6 +62,7 @@ const resolveBinaryPath = async (
   const inPath = findBinaryInPath("fallow-lsp");
   if (inPath) {
     outputChannel?.appendLine(`Binary resolution: using system PATH: ${inPath}`);
+    warnIfVersionMismatch(inPath, outputChannel);
     return inPath;
   }
   outputChannel?.appendLine("Binary resolution: fallow-lsp not found in PATH");
