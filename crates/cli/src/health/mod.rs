@@ -5,6 +5,7 @@ mod targets;
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
+use colored::Colorize;
 use fallow_config::{OutputFormat, ResolvedConfig};
 
 use crate::baseline::{HealthBaselineData, filter_new_health_findings, filter_new_health_targets};
@@ -67,6 +68,8 @@ pub struct HealthOptions<'a> {
     pub coverage: Option<&'a std::path::Path>,
     /// Rebase file paths in coverage data by stripping this prefix and prepending project root.
     pub coverage_root: Option<&'a std::path::Path>,
+    /// Show detailed pipeline timing breakdown.
+    pub performance: bool,
 }
 
 /// Run health analysis and return results without printing.
@@ -77,6 +80,7 @@ pub struct HealthOptions<'a> {
 pub fn execute_health(opts: &HealthOptions<'_>) -> Result<HealthResult, ExitCode> {
     let start = Instant::now();
 
+    let t = Instant::now();
     let config = load_config(
         opts.root,
         opts.config_path,
@@ -86,19 +90,25 @@ pub fn execute_health(opts: &HealthOptions<'_>) -> Result<HealthResult, ExitCode
         opts.production,
         opts.quiet,
     )?;
+    let config_ms = t.elapsed().as_secs_f64() * 1000.0;
 
     // Resolve thresholds: CLI flags override config
     let max_cyclomatic = opts.max_cyclomatic.unwrap_or(config.health.max_cyclomatic);
     let max_cognitive = opts.max_cognitive.unwrap_or(config.health.max_cognitive);
 
     // Discover and parse files
+    let t = Instant::now();
     let files = fallow_core::discover::discover_files(&config);
+    let discover_ms = t.elapsed().as_secs_f64() * 1000.0;
+
     let cache = if config.no_cache {
         None
     } else {
         fallow_core::cache::CacheStore::load(&config.cache_dir)
     };
+    let t = Instant::now();
     let parse_result = fallow_core::extract::parse_all_files(&files, cache.as_ref(), true);
+    let parse_ms = t.elapsed().as_secs_f64() * 1000.0;
 
     let ignore_set = build_ignore_set(&config.health.ignore);
     let changed_files = opts
@@ -114,6 +124,7 @@ pub fn execute_health(opts: &HealthOptions<'_>) -> Result<HealthResult, ExitCode
     let file_paths: rustc_hash::FxHashMap<_, _> = files.iter().map(|f| (f.id, &f.path)).collect();
 
     // Collect and filter complexity findings
+    let t = Instant::now();
     let (mut findings, files_analyzed, total_functions) = collect_findings(
         &parse_result.modules,
         &file_paths,
@@ -127,6 +138,7 @@ pub fn execute_health(opts: &HealthOptions<'_>) -> Result<HealthResult, ExitCode
         findings.retain(|f| f.path.starts_with(ws));
     }
     sort_findings(&mut findings, &opts.sort);
+    let complexity_ms = t.elapsed().as_secs_f64() * 1000.0;
     let total_above_threshold = findings.len();
 
     // Load baseline for filtering (save happens after targets are computed)
@@ -177,39 +189,95 @@ pub fn execute_health(opts: &HealthOptions<'_>) -> Result<HealthResult, ExitCode
     // Compute file-level health scores (needed by hotspots and targets too)
     let needs_file_scores =
         opts.file_scores || effective_coverage_gaps || opts.hotspots || opts.targets;
-    let (score_output, files_scored, average_maintainability) = if needs_file_scores {
-        compute_filtered_file_scores(
-            &config,
-            &parse_result.modules,
-            &file_paths,
-            changed_files.as_ref(),
-            ws_root.as_deref(),
-            &ignore_set,
-            opts.output,
-            istanbul_coverage.as_ref(),
-        )?
+    // Run file scoring and churn fetch in parallel when both are needed.
+    // Churn fetch involves a `git log` shell-out that dominates health timing.
+    let needs_churn = opts.hotspots || opts.targets;
+    let (file_score_result, file_scores_ms, churn_fetch) = if needs_file_scores && needs_churn {
+        std::thread::scope(|s| {
+            let churn_handle = s.spawn(|| hotspots::fetch_churn_data(opts, &config.cache_dir));
+            let t = Instant::now();
+            let score_result = compute_filtered_file_scores(
+                &config,
+                &parse_result.modules,
+                &file_paths,
+                changed_files.as_ref(),
+                ws_root.as_deref(),
+                &ignore_set,
+                opts.output,
+                istanbul_coverage.as_ref(),
+            );
+            let fs_ms = t.elapsed().as_secs_f64() * 1000.0;
+            let churn = churn_handle.join().expect("churn thread panicked");
+            (score_result, fs_ms, churn)
+        })
     } else {
-        (None, None, None)
+        let t = Instant::now();
+        let score_result = if needs_file_scores {
+            compute_filtered_file_scores(
+                &config,
+                &parse_result.modules,
+                &file_paths,
+                changed_files.as_ref(),
+                ws_root.as_deref(),
+                &ignore_set,
+                opts.output,
+                istanbul_coverage.as_ref(),
+            )
+        } else {
+            Ok((None, None, None))
+        };
+        let fs_ms = t.elapsed().as_secs_f64() * 1000.0;
+        let churn = if needs_churn {
+            hotspots::fetch_churn_data(opts, &config.cache_dir)
+        } else {
+            None
+        };
+        (score_result, fs_ms, churn)
     };
+    let (git_churn_ms, git_churn_cache_hit) = churn_fetch
+        .as_ref()
+        .map_or((0.0, false), |cf| (cf.git_log_ms, cf.cache_hit));
+    let (score_output, files_scored, average_maintainability) = file_score_result?;
+
+    // Print churn cache note on cold miss (only when cache is enabled)
+    if let Some(ref cf) = churn_fetch
+        && !cf.cache_hit
+        && !opts.no_cache
+        && !opts.quiet
+        && cf.git_log_ms > 500.0
+    {
+        eprintln!(
+            "{}",
+            format!(
+                "  note: git churn analysis took {:.1}s (cached for next run at same HEAD)",
+                cf.git_log_ms / 1000.0
+            )
+            .dimmed()
+        );
+    }
 
     let file_scores_slice = score_output
         .as_ref()
         .map_or(&[] as &[_], |o| o.scores.as_slice());
 
-    // Compute hotspot analysis when requested (or when targets need churn data)
-    let (hotspots, hotspot_summary) = if opts.hotspots || opts.targets {
+    // Compute hotspot analysis using pre-fetched churn data
+    let t = Instant::now();
+    let (hotspots, hotspot_summary) = if let Some(churn_data) = churn_fetch {
         compute_hotspots(
             opts,
             &config,
             file_scores_slice,
             &ignore_set,
             ws_root.as_deref(),
+            churn_data,
         )
     } else {
         (Vec::new(), None)
     };
+    let hotspots_ms = t.elapsed().as_secs_f64() * 1000.0;
 
     // Compute refactoring targets
+    let t = Instant::now();
     let (targets, target_thresholds) = compute_targets(
         opts,
         score_output.as_ref(),
@@ -218,6 +286,7 @@ pub fn execute_health(opts: &HealthOptions<'_>) -> Result<HealthResult, ExitCode
         loaded_baseline.as_ref(),
         &config.root,
     );
+    let targets_ms = t.elapsed().as_secs_f64() * 1000.0;
 
     if let Some(save_path) = opts.save_baseline {
         save_health_baseline(
@@ -242,16 +311,10 @@ pub fn execute_health(opts: &HealthOptions<'_>) -> Result<HealthResult, ExitCode
     );
 
     // Run duplication analysis when --score is active to populate the duplication penalty.
+    let t = Instant::now();
     if opts.score {
-        let dupes_start = Instant::now();
         let dupes_report =
             fallow_core::duplicates::find_duplicates(&config.root, &files, &config.duplicates);
-        if !opts.quiet {
-            eprintln!(
-                "Duplication analysis completed in {:.2}s",
-                dupes_start.elapsed().as_secs_f64()
-            );
-        }
         let pct = dupes_report.stats.duplication_percentage;
         vital_signs.duplication_pct = Some((pct * 10.0).round() / 10.0);
         // Update both the snapshot counts and the embedded vital signs counts
@@ -263,6 +326,7 @@ pub fn execute_health(opts: &HealthOptions<'_>) -> Result<HealthResult, ExitCode
             vc.total_lines = Some(dupes_report.stats.total_lines);
         }
     }
+    let duplication_ms = t.elapsed().as_secs_f64() * 1000.0;
 
     let health_score = if opts.score {
         Some(vital_signs::compute_health_score(&vital_signs, files.len()))
@@ -326,10 +390,29 @@ pub fn execute_health(opts: &HealthOptions<'_>) -> Result<HealthResult, ExitCode
         large_functions,
     );
 
+    let timings = if opts.performance {
+        Some(HealthTimings {
+            config_ms,
+            discover_ms,
+            parse_ms,
+            complexity_ms,
+            file_scores_ms,
+            git_churn_ms,
+            git_churn_cache_hit,
+            hotspots_ms,
+            duplication_ms,
+            targets_ms,
+            total_ms: start.elapsed().as_secs_f64() * 1000.0,
+        })
+    } else {
+        None
+    };
+
     Ok(HealthResult {
         report,
         config,
         elapsed: start.elapsed(),
+        timings,
     })
 }
 
@@ -923,6 +1006,9 @@ pub fn run_health(opts: &HealthOptions<'_>) -> ExitCode {
         Err(code) => return code,
     };
     // Health grouping is a follow-up — for now, validate the flag and pass None
+    if let Some(ref timings) = result.timings {
+        report::print_health_performance(timings, opts.output);
+    }
     print_health_result(
         &result,
         opts.quiet,
@@ -937,6 +1023,7 @@ pub struct HealthResult {
     pub report: HealthReport,
     pub config: ResolvedConfig,
     pub elapsed: Duration,
+    pub timings: Option<HealthTimings>,
 }
 
 /// Print health results and return appropriate exit code.

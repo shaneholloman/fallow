@@ -26,7 +26,7 @@ pub struct SinceDuration {
 }
 
 /// Churn trend indicator based on comparing recent vs older halves of the analysis period.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, bitcode::Encode, bitcode::Decode)]
 #[serde(rename_all = "snake_case")]
 pub enum ChurnTrend {
     /// Recent half has >1.5× the commits of the older half.
@@ -203,6 +203,129 @@ pub fn is_git_repo(root: &Path) -> bool {
         .status()
         .map(|s| s.success())
         .unwrap_or(false)
+}
+
+// ── Churn cache ──────────────────────────────────────────────────
+
+/// Maximum size of a churn cache file (16 MB).
+const MAX_CHURN_CACHE_SIZE: usize = 16 * 1024 * 1024;
+
+/// Serializable per-file churn entry for the disk cache.
+#[derive(bitcode::Encode, bitcode::Decode)]
+struct CachedFileChurn {
+    path: String,
+    commits: u32,
+    weighted_commits: f64,
+    lines_added: u32,
+    lines_deleted: u32,
+    trend: ChurnTrend,
+}
+
+/// Cached churn data keyed by HEAD SHA and since string.
+#[derive(bitcode::Encode, bitcode::Decode)]
+struct ChurnCache {
+    head_sha: String,
+    git_after: String,
+    files: Vec<CachedFileChurn>,
+    shallow_clone: bool,
+}
+
+/// Get the full HEAD SHA for cache keying.
+fn get_head_sha(root: &Path) -> Option<String> {
+    Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(root)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+}
+
+/// Try to load churn data from disk cache. Returns `None` on cache miss.
+fn load_churn_cache(cache_dir: &Path, head_sha: &str, git_after: &str) -> Option<ChurnResult> {
+    let cache_file = cache_dir.join("churn.bin");
+    let data = std::fs::read(&cache_file).ok()?;
+    if data.len() > MAX_CHURN_CACHE_SIZE {
+        return None;
+    }
+    let cache: ChurnCache = bitcode::decode(&data).ok()?;
+    if cache.head_sha != head_sha || cache.git_after != git_after {
+        return None;
+    }
+    let mut files = FxHashMap::default();
+    for entry in cache.files {
+        let path = PathBuf::from(&entry.path);
+        files.insert(
+            path.clone(),
+            FileChurn {
+                path,
+                commits: entry.commits,
+                weighted_commits: entry.weighted_commits,
+                lines_added: entry.lines_added,
+                lines_deleted: entry.lines_deleted,
+                trend: entry.trend,
+            },
+        );
+    }
+    Some(ChurnResult {
+        files,
+        shallow_clone: cache.shallow_clone,
+    })
+}
+
+/// Save churn data to disk cache.
+fn save_churn_cache(cache_dir: &Path, head_sha: &str, git_after: &str, result: &ChurnResult) {
+    let files: Vec<CachedFileChurn> = result
+        .files
+        .values()
+        .map(|f| CachedFileChurn {
+            path: f.path.to_string_lossy().to_string(),
+            commits: f.commits,
+            weighted_commits: f.weighted_commits,
+            lines_added: f.lines_added,
+            lines_deleted: f.lines_deleted,
+            trend: f.trend,
+        })
+        .collect();
+    let cache = ChurnCache {
+        head_sha: head_sha.to_string(),
+        git_after: git_after.to_string(),
+        files,
+        shallow_clone: result.shallow_clone,
+    };
+    let _ = std::fs::create_dir_all(cache_dir);
+    let data = bitcode::encode(&cache);
+    // Write to temp file then rename for atomic update (avoids partial reads by concurrent processes)
+    let tmp = cache_dir.join("churn.bin.tmp");
+    if std::fs::write(&tmp, data).is_ok() {
+        let _ = std::fs::rename(&tmp, cache_dir.join("churn.bin"));
+    }
+}
+
+/// Analyze churn with disk caching. Uses cached result when HEAD SHA and
+/// since duration match. On cache miss, runs `git log` and saves the result.
+///
+/// Returns `(ChurnResult, bool)` where the bool indicates whether the cache was hit.
+/// Returns `None` if git analysis fails.
+pub fn analyze_churn_cached(
+    root: &Path,
+    since: &SinceDuration,
+    cache_dir: &Path,
+    no_cache: bool,
+) -> Option<(ChurnResult, bool)> {
+    let head_sha = get_head_sha(root)?;
+
+    if !no_cache && let Some(cached) = load_churn_cache(cache_dir, &head_sha, &since.git_after) {
+        return Some((cached, true));
+    }
+
+    let result = analyze_churn(root, since)?;
+
+    if !no_cache {
+        save_churn_cache(cache_dir, &head_sha, &since.git_after, &result);
+    }
+
+    Some((result, false))
 }
 
 // ── Internal ──────────────────────────────────────────────────────

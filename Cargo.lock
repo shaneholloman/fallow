@@ -669,6 +669,7 @@ dependencies = [
 name = "fallow-core"
 version = "2.26.0"
 dependencies = [
+ "bitcode",
  "criterion",
  "dhat",
  "dunce",

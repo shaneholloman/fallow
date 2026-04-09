@@ -39,6 +39,7 @@ globset = { workspace = true }
 regex = { workspace = true }
 
 # Serialization
+bitcode = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 

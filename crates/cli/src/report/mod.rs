@@ -377,6 +377,21 @@ pub fn print_performance(timings: &PipelineTimings, format: OutputFormat) {
     }
 }
 
+/// Print health pipeline performance timings.
+/// In JSON mode, outputs to stderr to avoid polluting the JSON analysis output on stdout.
+pub fn print_health_performance(
+    timings: &crate::health_types::HealthTimings,
+    format: OutputFormat,
+) {
+    match format {
+        OutputFormat::Json => match serde_json::to_string_pretty(timings) {
+            Ok(json) => eprintln!("{json}"),
+            Err(e) => eprintln!("Error: failed to serialize timings: {e}"),
+        },
+        _ => human::print_health_performance_human(timings),
+    }
+}
+
 // Re-exported for snapshot testing via the lib target.
 // Uses #[allow] because unused_imports is target-dependent (used in lib, unused in bin).
 #[allow(

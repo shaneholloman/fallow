@@ -1348,6 +1348,7 @@ fn dispatch_health(
         group_by: cli.group_by,
         coverage,
         coverage_root,
+        performance: cli.performance,
     })
 }
 

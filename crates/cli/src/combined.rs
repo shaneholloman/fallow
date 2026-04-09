@@ -293,6 +293,9 @@ fn print_human_sections(
             eprintln!();
             eprintln!("── Complexity ─────────────────────────────────────");
         }
+        if let Some(ref timings) = result.timings {
+            report::print_health_performance(timings, opts.output);
+        }
         let code = crate::health::print_health_result(
             result,
             opts.quiet,
@@ -645,6 +648,7 @@ fn build_health_opts<'a>(opts: &'a CombinedOptions<'a>) -> HealthOptions<'a> {
         group_by: opts.group_by,
         coverage: None,
         coverage_root: None,
+        performance: opts.performance,
     }
 }
 

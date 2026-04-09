@@ -16,6 +16,24 @@ pub use targets::*;
 pub use trends::*;
 pub use vital_signs::*;
 
+/// Detailed timing breakdown for the health pipeline.
+///
+/// Only populated when `--performance` is passed.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct HealthTimings {
+    pub config_ms: f64,
+    pub discover_ms: f64,
+    pub parse_ms: f64,
+    pub complexity_ms: f64,
+    pub file_scores_ms: f64,
+    pub git_churn_ms: f64,
+    pub git_churn_cache_hit: bool,
+    pub hotspots_ms: f64,
+    pub duplication_ms: f64,
+    pub targets_ms: f64,
+    pub total_ms: f64,
+}
+
 /// Result of complexity analysis for reporting.
 #[derive(Debug, serde::Serialize)]
 pub struct HealthReport {

@@ -3,16 +3,22 @@ use crate::health_types::{FileHealthScore, HotspotEntry, HotspotSummary};
 
 use super::HealthOptions;
 
+/// Result of fetching churn data, including cache hit/miss info and timing.
+pub(super) struct ChurnFetchResult {
+    pub result: fallow_core::churn::ChurnResult,
+    pub since: fallow_core::churn::SinceDuration,
+    pub cache_hit: bool,
+    pub git_log_ms: f64,
+}
+
 /// Validate git prerequisites and return churn data for hotspot analysis.
 ///
-/// Returns `None` (with an error printed) if the repo is invalid, `--since` is
-/// malformed, or git analysis fails.
-fn fetch_churn_data(
+/// Uses disk cache when available. Returns `None` (with an error printed) if
+/// the repo is invalid, `--since` is malformed, or git analysis fails.
+pub(super) fn fetch_churn_data(
     opts: &HealthOptions<'_>,
-) -> Option<(
-    fallow_core::churn::ChurnResult,
-    fallow_core::churn::SinceDuration,
-)> {
+    cache_dir: &std::path::Path,
+) -> Option<ChurnFetchResult> {
     use fallow_core::churn;
 
     if !churn::is_git_repo(opts.root) {
@@ -33,8 +39,17 @@ fn fetch_churn_data(
         }
     };
 
-    let churn_result = churn::analyze_churn(opts.root, &since)?;
-    Some((churn_result, since))
+    let t = std::time::Instant::now();
+    let (churn_result, cache_hit) =
+        churn::analyze_churn_cached(opts.root, &since, cache_dir, opts.no_cache)?;
+    let git_log_ms = t.elapsed().as_secs_f64() * 1000.0;
+
+    Some(ChurnFetchResult {
+        result: churn_result,
+        since,
+        cache_hit,
+        git_log_ms,
+    })
 }
 
 /// Find the maximum weighted-commits and complexity-density across eligible files.
@@ -103,17 +118,17 @@ pub(super) fn compute_hotspot_score(
     (norm_churn * norm_complexity * 100.0 * 10.0).round() / 10.0
 }
 
-/// Compute hotspot entries by combining git churn data with file health scores.
+/// Compute hotspot entries by combining pre-fetched churn data with file health scores.
 pub(super) fn compute_hotspots(
     opts: &HealthOptions<'_>,
     config: &fallow_config::ResolvedConfig,
     file_scores: &[FileHealthScore],
     ignore_set: &globset::GlobSet,
     ws_root: Option<&std::path::Path>,
+    churn_fetch: ChurnFetchResult,
 ) -> (Vec<HotspotEntry>, Option<HotspotSummary>) {
-    let Some((churn_result, since)) = fetch_churn_data(opts) else {
-        return (Vec::new(), None);
-    };
+    let churn_result = churn_fetch.result;
+    let since = churn_fetch.since;
 
     // Warn about shallow clones (read from churn result to avoid redundant git call)
     let shallow_clone = churn_result.shallow_clone;

@@ -105,6 +105,95 @@ pub(in crate::report) fn build_performance_human_lines(t: &PipelineTimings) -> V
     lines
 }
 
+pub(in crate::report) fn print_health_performance_human(t: &crate::health_types::HealthTimings) {
+    for line in build_health_performance_lines(t) {
+        eprintln!("{line}");
+    }
+}
+
+fn build_health_performance_lines(t: &crate::health_types::HealthTimings) -> Vec<String> {
+    let mut lines = Vec::new();
+
+    lines.push(String::new());
+    lines.push(
+        "┌─ Health Pipeline Performance ─────────────────────"
+            .dimmed()
+            .to_string(),
+    );
+    lines.push(
+        format!("│  config:           {:>8.1}ms", t.config_ms)
+            .dimmed()
+            .to_string(),
+    );
+    lines.push(
+        format!("│  discover files:   {:>8.1}ms", t.discover_ms)
+            .dimmed()
+            .to_string(),
+    );
+    lines.push(
+        format!("│  parse/extract:    {:>8.1}ms", t.parse_ms)
+            .dimmed()
+            .to_string(),
+    );
+    lines.push(
+        format!("│  complexity:       {:>8.1}ms", t.complexity_ms)
+            .dimmed()
+            .to_string(),
+    );
+    lines.push(
+        format!("│  file scores:      {:>8.1}ms", t.file_scores_ms)
+            .dimmed()
+            .to_string(),
+    );
+    let cache_note = if t.git_churn_cache_hit {
+        " (cached)"
+    } else {
+        " (cold)"
+    };
+    lines.push(
+        format!(
+            "│  git churn:        {:>8.1}ms{}",
+            t.git_churn_ms, cache_note
+        )
+        .dimmed()
+        .to_string(),
+    );
+    lines.push(
+        format!("│  hotspots:         {:>8.1}ms", t.hotspots_ms)
+            .dimmed()
+            .to_string(),
+    );
+    lines.push(
+        format!("│  duplication:      {:>8.1}ms", t.duplication_ms)
+            .dimmed()
+            .to_string(),
+    );
+    lines.push(
+        format!("│  targets:          {:>8.1}ms", t.targets_ms)
+            .dimmed()
+            .to_string(),
+    );
+    lines.push(
+        "│  ────────────────────────────────────────────────"
+            .dimmed()
+            .to_string(),
+    );
+    lines.push(
+        format!("│  TOTAL:            {:>8.1}ms", t.total_ms)
+            .bold()
+            .dimmed()
+            .to_string(),
+    );
+    lines.push(
+        "└───────────────────────────────────────────────────"
+            .dimmed()
+            .to_string(),
+    );
+    lines.push(String::new());
+
+    lines
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::plain;
