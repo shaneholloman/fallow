@@ -466,7 +466,7 @@ fn handle_baseline(
                     let baseline_entries = baseline_data.total_entries();
                     let before = results.total_issues();
                     *results = filter_new_issues(std::mem::take(results), &baseline_data, root);
-                    let matched = before - results.total_issues();
+                    let matched = before.saturating_sub(results.total_issues());
                     if !quiet {
                         eprintln!("Comparing against baseline: {}", baseline_path.display());
                     }

@@ -156,6 +156,10 @@
           "$ref": "#/definitions/BaselineDeltas",
           "description": "Per-category delta comparison against a baseline. Only present when --baseline is used."
         },
+        "baseline": {
+          "$ref": "#/definitions/BaselineMatch",
+          "description": "Baseline match statistics. Only present when --baseline is used."
+        },
         "regression": {
           "$ref": "#/definitions/RegressionResult",
           "description": "Regression check result. Only present when --fail-on-regression is used."
@@ -1637,6 +1641,16 @@
             }
           }
         }
+      }
+    },
+
+    "BaselineMatch": {
+      "type": "object",
+      "description": "Baseline match statistics. Shows how many baseline entries existed and how many matched current issues. Useful for detecting stale baselines programmatically.",
+      "required": ["entries", "matched"],
+      "properties": {
+        "entries": { "type": "integer", "description": "Total number of entries in the loaded baseline file." },
+        "matched": { "type": "integer", "description": "Number of baseline entries that matched current issues and were filtered." }
       }
     },
 
