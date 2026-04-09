@@ -39,6 +39,9 @@ npm/win32-x64-msvc/fallow.exe
 # Internal planning docs
 .internal/
 
+# Quality audit reports
+quality/
+
 # VS Code extension build artifacts
 *.vsix
 editors/vscode/.test-dist/
