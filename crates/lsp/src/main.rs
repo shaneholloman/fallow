@@ -351,12 +351,9 @@ impl FallowLspServer {
         let join_result = tokio::task::spawn_blocking(move || {
             let mut merged_results = AnalysisResults::default();
             let mut merged_duplication = DuplicationReport::default();
-            let mut analysis_roots: Vec<std::path::PathBuf> = Vec::new();
-
             for project_root in &project_roots {
                 if let Ok(results) = fallow_core::analyze_project(project_root) {
                     merge_results(&mut merged_results, results);
-                    analysis_roots.push(project_root.clone());
                 }
 
                 let dupes_config = fallow_config::FallowConfig::find_and_load(project_root)
@@ -372,22 +369,20 @@ impl FallowLspServer {
                 merge_duplication(&mut merged_duplication, duplication);
             }
 
-            (merged_results, merged_duplication, analysis_roots)
+            (merged_results, merged_duplication)
         })
         .await;
 
         match join_result {
-            Ok((results, duplication, roots)) => {
-                // Collect diagnostics across ALL roots before publishing,
-                // so multi-root monorepos don't overwrite each other's diagnostics.
-                let mut all_diagnostics: FxHashMap<Url, Vec<Diagnostic>> = FxHashMap::default();
-                for analysis_root in &roots {
-                    let by_file =
-                        diagnostics::build_diagnostics(&results, &duplication, analysis_root);
-                    for (uri, diags) in by_file {
-                        all_diagnostics.entry(uri).or_default().extend(diags);
-                    }
-                }
+            Ok((results, duplication)) => {
+                // Build diagnostics once from the merged results.
+                // Each result item already carries its own file path, so a single
+                // `build_diagnostics` call covers all roots. The workspace root is
+                // used only for unlisted-dependency diagnostics (placed on its
+                // package.json). Previously this looped per-root, duplicating every
+                // diagnostic N times (#90).
+                let all_diagnostics =
+                    diagnostics::build_diagnostics(&results, &duplication, &root);
                 self.publish_collected_diagnostics(all_diagnostics).await;
 
                 // Send summary stats to the client before storing results
