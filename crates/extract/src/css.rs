@@ -655,6 +655,26 @@ mod tests {
         );
     }
 
+    #[test]
+    fn normalize_path_alias_with_css_extension_stays_bare() {
+        // Path aliases like `@/components/Button.css` (configured via tsconfig paths
+        // or Vite alias) share the `@` prefix with scoped packages. They must stay
+        // bare so the resolver's path-alias path can handle them; prepending `./`
+        // would break resolution.
+        assert_eq!(
+            normalize_css_import_path("@/components/Button.css".to_string(), false),
+            "@/components/Button.css"
+        );
+    }
+
+    #[test]
+    fn normalize_path_alias_extensionless_stays_bare() {
+        assert_eq!(
+            normalize_css_import_path("@/styles/variables".to_string(), false),
+            "@/styles/variables"
+        );
+    }
+
     // ── strip_css_comments edge cases ─────────────────────────────
 
     #[test]
