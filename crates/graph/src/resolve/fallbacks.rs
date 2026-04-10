@@ -67,12 +67,14 @@ pub(super) fn try_path_alias_fallback(
     None
 }
 
-/// Try SCSS partial resolution: `_filename` convention.
+/// Try SCSS partial resolution: `_filename` and `_index` conventions.
 ///
-/// SCSS resolves `@use 'variables'` to `_variables.scss` (or `variables.scss`)
-/// in the same directory. This fallback prepends `_` to the filename component
-/// and retries resolution. Handles both relative (`../styles/variables`) and
-/// bare (`variables`) specifiers that were normalized to `./variables` during extraction.
+/// SCSS resolves imports in this order:
+/// 1. `@use 'variables'` → `_variables.scss` (partial convention)
+/// 2. `@use 'components'` → `components/_index.scss` or `components/index.scss` (directory index)
+///
+/// Handles both relative (`../styles/variables`) and bare (`variables`) specifiers
+/// that were normalized to `./variables` during extraction.
 pub(super) fn try_scss_partial_fallback(
     ctx: &ResolveContext<'_>,
     from_file: &Path,
@@ -91,7 +93,7 @@ pub(super) fn try_scss_partial_fallback(
         return None;
     }
 
-    // Build partial specifier: prepend _ to the filename
+    // 1. Try partial convention: prepend _ to the filename
     let partial_filename = format!("_{filename}");
     let partial_specifier = if let Some(parent) = spec_path.parent()
         && !parent.as_os_str().is_empty()
@@ -101,8 +103,18 @@ pub(super) fn try_scss_partial_fallback(
         partial_filename
     };
 
-    // Try resolving the partial specifier
-    try_resolve_scss(ctx, from_file, &partial_specifier)
+    if let Some(result) = try_resolve_scss(ctx, from_file, &partial_specifier) {
+        return Some(result);
+    }
+
+    // 2. Try directory index convention: specifier/_index and specifier/index
+    let index_partial = format!("{specifier}/_index");
+    if let Some(result) = try_resolve_scss(ctx, from_file, &index_partial) {
+        return Some(result);
+    }
+
+    let index_plain = format!("{specifier}/index");
+    try_resolve_scss(ctx, from_file, &index_plain)
 }
 
 /// Attempt to resolve a single SCSS specifier and map to an internal module.

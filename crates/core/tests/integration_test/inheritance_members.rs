@@ -44,4 +44,19 @@ fn inheritance_propagates_this_accesses_to_children() {
         !unused_members.contains(&"Rectangle.getPerimeter".to_string()),
         "Rectangle.getPerimeter should be used via this.getPerimeter() in BaseShape: {unused_members:?}"
     );
+
+    // Default export class extends: `export default class extends BaseShape`
+    // Members should also be credited via inheritance propagation
+    assert!(
+        !unused_members.contains(&"default.kind".to_string()),
+        "default export class kind should be used via this.kind in BaseShape: {unused_members:?}"
+    );
+    assert!(
+        !unused_members.contains(&"default.getArea".to_string()),
+        "default export class getArea should be used via this.getArea() in BaseShape: {unused_members:?}"
+    );
+    assert!(
+        !unused_members.contains(&"default.getPerimeter".to_string()),
+        "default export class getPerimeter should be used via this.getPerimeter() in BaseShape: {unused_members:?}"
+    );
 }

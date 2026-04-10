@@ -1,5 +1,6 @@
 @use './styles/variables' as vars;
 @use './styles/mixins' as mix;
+@use './styles/components';
 @import './styles/theme';
 
 .app {

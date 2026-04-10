@@ -48,4 +48,14 @@ fn scss_partial_files_resolved_via_underscore_convention() {
         !unlisted.contains(&"variables"),
         "'variables' should not be an unlisted dep: {unlisted:?}"
     );
+
+    // Directory index: _index.scss should be resolved via @use 'components'
+    assert!(
+        !unused_file_names.contains(&"_index.scss".to_string()),
+        "_index.scss should be used via @use 'components': {unused_file_names:?}"
+    );
+    assert!(
+        !unresolved_specs.iter().any(|s| s.contains("components")),
+        "components should be resolved via _index.scss: {unresolved_specs:?}"
+    );
 }
