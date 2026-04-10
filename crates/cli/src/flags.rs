@@ -194,6 +194,15 @@ pub fn run_flags(opts: &FlagsOptions<'_>) -> ExitCode {
 
     let elapsed = start.elapsed();
 
+    // Badge format is health-only
+    if matches!(opts.output, OutputFormat::Badge) {
+        return emit_error(
+            "badge format is only available for the health command",
+            2,
+            opts.output,
+        );
+    }
+
     // Render output
     print_flags_result(&flags, &config, opts, elapsed);
 
@@ -214,12 +223,7 @@ fn print_flags_result(
         OutputFormat::Sarif => print_flags_sarif(flags, config),
         OutputFormat::Markdown => print_flags_markdown(flags, config),
         OutputFormat::CodeClimate => print_flags_codeclimate(flags, config),
-        OutputFormat::Badge => {
-            // Badge format is health-only, not applicable to flags
-            if !opts.quiet {
-                eprintln!("warning: badge format is only available for the health command");
-            }
-        }
+        OutputFormat::Badge => unreachable!("handled above"),
     }
 }
 
@@ -430,7 +434,7 @@ fn print_flags_sarif(flags: &[FeatureFlag], config: &ResolvedConfig) {
     let results: Vec<serde_json::Value> = flags
         .iter()
         .map(|f| {
-            let path = relative_path(f, &config.root);
+            let path = crate::report::normalize_uri(&relative_path(f, &config.root));
             let mut msg = format!("Feature flag '{}' ({})", f.flag_name, kind_label(f));
             if !f.guarded_dead_exports.is_empty() {
                 use std::fmt::Write;
@@ -476,12 +480,20 @@ fn print_flags_sarif(flags: &[FeatureFlag], config: &ResolvedConfig) {
     );
 }
 
+/// Escape backticks in a string for safe embedding in markdown code spans.
+fn escape_backticks(s: &str) -> String {
+    s.replace('`', "\\`")
+}
+
 /// Markdown output for `fallow flags` (PR comments).
 fn print_flags_markdown(flags: &[FeatureFlag], config: &ResolvedConfig) {
     if flags.is_empty() {
-        println!("No feature flags detected.");
+        println!("## Feature flags: no flags detected");
         return;
     }
+
+    // Summary heading
+    println!("## Feature flags: {} found\n", flags.len());
 
     // Cross-reference section first
     let dead_flags: Vec<&FeatureFlag> = flags
@@ -494,13 +506,12 @@ fn print_flags_markdown(flags: &[FeatureFlag], config: &ResolvedConfig) {
         println!("| File | Line | Flag | Dead exports |");
         println!("|------|------|------|-------------|");
         for f in &dead_flags {
-            let path = relative_path(f, &config.root);
+            let path = escape_backticks(&relative_path(f, &config.root));
+            let name = escape_backticks(&f.flag_name);
             println!(
-                "| `{}` | {} | `{}` | {} |",
-                path,
+                "| `{path}` | {} | `{name}` | `{}` |",
                 f.line,
-                f.flag_name,
-                f.guarded_dead_exports.join(", ")
+                f.guarded_dead_exports.join("`, `")
             );
         }
         println!();
@@ -511,7 +522,8 @@ fn print_flags_markdown(flags: &[FeatureFlag], config: &ResolvedConfig) {
     println!("| File | Line | Flag | Kind |");
     println!("|------|------|------|------|");
     for f in flags {
-        let path = relative_path(f, &config.root);
+        let path = escape_backticks(&relative_path(f, &config.root));
+        let name = escape_backticks(&f.flag_name);
         let kind = match f.kind {
             FlagKind::EnvironmentVariable => "env".to_string(),
             FlagKind::SdkCall => f
@@ -520,7 +532,7 @@ fn print_flags_markdown(flags: &[FeatureFlag], config: &ResolvedConfig) {
                 .map_or_else(|| "SDK".to_string(), |sdk| format!("SDK: {sdk}")),
             FlagKind::ConfigObject => "config".to_string(),
         };
-        println!("| `{path}` | {} | `{}` | {kind} |", f.line, f.flag_name);
+        println!("| `{path}` | {} | `{name}` | {kind} |", f.line);
     }
 }
 
@@ -529,7 +541,8 @@ fn print_flags_codeclimate(flags: &[FeatureFlag], config: &ResolvedConfig) {
     let issues: Vec<serde_json::Value> = flags
         .iter()
         .map(|f| {
-            let path = relative_path(f, &config.root);
+            // Use crate::report::n for bracket encoding (Next.js dynamic routes)
+            let path = crate::report::normalize_uri(&relative_path(f, &config.root));
             let mut description = format!(
                 "Feature flag '{}' detected ({})",
                 f.flag_name,
