@@ -158,6 +158,15 @@ pub fn find_unused_exports(
         // Namespace imports are now handled with member-access narrowing in graph.rs:
         // only specific accessed members get references populated. No blanket skip needed.
 
+        // Pre-compute the set of re-exported names for O(1) is_re_export lookups
+        // inside the export loop. Barrel files synthesize one ExportSymbol per
+        // ReExportEdge, so the naive iter().any() check would be O(N²).
+        let re_export_names: FxHashSet<&str> = module
+            .re_exports
+            .iter()
+            .map(|re| re.exported_name.as_str())
+            .collect();
+
         for export in &module.exports {
             // For unreachable modules, only references from reachable files count —
             // references from other unreachable modules don't save an export.
@@ -183,14 +192,11 @@ pub fn find_unused_exports(
                 byte_offset_to_line_col(line_offsets_by_file, module.file_id, export.span.start);
 
             // Detect re-exports semantically by looking up the export name in the
-            // module's re_exports list, rather than relying on a span sentinel.
+            // module's re_exports set, rather than relying on a span sentinel.
             // This catches both synthesized re-exports (which still use Span::default()
             // for narrowing/star cases) and real re-exports (which carry the visitor's
             // span for accurate line-number reporting).
-            let is_re_export = module
-                .re_exports
-                .iter()
-                .any(|re| re.exported_name == export_str);
+            let is_re_export = re_export_names.contains(export_str.as_str());
 
             // Check inline suppression
             let issue_kind = if export.is_type_only {
