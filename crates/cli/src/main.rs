@@ -19,6 +19,7 @@ mod dupes;
 mod error;
 mod explain;
 mod fix;
+mod flags;
 mod health;
 mod health_types;
 mod init;
@@ -459,6 +460,18 @@ enum Command {
         coverage_root: Option<PathBuf>,
     },
 
+    /// Detect feature flag patterns in the codebase
+    ///
+    /// Identifies environment variable flags (process.env.FEATURE_*),
+    /// SDK calls (LaunchDarkly, Statsig, Unleash, GrowthBook), and
+    /// config object patterns (opt-in). Reports flag locations, detection
+    /// confidence, and cross-reference with dead code findings.
+    Flags {
+        /// Show only the top N flags
+        #[arg(long)]
+        top: Option<usize>,
+    },
+
     /// Audit changed files for dead code, complexity, and duplication.
     ///
     /// Purpose-built for reviewing AI-generated code and PR quality gates.
@@ -874,6 +887,7 @@ fn main() -> ExitCode {
                     | Command::PluginSchema
                     | Command::Schema
                     | Command::List { .. }
+                    | Command::Flags { .. }
                     | Command::Migrate { .. }
             )
         )
@@ -1238,6 +1252,19 @@ fn dispatch_subcommand(
                 coverage_root.as_deref(),
             )
         }
+        Command::Flags { top } => flags::run_flags(&flags::FlagsOptions {
+            root,
+            config_path: &cli.config,
+            output,
+            no_cache: cli.no_cache,
+            threads,
+            quiet,
+            production: cli.production,
+            workspace: cli.workspace.as_deref(),
+            changed_since: cli.changed_since.as_deref(),
+            explain: cli.explain,
+            top,
+        }),
         Command::Audit => audit::run_audit(&audit::AuditOptions {
             root,
             config_path: &cli.config,

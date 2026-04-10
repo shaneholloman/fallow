@@ -22,6 +22,7 @@ fn create_production_config(root: std::path::PathBuf) -> fallow_config::Resolved
         regression: None,
         codeowners: None,
         public_packages: vec![],
+        flags: fallow_config::FlagsConfig::default(),
     }
     .resolve(root, OutputFormat::Human, 4, true, true)
 }

@@ -1,5 +1,6 @@
 mod boundaries;
 mod duplicates_config;
+mod flags;
 mod format;
 mod health;
 mod parsing;
@@ -13,6 +14,7 @@ pub use boundaries::{
 pub use duplicates_config::{
     DetectionMode, DuplicatesConfig, NormalizationConfig, ResolvedNormalization,
 };
+pub use flags::{FlagsConfig, SdkPattern};
 pub use format::OutputFormat;
 pub use health::HealthConfig;
 pub use resolution::{ConfigOverride, IgnoreExportRule, ResolvedConfig, ResolvedOverride};
@@ -117,6 +119,10 @@ pub struct FallowConfig {
     /// Architecture boundary enforcement configuration.
     #[serde(default)]
     pub boundaries: BoundaryConfig,
+
+    /// Feature flag detection configuration.
+    #[serde(default)]
+    pub flags: FlagsConfig,
 
     /// Production mode: exclude test/dev files, only start/build scripts.
     #[serde(default)]

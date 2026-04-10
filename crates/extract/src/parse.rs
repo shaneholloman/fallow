@@ -74,6 +74,16 @@ pub fn parse_source_to_module(
         Vec::new()
     };
 
+    // Feature flag detection: always extracted (lightweight pattern matching).
+    // Custom SDK patterns/env prefixes are applied post-parse via config.
+    let mut flag_uses = crate::flags::extract_flags(
+        &parser_return.program,
+        &line_offsets,
+        &[],   // built-in patterns only at parse time
+        &[],   // built-in prefixes only at parse time
+        false, // config object heuristics off at parse time (opt-in via config)
+    );
+
     // If parsing produced very few results relative to source size (likely parse errors
     // from Flow types or JSX in .js files), retry with JSX/TSX source type as a fallback.
     let total_extracted =
@@ -102,6 +112,9 @@ pub fn parse_source_to_module(
                     line_offsets.clone(),
                 );
             }
+            // Recompute flag extraction from the successful retry parse
+            flag_uses =
+                crate::flags::extract_flags(&retry_return.program, &line_offsets, &[], &[], false);
             // Re-parse suppressions from the retry's comments (not the original failed parse)
             suppressions =
                 crate::suppress::parse_suppressions(&retry_return.program.comments, source);
@@ -129,6 +142,7 @@ pub fn parse_source_to_module(
     info.unused_import_bindings = unused_bindings;
     info.line_offsets = line_offsets;
     info.complexity = complexity;
+    info.flag_uses = flag_uses;
 
     info
 }

@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use super::boundaries::ResolvedBoundaryConfig;
 use super::duplicates_config::DuplicatesConfig;
+use super::flags::FlagsConfig;
 use super::format::OutputFormat;
 use super::health::HealthConfig;
 use super::rules::{PartialRulesConfig, RulesConfig, Severity};
@@ -74,6 +75,8 @@ pub struct ResolvedConfig {
     /// Workspace package name patterns that are public libraries.
     /// Exports from these packages are not flagged as unused.
     pub public_packages: Vec<String>,
+    /// Feature flag detection configuration.
+    pub flags: FlagsConfig,
 }
 
 impl FallowConfig {
@@ -206,6 +209,7 @@ impl FallowConfig {
             regression: self.regression,
             codeowners: self.codeowners,
             public_packages: self.public_packages,
+            flags: self.flags,
         }
     }
 }
@@ -284,6 +288,7 @@ mod tests {
             regression: None,
             codeowners: None,
             public_packages: vec![],
+            flags: FlagsConfig::default(),
         };
         let resolved = config.resolve(
             PathBuf::from("/project"),
@@ -324,6 +329,7 @@ mod tests {
             regression: None,
             codeowners: None,
             public_packages: vec![],
+            flags: FlagsConfig::default(),
         };
         let resolved = config.resolve(
             PathBuf::from("/project"),
@@ -380,6 +386,7 @@ mod tests {
             regression: None,
             codeowners: None,
             public_packages: vec![],
+            flags: FlagsConfig::default(),
         };
         let resolved = config.resolve(
             PathBuf::from("/project"),
@@ -420,6 +427,7 @@ mod tests {
             regression: None,
             codeowners: None,
             public_packages: vec![],
+            flags: FlagsConfig::default(),
         }
     }
 

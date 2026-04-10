@@ -155,6 +155,7 @@ pub(crate) fn parse_html_to_module(file_id: FileId, source: &str, content_hash: 
         unused_import_bindings: Vec::new(),
         line_offsets: fallow_types::extract::compute_line_offsets(source),
         complexity: Vec::new(),
+        flag_uses: Vec::new(),
     }
 }
 

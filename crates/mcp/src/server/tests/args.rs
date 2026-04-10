@@ -1,8 +1,9 @@
 use crate::params::*;
 use crate::tools::{
     ISSUE_TYPE_FLAGS, VALID_DUPES_MODES, build_analyze_args, build_audit_args,
-    build_check_changed_args, build_find_dupes_args, build_fix_apply_args, build_fix_preview_args,
-    build_health_args, build_list_boundaries_args, build_project_info_args,
+    build_check_changed_args, build_feature_flags_args, build_find_dupes_args,
+    build_fix_apply_args, build_fix_preview_args, build_health_args, build_list_boundaries_args,
+    build_project_info_args,
 };
 
 // ── Helper: minimal CheckChangedParams ────────────────────────────
@@ -614,6 +615,7 @@ fn all_arg_builders_include_format_json_and_quiet() {
     let health = build_health_args(&HealthParams::default());
     let audit = build_audit_args(&AuditParams::default());
     let list_boundaries = build_list_boundaries_args(&ListBoundariesParams::default());
+    let feature_flags = build_feature_flags_args(&FeatureFlagsParams::default());
 
     for (name, args) in [
         ("analyze", &analyze),
@@ -625,6 +627,7 @@ fn all_arg_builders_include_format_json_and_quiet() {
         ("health", &health),
         ("audit", &audit),
         ("list_boundaries", &list_boundaries),
+        ("feature_flags", &feature_flags),
     ] {
         assert!(
             args.contains(&"--format".to_string()),
@@ -662,6 +665,10 @@ fn each_tool_uses_correct_subcommand() {
         build_list_boundaries_args(&ListBoundariesParams::default())[0],
         "list"
     );
+    assert_eq!(
+        build_feature_flags_args(&FeatureFlagsParams::default())[0],
+        "flags"
+    );
 }
 
 // ── Explain flag presence ────────────────────────────────────────
@@ -690,6 +697,12 @@ fn tools_with_explain_include_flag() {
     assert!(
         health.contains(&"--explain".to_string()),
         "health should include --explain"
+    );
+
+    let feature_flags = build_feature_flags_args(&FeatureFlagsParams::default());
+    assert!(
+        feature_flags.contains(&"--explain".to_string()),
+        "feature_flags should include --explain"
     );
 }
 
@@ -787,6 +800,12 @@ fn no_cache_false_is_omitted_across_all_tools() {
         ..Default::default()
     });
     assert!(!list_boundaries.contains(&"--no-cache".to_string()));
+
+    let feature_flags = build_feature_flags_args(&FeatureFlagsParams {
+        no_cache: Some(false),
+        ..Default::default()
+    });
+    assert!(!feature_flags.contains(&"--no-cache".to_string()));
 }
 
 // ── Argument building: audit ─────────────────────────────────────
@@ -977,4 +996,36 @@ fn project_info_args_section_flags_false_are_omitted() {
     assert!(!args.contains(&"--files".to_string()));
     assert!(!args.contains(&"--plugins".to_string()));
     assert!(!args.contains(&"--boundaries".to_string()));
+}
+
+// ── Argument building: feature_flags ────────────────────────────
+
+#[test]
+fn feature_flags_args_minimal_produces_base_args() {
+    let args = build_feature_flags_args(&FeatureFlagsParams::default());
+    assert_eq!(args, ["flags", "--format", "json", "--quiet", "--explain"]);
+}
+
+#[test]
+fn feature_flags_args_with_all_options() {
+    let args = build_feature_flags_args(&FeatureFlagsParams {
+        root: Some("/project".to_string()),
+        config: Some(".fallowrc.json".to_string()),
+        production: Some(true),
+        workspace: Some("@app/core".to_string()),
+        flag_type: None,
+        confidence: None,
+        no_cache: Some(true),
+        threads: Some(4),
+    });
+    assert!(args.contains(&"--root".to_string()));
+    assert!(args.contains(&"/project".to_string()));
+    assert!(args.contains(&"--config".to_string()));
+    assert!(args.contains(&".fallowrc.json".to_string()));
+    assert!(args.contains(&"--production".to_string()));
+    assert!(args.contains(&"--workspace".to_string()));
+    assert!(args.contains(&"@app/core".to_string()));
+    assert!(args.contains(&"--no-cache".to_string()));
+    assert!(args.contains(&"--threads".to_string()));
+    assert!(args.contains(&"4".to_string()));
 }

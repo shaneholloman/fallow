@@ -1108,6 +1108,7 @@ mod tests {
             unused_import_bindings: vec![],
             line_offsets: vec![0],
             complexity,
+            flag_uses: vec![],
         }
     }
 

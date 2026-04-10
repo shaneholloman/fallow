@@ -45,6 +45,9 @@ pub struct ModuleInfo {
     /// Per-function complexity metrics computed during AST traversal.
     /// Used by the `fallow health` subcommand to report high-complexity functions.
     pub complexity: Vec<FunctionComplexity>,
+    /// Feature flag use sites detected during AST traversal.
+    /// Used by the `fallow flags` subcommand to report feature flag patterns.
+    pub flag_uses: Vec<FlagUse>,
 }
 
 /// Compute a table of line-start byte offsets from source text.
@@ -128,6 +131,39 @@ pub struct FunctionComplexity {
     /// Number of parameters (excluding TypeScript's `this` parameter).
     pub param_count: u8,
 }
+
+/// The kind of feature flag pattern detected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, bitcode::Encode, bitcode::Decode)]
+pub enum FlagUseKind {
+    /// `process.env.FEATURE_X` pattern.
+    EnvVar,
+    /// SDK function call like `useFlag('name')`.
+    SdkCall,
+    /// Config object access like `config.features.x`.
+    ConfigObject,
+}
+
+/// A feature flag use site detected during AST traversal.
+#[derive(Debug, Clone, bitcode::Encode, bitcode::Decode)]
+pub struct FlagUse {
+    /// Name/identifier of the flag (e.g., `ENABLE_NEW_CHECKOUT`, `new-checkout`).
+    pub flag_name: String,
+    /// How the flag was detected.
+    pub kind: FlagUseKind,
+    /// 1-based line number.
+    pub line: u32,
+    /// 0-based byte column offset.
+    pub col: u32,
+    /// Start byte offset of the guarded code block (if-branch span), if detected.
+    pub guard_span_start: Option<u32>,
+    /// End byte offset of the guarded code block (if-branch span), if detected.
+    pub guard_span_end: Option<u32>,
+    /// SDK/provider name if detected from SDK call pattern (e.g., "LaunchDarkly").
+    pub sdk_name: Option<String>,
+}
+
+// Size assertion: FlagUse is stored in a Vec per file in the cache.
+const _: () = assert!(std::mem::size_of::<FlagUse>() <= 96);
 
 /// A dynamic import with a pattern that can be partially resolved (e.g., template literals).
 #[derive(Debug, Clone)]
@@ -341,7 +377,7 @@ const _: () = assert!(std::mem::size_of::<ImportedName>() == 24);
 const _: () = assert!(std::mem::size_of::<MemberAccess>() == 48);
 // `ModuleInfo` is the per-file extraction result — stored in a Vec during parallel parsing.
 #[cfg(target_pointer_width = "64")]
-const _: () = assert!(std::mem::size_of::<ModuleInfo>() == 304);
+const _: () = assert!(std::mem::size_of::<ModuleInfo>() == 328);
 
 /// A re-export declaration.
 #[derive(Debug, Clone)]

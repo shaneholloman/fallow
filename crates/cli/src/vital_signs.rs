@@ -874,6 +874,7 @@ mod tests {
             suppressions: Vec::new(),
             unused_import_bindings: Vec::new(),
             line_offsets: Vec::new(),
+            flag_uses: Vec::new(),
             complexity: vec![fallow_types::extract::FunctionComplexity {
                 name: format!("fn_{id}"),
                 line: id + 1,

@@ -221,6 +221,7 @@ mod tests {
             regression: None,
             codeowners: None,
             public_packages: vec![],
+            flags: fallow_config::FlagsConfig::default(),
         }
     }
 

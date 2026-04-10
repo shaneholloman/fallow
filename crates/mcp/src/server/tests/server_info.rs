@@ -26,7 +26,8 @@ fn all_tools_registered() {
     assert!(names.contains(&"check_health".to_string()));
     assert!(names.contains(&"audit".to_string()));
     assert!(names.contains(&"list_boundaries".to_string()));
-    assert_eq!(tools.len(), 9);
+    assert!(names.contains(&"feature_flags".to_string()));
+    assert_eq!(tools.len(), 10);
 }
 
 #[test]
@@ -42,6 +43,7 @@ fn read_only_tools_have_annotations() {
         "check_health",
         "audit",
         "list_boundaries",
+        "feature_flags",
     ];
     for tool in &tools {
         let name = tool.name.to_string();
@@ -102,6 +104,7 @@ fn open_world_hint_on_analysis_tools() {
         "check_health",
         "audit",
         "list_boundaries",
+        "feature_flags",
     ];
     for tool in &tools {
         let name = tool.name.to_string();
@@ -154,6 +157,7 @@ fn server_instructions_mention_all_tools() {
     assert!(instructions.contains("check_health"));
     assert!(instructions.contains("audit"));
     assert!(instructions.contains("list_boundaries"));
+    assert!(instructions.contains("feature_flags"));
 }
 
 #[test]
@@ -404,6 +408,29 @@ fn list_boundaries_schema_contains_expected_properties() {
         assert!(
             schema.contains(prop),
             "list_boundaries schema should contain property '{prop}'"
+        );
+    }
+}
+
+#[test]
+fn feature_flags_schema_contains_expected_properties() {
+    let server = FallowMcp::new();
+    let tools = server.tool_router.list_all();
+    let tool = tools.iter().find(|t| t.name == "feature_flags").unwrap();
+    let schema = serde_json::to_string(&tool.input_schema).unwrap();
+    for prop in [
+        "root",
+        "config",
+        "production",
+        "workspace",
+        "flag_type",
+        "confidence",
+        "no_cache",
+        "threads",
+    ] {
+        assert!(
+            schema.contains(prop),
+            "feature_flags schema should contain property '{prop}'"
         );
     }
 }

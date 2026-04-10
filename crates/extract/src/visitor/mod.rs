@@ -118,6 +118,7 @@ impl ModuleInfoExtractor {
             unused_import_bindings: Vec::new(),
             line_offsets: Vec::new(),
             complexity: Vec::new(),
+            flag_uses: Vec::new(),
         }
     }
 

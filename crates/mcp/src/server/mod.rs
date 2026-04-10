@@ -4,13 +4,13 @@ use rmcp::model::{CallToolResult, Content, Implementation, ServerCapabilities, S
 use rmcp::{ErrorData as McpError, ServerHandler, tool, tool_router};
 
 use crate::params::{
-    AnalyzeParams, AuditParams, CheckChangedParams, FindDupesParams, FixParams, HealthParams,
-    ListBoundariesParams, ProjectInfoParams,
+    AnalyzeParams, AuditParams, CheckChangedParams, FeatureFlagsParams, FindDupesParams, FixParams,
+    HealthParams, ListBoundariesParams, ProjectInfoParams,
 };
 use crate::tools::{
-    build_analyze_args, build_audit_args, build_check_changed_args, build_find_dupes_args,
-    build_fix_apply_args, build_fix_preview_args, build_health_args, build_list_boundaries_args,
-    build_project_info_args, run_fallow,
+    build_analyze_args, build_audit_args, build_check_changed_args, build_feature_flags_args,
+    build_find_dupes_args, build_fix_apply_args, build_fix_preview_args, build_health_args,
+    build_list_boundaries_args, build_project_info_args, run_fallow,
 };
 
 #[cfg(test)]
@@ -159,6 +159,18 @@ impl FallowMcp {
         let args = build_list_boundaries_args(&params.0);
         run_fallow(&self.binary, &args).await
     }
+
+    #[tool(
+        description = "Detect feature flag patterns in a TypeScript/JavaScript project. Identifies environment variable flags (process.env.FEATURE_*), SDK calls (LaunchDarkly, Statsig, Unleash, GrowthBook), and config object patterns. Returns flag locations, detection confidence, and cross-reference with dead code findings.",
+        annotations(read_only_hint = true, open_world_hint = true)
+    )]
+    async fn feature_flags(
+        &self,
+        params: Parameters<FeatureFlagsParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let args = build_feature_flags_args(&params.0);
+        run_fallow(&self.binary, &args).await
+    }
 }
 
 // ── ServerHandler ──────────────────────────────────────────────────
@@ -178,7 +190,8 @@ impl ServerHandler for FallowMcp {
                  project_info (plugins, files, entry points, boundary zones), \
                  check_health (code complexity metrics), \
                  audit (combined dead-code + complexity + duplication for changed files, returns verdict), \
-                 list_boundaries (architecture boundary zones and access rules).",
+                 list_boundaries (architecture boundary zones and access rules), \
+                 feature_flags (detect feature flag patterns).",
             )
     }
 }

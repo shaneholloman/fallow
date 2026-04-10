@@ -318,6 +318,7 @@ mod tests {
             regression: None,
             codeowners: None,
             public_packages: vec![],
+            flags: fallow_config::FlagsConfig::default(),
         }
         .resolve(
             PathBuf::from("/project"),
@@ -385,6 +386,7 @@ mod tests {
             boundary_violation: Severity::Error,
             circular_dependencies: Severity::Off,
             coverage_gaps: Severity::Off,
+            feature_flags: Severity::Off,
         };
         let config = config_with_rules(rules);
         apply_rules(&mut results, &config);
@@ -486,6 +488,7 @@ mod tests {
             boundary_violation: Severity::Error,
             circular_dependencies: Severity::Warn,
             coverage_gaps: Severity::Warn,
+            feature_flags: Severity::Warn,
         };
         assert!(!has_error_severity_issues(&results, &rules, None));
     }
@@ -513,6 +516,7 @@ mod tests {
             boundary_violation: Severity::Error,
             circular_dependencies: Severity::Warn,
             coverage_gaps: Severity::Warn,
+            feature_flags: Severity::Warn,
         };
         // Only unused_files present, but set to Warn — should not trigger
         assert!(!has_error_severity_issues(&results, &rules, None));
@@ -563,6 +567,7 @@ mod tests {
             regression: None,
             codeowners: None,
             public_packages: vec![],
+            flags: fallow_config::FlagsConfig::default(),
             overrides: vec![fallow_config::ConfigOverride {
                 files: vec!["**/*.test.ts".to_string()],
                 rules: fallow_config::PartialRulesConfig {
@@ -693,6 +698,7 @@ mod tests {
             boundary_violation: Severity::Error,
             circular_dependencies: Severity::Warn,
             coverage_gaps: Severity::Warn,
+            feature_flags: Severity::Warn,
         };
         promote_warns_to_errors(&mut rules);
 
@@ -732,6 +738,7 @@ mod tests {
             boundary_violation: Severity::Error,
             circular_dependencies: Severity::Off,
             coverage_gaps: Severity::Off,
+            feature_flags: Severity::Off,
         };
         promote_warns_to_errors(&mut rules);
 

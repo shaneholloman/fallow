@@ -73,6 +73,10 @@ pub struct AnalysisResults {
     /// Imports that cross architecture boundary rules.
     #[serde(default)]
     pub boundary_violations: Vec<BoundaryViolation>,
+    /// Detected feature flag patterns. Advisory output, not included in issue counts.
+    /// Skipped during default serialization: injected separately in JSON output when enabled.
+    #[serde(skip)]
+    pub feature_flags: Vec<FeatureFlag>,
     /// Usage counts for all exports across the project. Used by the LSP for Code Lens.
     /// Not included in issue counts -- this is metadata, not an issue type.
     /// Skipped during serialization: this is internal LSP data, not part of the JSON output schema.
@@ -239,6 +243,13 @@ impl AnalysisResults {
                 .then(a.line.cmp(&b.line))
                 .then(a.col.cmp(&b.col))
                 .then(a.to_path.cmp(&b.to_path))
+        });
+
+        self.feature_flags.sort_by(|a, b| {
+            a.path
+                .cmp(&b.path)
+                .then(a.line.cmp(&b.line))
+                .then(a.flag_name.cmp(&b.flag_name))
         });
 
         for usage in &mut self.export_usages {
@@ -471,6 +482,71 @@ pub struct BoundaryViolation {
     /// 0-based byte column offset of the import statement.
     pub col: u32,
 }
+
+/// The detection method used to identify a feature flag.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FlagKind {
+    /// Environment variable check (e.g., `process.env.FEATURE_X`).
+    EnvironmentVariable,
+    /// Feature flag SDK call (e.g., `useFlag('name')`, `variation('name', false)`).
+    SdkCall,
+    /// Config object property access (e.g., `config.features.newCheckout`).
+    ConfigObject,
+}
+
+/// Detection confidence for a feature flag finding.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FlagConfidence {
+    /// Low confidence: heuristic match (config object patterns).
+    Low,
+    /// Medium confidence: pattern match with some ambiguity.
+    Medium,
+    /// High confidence: unambiguous pattern (env vars, direct SDK calls).
+    High,
+}
+
+/// A detected feature flag use site.
+#[derive(Debug, Clone, Serialize)]
+pub struct FeatureFlag {
+    /// File containing the feature flag usage.
+    #[serde(serialize_with = "serde_path::serialize")]
+    pub path: PathBuf,
+    /// Name or identifier of the flag (e.g., `ENABLE_NEW_CHECKOUT`, `new-checkout`).
+    pub flag_name: String,
+    /// How the flag was detected.
+    pub kind: FlagKind,
+    /// Detection confidence level.
+    pub confidence: FlagConfidence,
+    /// 1-based line number.
+    pub line: u32,
+    /// 0-based byte column offset.
+    pub col: u32,
+    /// Start byte offset of the guarded code block (if-branch span), if detected.
+    #[serde(skip)]
+    pub guard_span_start: Option<u32>,
+    /// End byte offset of the guarded code block (if-branch span), if detected.
+    #[serde(skip)]
+    pub guard_span_end: Option<u32>,
+    /// SDK or provider name (e.g., "LaunchDarkly", "Statsig"), if detected from SDK call.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sdk_name: Option<String>,
+    /// Line range of the guarded code block (derived from guard_span + line_offsets).
+    /// Used for cross-reference with dead code findings.
+    #[serde(skip)]
+    pub guard_line_start: Option<u32>,
+    /// End line of the guarded code block.
+    #[serde(skip)]
+    pub guard_line_end: Option<u32>,
+    /// Unused exports found within the guarded code block.
+    /// Populated by cross-reference with dead code analysis.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub guarded_dead_exports: Vec<String>,
+}
+
+// Size assertion: FeatureFlag is stored in a Vec per analysis run.
+const _: () = assert!(std::mem::size_of::<FeatureFlag>() <= 160);
 
 /// Usage count for an export symbol. Used by the LSP Code Lens to show
 /// reference counts above each export declaration.

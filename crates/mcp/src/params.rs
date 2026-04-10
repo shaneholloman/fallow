@@ -322,3 +322,38 @@ pub struct ListBoundariesParams {
     #[schemars(description = "Number of threads for file parsing (defaults to CPU core count)")]
     pub threads: Option<usize>,
 }
+
+#[derive(Default, Deserialize, JsonSchema)]
+pub struct FeatureFlagsParams {
+    /// Root directory of the project to analyze. Defaults to current working directory.
+    pub root: Option<String>,
+
+    /// Path to fallow config file (.fallowrc.json or fallow.toml).
+    pub config: Option<String>,
+
+    /// Only analyze production code (excludes tests, stories, dev files).
+    pub production: Option<bool>,
+
+    /// Scope analysis to a specific workspace package name.
+    pub workspace: Option<String>,
+
+    /// Filter by flag type: "environment_variable", "sdk_call", or "config_object".
+    #[expect(
+        dead_code,
+        reason = "exposed via JSON Schema for agent discovery; CLI filter pending"
+    )]
+    pub flag_type: Option<String>,
+
+    /// Filter by detection confidence: "high", "medium", or "low".
+    #[expect(
+        dead_code,
+        reason = "exposed via JSON Schema for agent discovery; CLI filter pending"
+    )]
+    pub confidence: Option<String>,
+
+    /// Disable the incremental parse cache. Forces a full re-parse of all files.
+    pub no_cache: Option<bool>,
+
+    /// Number of parser threads. Defaults to available CPU cores.
+    pub threads: Option<usize>,
+}

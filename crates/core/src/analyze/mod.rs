@@ -1,4 +1,5 @@
 mod boundary;
+pub mod feature_flags;
 mod package_json_utils;
 mod predicates;
 mod unused_deps;
@@ -509,6 +510,7 @@ mod tests {
                 test_only_dependencies: Severity::Off,
                 boundary_violation: Severity::Off,
                 coverage_gaps: Severity::Off,
+                feature_flags: Severity::Off,
             };
             let config = make_config_with_rules(rules);
             let results = find_dead_code(&graph, &config);
@@ -708,6 +710,7 @@ mod tests {
                 unused_import_bindings: vec![],
                 line_offsets: vec![],
                 complexity: vec![],
+                flag_uses: vec![],
             }];
 
             let rules = RulesConfig {

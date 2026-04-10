@@ -22,6 +22,11 @@ impl Severity {
     const fn default_warn() -> Self {
         Self::Warn
     }
+
+    /// Default value for fields that should default to `Off`.
+    const fn default_off() -> Self {
+        Self::Off
+    }
 }
 
 impl std::fmt::Display for Severity {
@@ -90,6 +95,8 @@ pub struct RulesConfig {
     pub boundary_violation: Severity,
     #[serde(default)]
     pub coverage_gaps: Severity,
+    #[serde(default = "Severity::default_off")]
+    pub feature_flags: Severity,
 }
 
 impl Default for RulesConfig {
@@ -111,6 +118,7 @@ impl Default for RulesConfig {
             circular_dependencies: Severity::Error,
             boundary_violation: Severity::Error,
             coverage_gaps: Severity::Off,
+            feature_flags: Severity::Off,
         }
     }
 }
@@ -166,6 +174,9 @@ impl RulesConfig {
         if let Some(s) = partial.coverage_gaps {
             self.coverage_gaps = s;
         }
+        if let Some(s) = partial.feature_flags {
+            self.feature_flags = s;
+        }
     }
 }
 
@@ -205,6 +216,8 @@ pub struct PartialRulesConfig {
     pub boundary_violation: Option<Severity>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub coverage_gaps: Option<Severity>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub feature_flags: Option<Severity>,
 }
 
 #[cfg(test)]
@@ -230,6 +243,7 @@ mod tests {
         assert_eq!(rules.circular_dependencies, Severity::Error);
         assert_eq!(rules.boundary_violation, Severity::Error);
         assert_eq!(rules.coverage_gaps, Severity::Off);
+        assert_eq!(rules.feature_flags, Severity::Off);
     }
 
     #[test]
@@ -314,6 +328,7 @@ mod tests {
             circular_dependencies: Some(Severity::Off),
             boundary_violation: Some(Severity::Off),
             coverage_gaps: Some(Severity::Off),
+            feature_flags: Some(Severity::Off),
         };
         rules.apply_partial(&partial);
         assert_eq!(rules.unused_files, Severity::Off);
@@ -322,6 +337,7 @@ mod tests {
         assert_eq!(rules.test_only_dependencies, Severity::Off);
         assert_eq!(rules.boundary_violation, Severity::Off);
         assert_eq!(rules.coverage_gaps, Severity::Off);
+        assert_eq!(rules.feature_flags, Severity::Off);
     }
 
     #[test]
@@ -362,6 +378,7 @@ mod tests {
         assert!(partial.circular_dependencies.is_none());
         assert!(partial.boundary_violation.is_none());
         assert!(partial.coverage_gaps.is_none());
+        assert!(partial.feature_flags.is_none());
     }
 
     #[test]
@@ -394,7 +411,8 @@ mod tests {
             "test-only-dependencies": "error",
             "circular-dependencies": "warn",
             "boundary-violation": "off",
-            "coverage-gaps": "warn"
+            "coverage-gaps": "warn",
+            "feature-flags": "error"
         }"#;
         let partial: PartialRulesConfig = serde_json::from_str(json).unwrap();
         assert_eq!(partial.unused_files, Some(Severity::Error));
@@ -413,6 +431,7 @@ mod tests {
         assert_eq!(partial.circular_dependencies, Some(Severity::Warn));
         assert_eq!(partial.boundary_violation, Some(Severity::Off));
         assert_eq!(partial.coverage_gaps, Some(Severity::Warn));
+        assert_eq!(partial.feature_flags, Some(Severity::Error));
     }
 
     // ── PartialRulesConfig serialization skip_serializing_if ────────

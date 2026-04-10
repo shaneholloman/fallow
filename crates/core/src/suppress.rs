@@ -91,6 +91,7 @@ mod tests {
             IssueKind::TestOnlyDependency,
             IssueKind::BoundaryViolation,
             IssueKind::CoverageGaps,
+            IssueKind::FeatureFlag,
         ] {
             assert_eq!(
                 IssueKind::from_discriminant(kind.to_discriminant()),
@@ -98,7 +99,7 @@ mod tests {
             );
         }
         assert_eq!(IssueKind::from_discriminant(0), None);
-        assert_eq!(IssueKind::from_discriminant(17), None);
+        assert_eq!(IssueKind::from_discriminant(18), None);
     }
 
     #[test]

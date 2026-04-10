@@ -30,6 +30,7 @@ pub fn make_config(root: PathBuf, no_cache: bool) -> fallow_config::ResolvedConf
         regression: None,
         codeowners: None,
         public_packages: vec![],
+        flags: fallow_config::FlagsConfig::default(),
     }
     .resolve(root, OutputFormat::Human, 4, no_cache, true)
 }

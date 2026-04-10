@@ -204,6 +204,28 @@ fallow health --format json --quiet --targets
 
 **Exit codes:** 0 = no functions exceed thresholds, 1 = findings exist.
 
+### Feature flag detection (`fallow flags`)
+
+```bash
+fallow flags --format json --quiet
+fallow flags --format json --quiet --top 10
+```
+
+Detects feature flag patterns via AST analysis. Three detection categories:
+1. **Environment variables**: `process.env.FEATURE_*` (12 built-in prefixes including `ENABLE_`, `FF_`, `NEXT_PUBLIC_FEATURE_`, `VITE_FEATURE_`)
+2. **SDK calls**: 25+ built-in patterns for LaunchDarkly, Statsig, Unleash, GrowthBook, Split, ConfigCat, Flagsmith
+3. **Config objects**: `config.features.x`, `flags.enableV2` (opt-in via `flags.configObjectHeuristics: true` in config)
+
+Cross-references with dead code: flags guarding unused exports are highlighted in the output.
+
+Default rule severity: `off`. Enable via `"feature-flags": "warn"` in rules config.
+
+**Key flags:**
+- `--top <N>` -- show only the top N flags
+- `--format human|json|compact` -- output format
+
+**Exit codes:** 0 = always (advisory output, never fails CI by default).
+
 **JSON output** includes a `findings` array (each with `name`, `line`, `cyclomatic`, `cognitive`, `line_count`, `param_count`, `exceeded`), a `summary` object, and a `vital_signs` object (project-wide metrics: `dead_file_pct`, `dead_export_pct`, `avg_cyclomatic`, `p90_cyclomatic`, `maintainability_avg`, `hotspot_count`, `circular_dep_count`, `unused_dep_count`, `unit_size_profile`, `unit_interfacing_profile`, `p95_fan_in`, `coupling_high_pct`; null when data source not available). The `unit_size_profile` and `unit_interfacing_profile` are `RiskProfile` objects with `low_risk`, `medium_risk`, `high_risk`, `very_high_risk` (percentages). With `--score`, includes a `health_score` object (`score`, `grade`, `penalties` breakdown including `unit_size` and `coupling`). With `--file-scores`, also includes a `file_scores` array with per-file metrics and `summary.files_scored` / `summary.average_maintainability`. With `--coverage-gaps`, includes a `coverage_gaps` object with `summary` (runtime_files, covered_files, file_coverage_pct, untested_files, untested_exports), `files` (untested runtime files), and `exports` (untested runtime exports). With `--targets`, includes a `targets` array with `path`, `priority`, `efficiency` (priority/effort, default sort), `recommendation`, `category`, `effort` (low/medium/high), `confidence` (high/medium/low, based on data source reliability), `factors` (with raw `value`/`threshold`), and `evidence` (unused export names, complex function names+lines, cycle paths). A `target_thresholds` object exposes the adaptive percentile-based thresholds (`fan_in_p95`, `fan_in_p75`, `fan_out_p95`, `fan_out_p90`) used for scoring. Target baselines are supported via `--save-baseline` / `--baseline`.
 
 **Vital signs snapshots:** `--save-snapshot` persists a `VitalSignsSnapshot` JSON file containing `vital_signs` (metrics), `counts` (raw numerators/denominators), and git metadata (`git_sha`, `git_branch`, `shallow_clone`). Snapshot schema version is independent of the report schema_version. Snapshots automatically include the health score and grade.

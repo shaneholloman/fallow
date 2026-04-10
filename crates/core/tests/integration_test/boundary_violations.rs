@@ -1,6 +1,6 @@
 use fallow_config::{
     BoundaryConfig, BoundaryPreset, BoundaryRule, BoundaryZone, DuplicatesConfig, FallowConfig,
-    HealthConfig, OutputFormat, RulesConfig, Severity,
+    FlagsConfig, HealthConfig, OutputFormat, RulesConfig, Severity,
 };
 
 use super::common::fixture_path;
@@ -32,6 +32,7 @@ fn create_boundary_config(
         regression: None,
         codeowners: None,
         public_packages: vec![],
+        flags: FlagsConfig::default(),
     }
     .resolve(root, OutputFormat::Human, 4, true, true)
 }
@@ -163,6 +164,7 @@ fn no_violations_when_rule_is_off() {
         regression: None,
         codeowners: None,
         public_packages: vec![],
+        flags: FlagsConfig::default(),
     }
     .resolve(root, OutputFormat::Human, 4, true, true);
 
@@ -206,6 +208,7 @@ fn preset_detects_boundary_violation() {
         regression: None,
         codeowners: None,
         public_packages: vec![],
+        flags: FlagsConfig::default(),
     }
     .resolve(root, OutputFormat::Human, 4, true, true);
     let results = fallow_core::analyze(&config).expect("analysis should succeed");
@@ -265,6 +268,7 @@ fn bulletproof_preset_detects_violation() {
         regression: None,
         codeowners: None,
         public_packages: vec![],
+        flags: FlagsConfig::default(),
     }
     .resolve(root, OutputFormat::Human, 4, true, true);
     let results = fallow_core::analyze(&config).expect("analysis should succeed");

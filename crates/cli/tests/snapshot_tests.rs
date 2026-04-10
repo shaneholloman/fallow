@@ -500,6 +500,7 @@ fn sarif_mixed_severity_snapshot() {
         test_only_dependencies: fallow_config::Severity::Warn,
         boundary_violation: fallow_config::Severity::Warn,
         coverage_gaps: fallow_config::Severity::Warn,
+        feature_flags: fallow_config::Severity::Off,
     };
     let sarif = build_sarif(&results, &root, &rules);
     let json_str = serde_json::to_string_pretty(&sarif).expect("should serialize");
@@ -1228,6 +1229,7 @@ fn codeclimate_mixed_severity_snapshot() {
         test_only_dependencies: fallow_config::Severity::Warn,
         boundary_violation: fallow_config::Severity::Warn,
         coverage_gaps: fallow_config::Severity::Warn,
+        feature_flags: fallow_config::Severity::Off,
     };
     let cc = build_codeclimate(&results, &root, &rules);
     let json_str = serde_json::to_string_pretty(&cc).expect("should serialize");

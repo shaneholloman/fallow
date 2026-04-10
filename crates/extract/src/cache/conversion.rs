@@ -145,6 +145,7 @@ pub fn cached_to_module(
         unused_import_bindings: cached.unused_import_bindings.clone(),
         line_offsets: cached.line_offsets.clone(),
         complexity: cached.complexity.clone(),
+        flag_uses: cached.flag_uses.clone(),
     }
 }
 
@@ -271,5 +272,6 @@ pub fn module_to_cached(
             .collect(),
         line_offsets: module.line_offsets.clone(),
         complexity: module.complexity.clone(),
+        flag_uses: module.flag_uses.clone(),
     }
 }

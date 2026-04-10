@@ -115,7 +115,8 @@
         "test-only-dependencies": "warn",
         "circular-dependencies": "error",
         "boundary-violation": "error",
-        "coverage-gaps": "off"
+        "coverage-gaps": "off",
+        "feature-flags": "off"
       }
     },
     "boundaries": {
@@ -124,6 +125,13 @@
       "default": {
         "zones": [],
         "rules": []
+      }
+    },
+    "flags": {
+      "description": "Feature flag detection configuration.",
+      "$ref": "#/$defs/FlagsConfig",
+      "default": {
+        "configObjectHeuristics": false
       }
     },
     "production": {
@@ -625,6 +633,10 @@
         "coverage-gaps": {
           "$ref": "#/$defs/Severity",
           "default": "error"
+        },
+        "feature-flags": {
+          "$ref": "#/$defs/Severity",
+          "default": "off"
         }
       }
     },
@@ -753,6 +765,58 @@
       },
       "required": [
         "from"
+      ]
+    },
+    "FlagsConfig": {
+      "description": "Feature flag detection configuration.\n\nControls which patterns fallow uses to detect feature flags in source code.\nConfigured via the `flags` section in `.fallowrc.json` or `fallow.toml`.\n\n# Examples\n\n```json\n{\n  \"flags\": {\n    \"sdkPatterns\": [\n      { \"function\": \"useFlag\", \"nameArg\": 0, \"provider\": \"LaunchDarkly\" }\n    ],\n    \"envPrefixes\": [\"FEATURE_\", \"NEXT_PUBLIC_ENABLE_\"],\n    \"configObjectHeuristics\": false\n  }\n}\n```",
+      "type": "object",
+      "properties": {
+        "sdkPatterns": {
+          "description": "Additional SDK call patterns to detect as feature flags.\nThese are merged with the built-in patterns (LaunchDarkly, Statsig, Unleash, GrowthBook).",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SdkPattern"
+          }
+        },
+        "envPrefixes": {
+          "description": "Environment variable prefixes that indicate feature flags.\nMerged with built-in prefixes. Only `process.env.*` accesses matching\nthese prefixes are reported as feature flags.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "configObjectHeuristics": {
+          "description": "Enable config object heuristic detection.\nWhen true, property accesses on objects whose name contains \"feature\",\n\"flag\", or \"toggle\" are reported as low-confidence feature flags.\nDefault: false (opt-in due to higher false positive rate).",
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "SdkPattern": {
+      "description": "A custom SDK call pattern for feature flag detection.\n\nDescribes a function call that evaluates a feature flag, e.g.,\n`useFlag('new-checkout')` or `client.getFeatureValue('parser', false)`.",
+      "type": "object",
+      "properties": {
+        "function": {
+          "description": "Function name to match (e.g., `\"useFlag\"`, `\"variation\"`).",
+          "type": "string"
+        },
+        "nameArg": {
+          "description": "Zero-based index of the argument containing the flag name.",
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0,
+          "default": 0
+        },
+        "provider": {
+          "description": "Optional SDK/provider label shown in output (e.g., `\"LaunchDarkly\"`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "function"
       ]
     },
     "ConfigOverride": {
@@ -931,6 +995,16 @@
           ]
         },
         "coverage-gaps": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Severity"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "feature-flags": {
           "anyOf": [
             {
               "$ref": "#/$defs/Severity"

@@ -391,6 +391,7 @@ mod tests {
             regression: None,
             codeowners: None,
             public_packages: vec![],
+            flags: fallow_config::FlagsConfig::default(),
         }
         .resolve(root.to_path_buf(), output, threads, false, quiet)
     }
