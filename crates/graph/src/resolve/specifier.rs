@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use oxc_resolver::{ResolveOptions, Resolver};
+use oxc_resolver::{Resolution, ResolveError, ResolveOptions, Resolver};
 
 use super::fallbacks::{
     extract_package_name_from_node_modules_path, try_path_alias_fallback,
@@ -48,6 +48,71 @@ pub(super) fn create_resolver(active_plugins: &[String]) -> Resolver {
     options.tsconfig = Some(oxc_resolver::TsconfigDiscovery::Auto);
 
     Resolver::new(options)
+}
+
+/// Return `true` for errors raised while loading a tsconfig file (as opposed to
+/// errors about the specifier itself). When `resolve_file` fails with one of these,
+/// a broken sibling tsconfig is poisoning resolution for the current file — retrying
+/// via `resolve(dir, specifier)` bypasses `TsconfigDiscovery::Auto` and restores
+/// resolution for everything that does not need path aliases (relative, absolute,
+/// bare package specifiers).
+///
+/// `IOError` and `Json` are included because a malformed or unreadable tsconfig
+/// surfaces as one of these — the variants are shared with package.json parsing,
+/// but a retry is still safe: if the error really came from the specifier's own
+/// resolution, `resolve()` will fail the same way and we fall through to the
+/// existing error handling.
+const fn is_tsconfig_error(err: &ResolveError) -> bool {
+    matches!(
+        err,
+        ResolveError::TsconfigNotFound(_)
+            | ResolveError::TsconfigCircularExtend(_)
+            | ResolveError::TsconfigSelfReference(_)
+            | ResolveError::Json(_)
+            | ResolveError::IOError(_)
+    )
+}
+
+/// Try `resolve_file` first (honors per-file tsconfig discovery); on a
+/// tsconfig-loading failure, retry with `resolve(dir, specifier)` which skips
+/// tsconfig entirely. Emits a single `tracing::warn!` per unique error message
+/// so users get one actionable hint per broken tsconfig without log spam.
+fn resolve_file_with_tsconfig_fallback(
+    ctx: &ResolveContext<'_>,
+    from_file: &Path,
+    specifier: &str,
+) -> Result<Resolution, ResolveError> {
+    match ctx.resolver.resolve_file(from_file, specifier) {
+        Ok(resolution) => Ok(resolution),
+        Err(err) if is_tsconfig_error(&err) => {
+            warn_once_tsconfig(ctx, &err);
+            let dir = from_file.parent().unwrap_or(from_file);
+            ctx.resolver.resolve(dir, specifier)
+        }
+        Err(err) => Err(err),
+    }
+}
+
+/// Emit a `tracing::warn!` the first time a given tsconfig error message is
+/// observed. The shared `Mutex<FxHashSet<String>>` in the resolver context
+/// dedupes across all parallel threads for the lifetime of one analysis run.
+fn warn_once_tsconfig(ctx: &ResolveContext<'_>, err: &ResolveError) {
+    let message = err.to_string();
+    let should_warn = {
+        let Ok(mut seen) = ctx.tsconfig_warned.lock() else {
+            // Mutex poisoned by a panic on another thread — stay silent rather
+            // than poisoning this thread's resolution with another panic.
+            return;
+        };
+        seen.insert(message.clone())
+    };
+    if should_warn {
+        tracing::warn!(
+            "Broken tsconfig chain: {message}. Falling back to resolver-less resolution for \
+             affected files. Relative and bare imports still work, but tsconfig path aliases \
+             (e.g., `@/...`) will not. Fix the extends/references chain to restore alias support."
+        );
+    }
 }
 
 /// Resolve a single import specifier to a target.
@@ -123,7 +188,11 @@ pub(super) fn resolve_specifier(
     // walks up from the importing file to find the nearest tsconfig.json and apply
     // its path aliases (e.g., @/ → src/).
     //
-    match ctx.resolver.resolve_file(from_file, specifier) {
+    // If resolve_file returns a tsconfig-related error (e.g., a solution-style
+    // tsconfig.json references a sibling with a broken `extends` chain), retry with
+    // the directory-only `resolve()` form so a broken sibling config does not poison
+    // resolution for files covered by a healthy sibling. See issue #97.
+    match resolve_file_with_tsconfig_fallback(ctx, from_file, specifier) {
         Ok(resolved) => {
             let resolved_path = resolved.path();
             // Try raw path lookup first (avoids canonicalize syscall in most cases)
@@ -224,5 +293,71 @@ pub(super) fn resolve_specifier(
                 ResolveResult::Unresolvable(specifier.to_string())
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use oxc_resolver::{JSONError, ResolveError};
+
+    use super::is_tsconfig_error;
+
+    #[test]
+    fn tsconfig_not_found_is_tsconfig_error() {
+        assert!(is_tsconfig_error(&ResolveError::TsconfigNotFound(
+            PathBuf::from("/nonexistent/tsconfig.json")
+        )));
+    }
+
+    #[test]
+    fn tsconfig_self_reference_is_tsconfig_error() {
+        assert!(is_tsconfig_error(&ResolveError::TsconfigSelfReference(
+            PathBuf::from("/project/tsconfig.json")
+        )));
+    }
+
+    // `TsconfigCircularExtend(CircularPathBufs)` is part of the matched set but
+    // cannot be directly unit-tested: `CircularPathBufs` is not re-exported from
+    // `oxc_resolver::lib`, so external crates cannot construct the variant. The
+    // `matches!` arm is structural, so adding the variant to `is_tsconfig_error`
+    // is guaranteed by the compiler to return `true` regardless of payload.
+
+    #[test]
+    fn io_error_is_tsconfig_error() {
+        // An IO error (permission denied while reading a tsconfig) must trigger
+        // the fallback. The variant is shared with non-tsconfig IO failures, but
+        // the retry via `resolve()` is safe in either case.
+        let io_err = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "denied");
+        assert!(is_tsconfig_error(&ResolveError::from(io_err)));
+    }
+
+    #[test]
+    fn json_error_is_tsconfig_error() {
+        // Malformed tsconfig JSON surfaces as ResolveError::Json. Same variant
+        // covers malformed package.json; retry via `resolve()` is safe there too.
+        assert!(is_tsconfig_error(&ResolveError::Json(JSONError {
+            path: PathBuf::from("/project/tsconfig.json"),
+            message: "unexpected token".to_string(),
+            line: 1,
+            column: 1,
+        })));
+    }
+
+    #[test]
+    fn module_not_found_is_not_tsconfig_error() {
+        // Regular "module not found" must NOT trigger the fallback —
+        // the tsconfig loaded fine, the specifier just doesn't exist.
+        assert!(!is_tsconfig_error(&ResolveError::NotFound(
+            "./missing-module".to_string()
+        )));
+    }
+
+    #[test]
+    fn ignored_is_not_tsconfig_error() {
+        assert!(!is_tsconfig_error(&ResolveError::Ignored(PathBuf::from(
+            "/ignored"
+        ))));
     }
 }

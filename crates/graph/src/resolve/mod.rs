@@ -32,9 +32,10 @@ pub use path_info::{extract_package_name, is_bare_specifier, is_path_alias};
 pub use types::{ResolveResult, ResolvedImport, ResolvedModule, ResolvedReExport};
 
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use rayon::prelude::*;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use fallow_types::discover::{DiscoveredFile, FileId};
 use fallow_types::extract::ModuleInfo;
@@ -118,6 +119,9 @@ pub fn resolve_all_imports(
         None
     };
 
+    // Dedup set for broken-tsconfig warnings. See `ResolveContext::tsconfig_warned`.
+    let tsconfig_warned: Mutex<FxHashSet<String>> = Mutex::new(FxHashSet::default());
+
     // Shared resolution context — avoids passing 6 arguments to every resolve_specifier call
     let ctx = ResolveContext {
         resolver: &resolver,
@@ -127,6 +131,7 @@ pub fn resolve_all_imports(
         path_aliases,
         root,
         canonical_fallback: canonical_fallback.as_ref(),
+        tsconfig_warned: &tsconfig_warned,
     };
 
     // Resolve in parallel — shared resolver instance.

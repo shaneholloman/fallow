@@ -42,6 +42,7 @@ fn with_empty_ctx<F: FnOnce(&ResolveContext)>(f: F) {
     let raw_path_to_id = FxHashMap::default();
     let workspace_roots = FxHashMap::default();
     let root = PathBuf::from("/project");
+    let tsconfig_warned = std::sync::Mutex::new(FxHashSet::default());
     let ctx = ResolveContext {
         resolver: &resolver,
         path_to_id: &path_to_id,
@@ -50,6 +51,7 @@ fn with_empty_ctx<F: FnOnce(&ResolveContext)>(f: F) {
         path_aliases: &[],
         root: &root,
         canonical_fallback: None,
+        tsconfig_warned: &tsconfig_warned,
     };
     f(&ctx);
 }
@@ -1426,6 +1428,7 @@ fn specifier_plugin_alias_match_returns_unresolvable() {
     let workspace_roots = FxHashMap::default();
     let root = PathBuf::from("/project");
     let aliases = vec![("$lib/".to_string(), "src/lib/".to_string())];
+    let tsconfig_warned = std::sync::Mutex::new(FxHashSet::default());
     let ctx = ResolveContext {
         resolver: &resolver,
         path_to_id: &path_to_id,
@@ -1434,6 +1437,7 @@ fn specifier_plugin_alias_match_returns_unresolvable() {
         path_aliases: &aliases,
         root: &root,
         canonical_fallback: None,
+        tsconfig_warned: &tsconfig_warned,
     };
 
     let file = Path::new("/project/src/app.ts");

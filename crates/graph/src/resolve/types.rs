@@ -1,6 +1,7 @@
 //! Type definitions and constants for import resolution.
 
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use oxc_resolver::Resolver;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -104,6 +105,11 @@ pub(super) struct ResolveContext<'a> {
     /// Only initialized on first miss when root is canonical. `None` when
     /// path_to_id already uses canonical paths (root is not canonical).
     pub canonical_fallback: Option<&'a CanonicalFallback<'a>>,
+    /// Dedup set for broken-tsconfig warnings. Emits one `tracing::warn!`
+    /// per unique error message instead of spamming the log with one
+    /// warning per affected file. Shared across all parallel resolver
+    /// threads via `Mutex`. Empty and unused when no tsconfig errors occur.
+    pub tsconfig_warned: &'a Mutex<FxHashSet<String>>,
 }
 
 /// Thread-safe lazy canonical path index, built on first access.

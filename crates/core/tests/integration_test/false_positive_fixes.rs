@@ -90,3 +90,33 @@ fn shared_util_duplicates_with_common_importer_still_flagged() {
             .collect::<Vec<_>>()
     );
 }
+
+// ── Broken tsconfig extends chain (issue #97) ────────────────
+
+#[test]
+fn broken_tsconfig_extends_does_not_poison_sibling_resolution() {
+    // Solution-style `packages/my-app/tsconfig.json` references
+    // `tsconfig.app.json` (valid) and `tsconfig.spec.json` (extends a
+    // non-existent `../../tsconfig.json`). Before the fix, the broken
+    // sibling's extends chain failed `oxc_resolver::resolve_file` for ALL
+    // files in the workspace, including `main.ts` which is only covered by
+    // the valid `tsconfig.app.json`. Every relative import was reported as
+    // unresolved.
+    //
+    // The fallback in `resolve_file_with_tsconfig_fallback` retries via
+    // `resolver.resolve(dir, specifier)`, bypassing tsconfig discovery.
+    let root = fixture_path("tsconfig-broken-extends");
+    let config = create_config(root);
+    let results = fallow_core::analyze(&config).expect("analysis should succeed");
+
+    assert!(
+        results.unresolved_imports.is_empty(),
+        "broken sibling tsconfig should not poison resolution for files covered \
+         by a valid sibling; got unresolved imports: {:?}",
+        results
+            .unresolved_imports
+            .iter()
+            .map(|u| (u.path.display().to_string(), &u.specifier))
+            .collect::<Vec<_>>()
+    );
+}
