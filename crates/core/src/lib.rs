@@ -1,4 +1,4 @@
-pub(crate) mod analyze;
+pub mod analyze;
 pub mod cache;
 pub mod churn;
 pub mod cross_reference;

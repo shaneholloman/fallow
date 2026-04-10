@@ -151,6 +151,17 @@ pub fn run_flags(opts: &FlagsOptions<'_>) -> ExitCode {
         }
     }
 
+    // Run dead code analysis for cross-reference (flags guarding dead code).
+    // Uses pre-parsed modules to avoid re-parsing.
+    if let Ok(analysis_output) =
+        fallow_core::analyze_with_parse_result(&config, &parse_result.modules)
+    {
+        fallow_core::analyze::feature_flags::correlate_with_dead_code(
+            &mut flags,
+            &analysis_output.results,
+        );
+    }
+
     // Filter to changed files if --changed-since is active
     if let Some(git_ref) = opts.changed_since
         && let Some(changed) = crate::check::get_changed_files(opts.root, git_ref)
