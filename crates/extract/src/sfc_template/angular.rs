@@ -249,7 +249,12 @@ fn handle_control_flow(
             let after_else = source[rest_from..].trim_start();
             let trimmed_offset = source[rest_from..].len() - after_else.len();
 
-            if after_else.starts_with("if") {
+            if after_else.starts_with("if")
+                && !after_else
+                    .as_bytes()
+                    .get(2)
+                    .is_some_and(|b| b.is_ascii_alphanumeric())
+            {
                 // @else if (condition) { ... } — scan the condition
                 let if_keyword_end = rest_from + trimmed_offset + 2;
                 let after_if = &source[if_keyword_end..];
@@ -691,6 +696,18 @@ mod tests {
         let refs =
             collect_angular_template_refs(r"@defer (on viewport; when isReady) { <app-heavy /> }");
         assert!(refs.contains("isReady"));
+    }
+
+    #[test]
+    fn defer_on_timer_with_nested_parens() {
+        let refs = collect_angular_template_refs(
+            r"@defer (on timer(1s); when isReady) { <app-heavy /> } @placeholder { <p>{{ label }}</p> }",
+        );
+        assert!(
+            refs.contains("isReady"),
+            "when condition through nested parens"
+        );
+        assert!(refs.contains("label"), "content after defer block");
     }
 
     #[test]
