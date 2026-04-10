@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.27.1] - 2026-04-10
+
+### Fixed
+
+- **Angular `@defer` block scanning** -- `@defer (when condition)` expressions are now parsed for member references, including `prefetch when` and `hydrate when` variants. Previously, members referenced only in `@defer` conditions were flagged as unused. ([#94](https://github.com/fallow-rs/fallow/issues/94))
+- **Angular `@let` template variables** -- `@let name = expr;` template-local variable declarations are now parsed, extracting member references from the expression and tracking the variable as a template local. Previously, members referenced only in `@let` expressions were flagged as unused. ([#93](https://github.com/fallow-rs/fallow/issues/93))
+- **Angular `@else if` condition scanning** -- `@else if (condition)` expressions are now parsed for member references. Previously, the condition was skipped and members referenced only in `@else if` were flagged as unused.
+- **Angular `outputFromObservable()` recognition** -- class properties initialized with `outputFromObservable()` (from `@angular/core/rxjs-interop`) are now recognized as framework-managed, matching the existing `output()` handling. ([#92](https://github.com/fallow-rs/fallow/issues/92))
+
 ## [2.27.0] - 2026-04-10
 
 ### Added
@@ -23,10 +32,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Angular `@defer` block scanning** -- `@defer (when condition)` expressions are now parsed for member references, including `prefetch when` and `hydrate when` variants. Previously, members referenced only in `@defer` conditions were flagged as unused. ([#94](https://github.com/fallow-rs/fallow/issues/94))
-- **Angular `@let` template variables** -- `@let name = expr;` template-local variable declarations are now parsed, extracting member references from the expression and tracking the variable as a template local. Previously, members referenced only in `@let` expressions were flagged as unused. ([#93](https://github.com/fallow-rs/fallow/issues/93))
-- **Angular `@else if` condition scanning** -- `@else if (condition)` expressions are now parsed for member references. Previously, the condition was skipped and members referenced only in `@else if` were flagged as unused.
-- **Angular `outputFromObservable()` recognition** -- class properties initialized with `outputFromObservable()` (from `@angular/core/rxjs-interop`) are now recognized as framework-managed, matching the existing `output()` handling. ([#92](https://github.com/fallow-rs/fallow/issues/92))
 - **VS Code extension** -- version marker round-trip handling improved with additional test coverage.
 
 ## [2.26.1] - 2026-04-09
@@ -1206,7 +1211,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--changed-since` and `--fail-on-issues` for CI
 - Cross-workspace resolution for npm/yarn/pnpm workspaces
 
-[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.27.0...HEAD
+[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.27.1...HEAD
+[2.27.1]: https://github.com/fallow-rs/fallow/compare/v2.27.0...v2.27.1
 [2.27.0]: https://github.com/fallow-rs/fallow/compare/v2.26.1...v2.27.0
 [2.26.1]: https://github.com/fallow-rs/fallow/compare/v2.26.0...v2.26.1
 [2.26.0]: https://github.com/fallow-rs/fallow/compare/v2.25.1...v2.26.0
