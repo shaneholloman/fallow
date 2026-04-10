@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.27.5] - 2026-04-11
+
+### Fixed
+
+- **Import-then-reexport pattern recognized as re-export** -- the pattern `import { X } from './a'; export { X };` is now detected as a re-export (semantically equivalent to `export { X } from './a';`) instead of a local export. The visitor scans previously-seen imports when processing an export without a `from` clause and emits a `ReExportInfo` pointing back to the original source. Eliminates false duplicate-export findings (where the bottom export collided with the original) and false unused-export reports (where the re-export chain propagation never reached the misclassified entry). Handles renames on either side, default imports, and mixed local + re-export statements. Order-sensitive: relies on imports preceding exports in source order.
+- **Accurate line numbers for unused re-exports** -- re-exports synthesized into `ExportSymbol` entries from `ReExportInfo` were reported with line `:1` because the synthesis used `Span::new(0, 0)` as a sentinel. The visitor's real source span is now plumbed through `ReExportInfo` and `ReExportEdge` into the synthesized `ExportSymbol`, so unused re-exports now report the actual line and column of the `export {...}` declaration. The `(re-export)` marker in human/JSON/SARIF/CodeClimate output is preserved via a semantic lookup against the module's `re_exports` list. On vue-core, 86 unused re-export entries went from `:1` to their real source positions.
+- **Angular `templateUrl` / `styleUrl` without `./` prefix** -- bare filenames in Angular `@Component` decorators (e.g., `templateUrl: 'app.component.html'`) are now treated as relative paths instead of being misclassified as npm package specifiers. Angular resolves both `'app.component.html'` and `'./app.component.html'` relative to the component file, so the `./` prefix is optional. Without normalization, bare filenames were reported as unlisted dependencies. Already-relative, absolute, URL, and scoped-package paths are left untouched. ([#99](https://github.com/fallow-rs/fallow/issues/99), [#100](https://github.com/fallow-rs/fallow/pull/100))
+
+### Changed
+
+- **O(N) re-export detection** -- the new `is_re_export` lookup pre-builds an `FxHashSet` of re-exported names per module, replacing a per-export `iter().any()` scan. Avoids O(N²) work on barrel files with many re-exports.
+
 ## [2.27.4] - 2026-04-10
 
 ### Fixed
@@ -1239,7 +1251,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--changed-since` and `--fail-on-issues` for CI
 - Cross-workspace resolution for npm/yarn/pnpm workspaces
 
-[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.27.3...HEAD
+[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.27.5...HEAD
+[2.27.5]: https://github.com/fallow-rs/fallow/compare/v2.27.4...v2.27.5
 [2.27.4]: https://github.com/fallow-rs/fallow/compare/v2.27.3...v2.27.4
 [2.27.3]: https://github.com/fallow-rs/fallow/compare/v2.27.2...v2.27.3
 [2.27.2]: https://github.com/fallow-rs/fallow/compare/v2.27.1...v2.27.2
