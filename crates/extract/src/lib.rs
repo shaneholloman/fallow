@@ -10,7 +10,7 @@ pub mod astro;
 pub mod cache;
 pub(crate) mod complexity;
 pub mod css;
-pub(crate) mod flags;
+pub mod flags;
 pub mod html;
 pub mod mdx;
 mod parse;

@@ -5,10 +5,49 @@ use std::process::ExitCode;
 use std::time::Instant;
 
 use fallow_config::{OutputFormat, ResolvedConfig};
-use fallow_types::extract::FlagUseKind;
+use fallow_types::extract::{FlagUse, FlagUseKind, ModuleInfo};
 use fallow_types::results::{FeatureFlag, FlagConfidence, FlagKind};
 
 use crate::error::emit_error;
+
+/// Convert an extraction-level `FlagUse` to a result-level `FeatureFlag`.
+fn flag_use_to_feature_flag(
+    flag_use: &FlagUse,
+    module: &ModuleInfo,
+    path: &std::path::Path,
+) -> FeatureFlag {
+    let (kind, confidence) = match flag_use.kind {
+        FlagUseKind::EnvVar => (FlagKind::EnvironmentVariable, FlagConfidence::High),
+        FlagUseKind::SdkCall => (FlagKind::SdkCall, FlagConfidence::High),
+        FlagUseKind::ConfigObject => (FlagKind::ConfigObject, FlagConfidence::Low),
+    };
+
+    let (guard_line_start, guard_line_end) = if let (Some(start), Some(end)) =
+        (flag_use.guard_span_start, flag_use.guard_span_end)
+        && !module.line_offsets.is_empty()
+    {
+        let (sl, _) = fallow_types::extract::byte_offset_to_line_col(&module.line_offsets, start);
+        let (el, _) = fallow_types::extract::byte_offset_to_line_col(&module.line_offsets, end);
+        (Some(sl), Some(el))
+    } else {
+        (None, None)
+    };
+
+    FeatureFlag {
+        path: path.to_path_buf(),
+        flag_name: flag_use.flag_name.clone(),
+        kind,
+        confidence,
+        line: flag_use.line,
+        col: flag_use.col,
+        guard_span_start: flag_use.guard_span_start,
+        guard_span_end: flag_use.guard_span_end,
+        sdk_name: flag_use.sdk_name.clone(),
+        guard_line_start,
+        guard_line_end,
+        guarded_dead_exports: Vec::new(),
+    }
+}
 
 /// Options for the `fallow flags` subcommand.
 pub struct FlagsOptions<'a> {
@@ -59,54 +98,56 @@ pub fn run_flags(opts: &FlagsOptions<'_>) -> ExitCode {
     // Build file_id -> path lookup from discovered files
     let file_paths: rustc_hash::FxHashMap<_, _> = files.iter().map(|f| (f.id, &f.path)).collect();
 
-    // Collect feature flags from parsed modules
+    // Prepare user-configured flag patterns for supplementary extraction
+    let extra_sdk: Vec<(String, usize, String)> = config
+        .flags
+        .sdk_patterns
+        .iter()
+        .map(|p| {
+            (
+                p.function.clone(),
+                p.name_arg,
+                p.provider.clone().unwrap_or_default(),
+            )
+        })
+        .collect();
+    let has_custom_config = !extra_sdk.is_empty()
+        || !config.flags.env_prefixes.is_empty()
+        || config.flags.config_object_heuristics;
+
+    // Collect feature flags from parsed modules (built-in patterns from cache/parse)
     let mut flags: Vec<FeatureFlag> = Vec::new();
     for module in &parse_result.modules {
-        if module.flag_uses.is_empty() {
-            continue;
-        }
         let Some(path) = file_paths.get(&module.file_id) else {
             continue;
         };
 
+        // Built-in flag results from parse/cache
         for flag_use in &module.flag_uses {
-            let (kind, confidence) = match flag_use.kind {
-                FlagUseKind::EnvVar => (FlagKind::EnvironmentVariable, FlagConfidence::High),
-                FlagUseKind::SdkCall => (FlagKind::SdkCall, FlagConfidence::High),
-                FlagUseKind::ConfigObject => (FlagKind::ConfigObject, FlagConfidence::Low),
-            };
+            flags.push(flag_use_to_feature_flag(flag_use, module, path));
+        }
 
-            // Resolve guard span to line numbers
-            let (guard_line_start, guard_line_end) = if let (Some(start), Some(end)) =
-                (flag_use.guard_span_start, flag_use.guard_span_end)
-            {
-                if !module.line_offsets.is_empty() {
-                    let (sl, _) =
-                        fallow_types::extract::byte_offset_to_line_col(&module.line_offsets, start);
-                    let (el, _) =
-                        fallow_types::extract::byte_offset_to_line_col(&module.line_offsets, end);
-                    (Some(sl), Some(el))
-                } else {
-                    (None, None)
+        // Supplementary extraction pass for user-configured patterns.
+        // Built-in patterns are already in module.flag_uses (cached).
+        // Custom SDK patterns, env prefixes, and config object heuristics
+        // require re-reading source because they weren't applied at parse time.
+        if has_custom_config && let Ok(source) = std::fs::read_to_string(path) {
+            let custom_flags = fallow_core::extract::flags::extract_flags_from_source(
+                &source,
+                path,
+                &extra_sdk,
+                &config.flags.env_prefixes,
+                config.flags.config_object_heuristics,
+            );
+            // Only add flags not already found by built-in extraction (dedup by line+name)
+            for flag_use in &custom_flags {
+                let already_found = module.flag_uses.iter().any(|existing| {
+                    existing.line == flag_use.line && existing.flag_name == flag_use.flag_name
+                });
+                if !already_found {
+                    flags.push(flag_use_to_feature_flag(flag_use, module, path));
                 }
-            } else {
-                (None, None)
-            };
-
-            flags.push(FeatureFlag {
-                path: (*path).clone(),
-                flag_name: flag_use.flag_name.clone(),
-                kind,
-                confidence,
-                line: flag_use.line,
-                col: flag_use.col,
-                guard_span_start: flag_use.guard_span_start,
-                guard_span_end: flag_use.guard_span_end,
-                sdk_name: flag_use.sdk_name.clone(),
-                guard_line_start,
-                guard_line_end,
-                guarded_dead_exports: Vec::new(),
-            });
+            }
         }
     }
 

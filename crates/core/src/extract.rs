@@ -20,6 +20,7 @@ pub use fallow_extract::{
 // Re-export sub-modules for code that imports from them directly
 pub use fallow_extract::astro;
 pub use fallow_extract::css;
+pub use fallow_extract::flags;
 pub use fallow_extract::mdx;
 pub use fallow_extract::sfc;
 pub use fallow_extract::visitor;

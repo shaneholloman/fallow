@@ -5,7 +5,9 @@
 //! 2. **SDK calls**: `useFlag('name')`, `variation('name', false)`, etc.
 //! 3. **Config objects**: `config.features.x` (opt-in, heuristic)
 //!
-//! Runs as a separate pass over the AST (like `complexity.rs`), gated by `need_flags`.
+//! Always extracted during parse (lightweight pattern matching on `MemberExpression`
+//! and `CallExpression` nodes). Custom SDK patterns and config object heuristics
+//! are applied as a supplementary pass in the CLI when user config is present.
 
 #[allow(clippy::wildcard_imports, reason = "many AST types used")]
 use oxc_ast::ast::*;
@@ -41,10 +43,11 @@ const BUILTIN_SDK_PATTERNS: &[(&str, usize, &str)] = &[
     ("getTreatment", 0, "Split"),
     // ConfigCat
     ("getValueAsync", 0, "ConfigCat"),
-    ("getValue", 0, "ConfigCat"),
     // Flagsmith
     ("hasFeature", 0, "Flagsmith"),
-    ("getValue", 0, "Flagsmith"),
+    // Shared: getValue is used by both ConfigCat and Flagsmith.
+    // Attribution is best-effort when function names collide.
+    ("getValue", 0, ""),
     // Generic
     ("useFeature", 0, ""),
     ("getFeatureFlag", 0, ""),
@@ -377,6 +380,31 @@ pub fn extract_flags(
     );
     visitor.visit_program(program);
     visitor.results
+}
+
+/// Extract feature flags from source text with custom configuration.
+///
+/// Higher-level convenience function that handles parsing internally.
+/// Used by the CLI flags command for supplementary extraction with
+/// user-configured patterns that aren't applied at parse/cache time.
+pub fn extract_flags_from_source(
+    source: &str,
+    path: &std::path::Path,
+    extra_sdk_patterns: &[(String, usize, String)],
+    extra_env_prefixes: &[String],
+    config_object_heuristics: bool,
+) -> Vec<FlagUse> {
+    let source_type = oxc_span::SourceType::from_path(path).unwrap_or_default();
+    let allocator = oxc_allocator::Allocator::default();
+    let parser_return = oxc_parser::Parser::new(&allocator, source, source_type).parse();
+    let line_offsets = fallow_types::extract::compute_line_offsets(source);
+    extract_flags(
+        &parser_return.program,
+        &line_offsets,
+        extra_sdk_patterns,
+        extra_env_prefixes,
+        config_object_heuristics,
+    )
 }
 
 #[cfg(all(test, not(miri)))]
