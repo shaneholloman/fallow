@@ -6,8 +6,9 @@ use crate::template_usage::TemplateUsage;
 
 use super::scanners::{scan_curly_section, scan_html_tag};
 use super::shared::{
-    extract_pattern_binding_names, merge_component_tag_usage,
+    HTML_COMMENT_RE, extract_pattern_binding_names, merge_component_tag_usage,
     merge_expression_usage_allow_dollar_refs, merge_statement_usage_allow_dollar_refs,
+    parse_tag_attrs,
 };
 
 static STYLE_BLOCK_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
@@ -19,9 +20,6 @@ static SCRIPT_BLOCK_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(r#"(?is)<script\b(?:[^>"']|"[^"]*"|'[^']*')*>(?P<body>[\s\S]*?)</script>"#)
         .expect("valid regex")
 });
-
-static HTML_COMMENT_RE: LazyLock<regex::Regex> =
-    LazyLock::new(|| regex::Regex::new(r"(?s)<!--.*?-->").expect("valid regex"));
 
 static SVELTE_EACH_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(
@@ -359,7 +357,7 @@ fn apply_markup_tag(
         return;
     }
 
-    let parsed = parse_markup_tag(trimmed);
+    let parsed = parse_tag_attrs(trimmed, true);
     if parsed.name.is_empty() {
         return;
     }
@@ -398,101 +396,6 @@ fn apply_markup_tag(
             kind: SvelteBlockKind::Element,
             locals: element_locals,
         });
-    }
-}
-
-#[derive(Debug)]
-struct SvelteMarkupTag {
-    name: String,
-    attrs: Vec<SvelteMarkupAttr>,
-    self_closing: bool,
-}
-
-#[derive(Debug)]
-struct SvelteMarkupAttr {
-    name: String,
-    value: Option<String>,
-}
-
-fn parse_markup_tag(tag: &str) -> SvelteMarkupTag {
-    let inner = tag.trim_start_matches('<').trim_end_matches('>').trim();
-    let self_closing = inner.ends_with('/');
-    let inner = inner.trim_end_matches('/').trim_end();
-
-    let name_end = inner
-        .char_indices()
-        .find_map(|(idx, ch)| ch.is_whitespace().then_some(idx))
-        .unwrap_or(inner.len());
-    let name = inner[..name_end].trim().to_string();
-
-    let mut attrs = Vec::new();
-    let mut index = name_end;
-    while index < inner.len() {
-        let remaining = &inner[index..];
-        let trimmed = remaining.trim_start();
-        index += remaining.len() - trimmed.len();
-        if index >= inner.len() {
-            break;
-        }
-
-        let name_end = inner[index..]
-            .char_indices()
-            .find_map(|(offset, ch)| (ch.is_whitespace() || ch == '=').then_some(index + offset))
-            .unwrap_or(inner.len());
-        let name = inner[index..name_end].trim();
-        index = name_end;
-
-        let remaining = &inner[index..];
-        let trimmed = remaining.trim_start();
-        index += remaining.len() - trimmed.len();
-
-        let mut value = None;
-        if inner.as_bytes().get(index) == Some(&b'=') {
-            index += 1;
-            let remaining = &inner[index..];
-            let trimmed = remaining.trim_start();
-            index += remaining.len() - trimmed.len();
-            if let Some(quote) = inner.as_bytes().get(index).copied() {
-                if quote == b'\'' || quote == b'"' {
-                    let quote = quote as char;
-                    index += 1;
-                    let value_start = index;
-                    while index < inner.len() && inner.as_bytes()[index] as char != quote {
-                        index += 1;
-                    }
-                    value = Some(inner[value_start..index].to_string());
-                    if index < inner.len() {
-                        index += 1;
-                    }
-                } else if quote == b'{' {
-                    let Some((expr, next_index)) = scan_curly_section(inner, index, 1, 1) else {
-                        break;
-                    };
-                    value = Some(format!("{{{expr}}}"));
-                    index = next_index;
-                } else {
-                    let value_end = inner[index..]
-                        .char_indices()
-                        .find_map(|(offset, ch)| ch.is_whitespace().then_some(index + offset))
-                        .unwrap_or(inner.len());
-                    value = Some(inner[index..value_end].to_string());
-                    index = value_end;
-                }
-            }
-        }
-
-        if !name.is_empty() {
-            attrs.push(SvelteMarkupAttr {
-                name: name.to_string(),
-                value,
-            });
-        }
-    }
-
-    SvelteMarkupTag {
-        name,
-        attrs,
-        self_closing,
     }
 }
 

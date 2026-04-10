@@ -6,12 +6,9 @@ use crate::template_usage::TemplateUsage;
 
 use super::scanners::{scan_bracket_section, scan_curly_section, scan_html_tag};
 use super::shared::{
-    merge_component_tag_usage, merge_expression_usage, merge_pattern_binding_usage,
-    merge_statement_usage,
+    HTML_COMMENT_RE, merge_component_tag_usage, merge_expression_usage,
+    merge_pattern_binding_usage, merge_statement_usage, parse_tag_attrs,
 };
-
-static HTML_COMMENT_RE: LazyLock<regex::Regex> =
-    LazyLock::new(|| regex::Regex::new(r"(?s)<!--.*?-->").expect("valid regex"));
 
 static TEMPLATE_BLOCK_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(
@@ -119,7 +116,7 @@ fn apply_tag(
     }
 
     let current = current_locals(scopes);
-    let parsed = parse_tag(trimmed);
+    let parsed = parse_tag_attrs(trimmed, false);
     mark_tag_usage(&parsed.name, imported_bindings, &current, usage);
 
     let mut v_for_locals = Vec::new();
@@ -207,96 +204,6 @@ fn current_locals(scopes: &[Vec<String>]) -> Vec<String> {
         .iter()
         .flat_map(|locals| locals.iter().cloned())
         .collect()
-}
-
-#[derive(Debug)]
-struct VueTag {
-    name: String,
-    attrs: Vec<VueAttr>,
-    self_closing: bool,
-}
-
-#[derive(Debug)]
-struct VueAttr {
-    name: String,
-    value: Option<String>,
-}
-
-fn parse_tag(tag: &str) -> VueTag {
-    let inner = tag.trim_start_matches('<').trim_end_matches('>').trim();
-    let self_closing = inner.ends_with('/');
-    let inner = inner.trim_end_matches('/').trim_end();
-
-    let name_end = inner
-        .char_indices()
-        .find_map(|(idx, ch)| ch.is_whitespace().then_some(idx))
-        .unwrap_or(inner.len());
-    let name = inner[..name_end].trim().to_string();
-
-    let mut attrs = Vec::new();
-    let mut index = name_end;
-
-    while index < inner.len() {
-        let remaining = &inner[index..];
-        let trimmed = remaining.trim_start();
-        index += remaining.len() - trimmed.len();
-        if index >= inner.len() {
-            break;
-        }
-
-        let name_end = inner[index..]
-            .char_indices()
-            .find_map(|(offset, ch)| (ch.is_whitespace() || ch == '=').then_some(index + offset))
-            .unwrap_or(inner.len());
-        let name = inner[index..name_end].trim();
-        index = name_end;
-
-        let remaining = &inner[index..];
-        let trimmed = remaining.trim_start();
-        index += remaining.len() - trimmed.len();
-
-        let mut value = None;
-        if inner.as_bytes().get(index) == Some(&b'=') {
-            index += 1;
-            let remaining = &inner[index..];
-            let trimmed = remaining.trim_start();
-            index += remaining.len() - trimmed.len();
-            if let Some(quote) = inner.as_bytes().get(index).copied() {
-                if quote == b'\'' || quote == b'"' {
-                    let quote = quote as char;
-                    index += 1;
-                    let value_start = index;
-                    while index < inner.len() && inner.as_bytes()[index] as char != quote {
-                        index += 1;
-                    }
-                    value = Some(inner[value_start..index].to_string());
-                    if index < inner.len() {
-                        index += 1;
-                    }
-                } else {
-                    let value_end = inner[index..]
-                        .char_indices()
-                        .find_map(|(offset, ch)| ch.is_whitespace().then_some(index + offset))
-                        .unwrap_or(inner.len());
-                    value = Some(inner[index..value_end].to_string());
-                    index = value_end;
-                }
-            }
-        }
-
-        if !name.is_empty() {
-            attrs.push(VueAttr {
-                name: name.to_string(),
-                value,
-            });
-        }
-    }
-
-    VueTag {
-        name,
-        attrs,
-        self_closing,
-    }
 }
 
 fn mark_tag_usage(
