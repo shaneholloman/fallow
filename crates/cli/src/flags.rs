@@ -197,9 +197,18 @@ fn print_flags_result(
     elapsed: std::time::Duration,
 ) {
     match opts.output {
-        OutputFormat::Human => print_flags_human(flags, config, elapsed),
+        OutputFormat::Human => print_flags_human(flags, config, elapsed, opts.quiet),
         OutputFormat::Compact => print_flags_compact(flags, config),
-        _ => print_flags_json(flags, config, elapsed, opts.explain),
+        OutputFormat::Json => print_flags_json(flags, config, elapsed, opts.explain),
+        other => {
+            // Unsupported formats fall back to JSON with a warning
+            if !opts.quiet {
+                eprintln!(
+                    "warning: {other:?} format not yet supported for flags command, using JSON"
+                );
+            }
+            print_flags_json(flags, config, elapsed, opts.explain);
+        }
     }
 }
 
@@ -243,15 +252,22 @@ fn print_file_path(display: &str) {
 }
 
 /// Human-readable output for `fallow flags`.
-fn print_flags_human(flags: &[FeatureFlag], config: &ResolvedConfig, elapsed: std::time::Duration) {
+fn print_flags_human(
+    flags: &[FeatureFlag],
+    config: &ResolvedConfig,
+    elapsed: std::time::Duration,
+    quiet: bool,
+) {
     use colored::Colorize;
 
     if flags.is_empty() {
-        eprintln!(
-            "{} No feature flags detected ({:.2}s)",
-            "\u{2714}".green().bold(),
-            elapsed.as_secs_f64()
-        );
+        if !quiet {
+            eprintln!(
+                "{} No feature flags detected ({:.2}s)",
+                "\u{2713}".green().bold(),
+                elapsed.as_secs_f64()
+            );
+        }
         return;
     }
 
@@ -327,16 +343,20 @@ fn print_flags_human(flags: &[FeatureFlag], config: &ResolvedConfig, elapsed: st
     }
 
     // Footer
-    let elapsed_str = format!("{:.2}s", elapsed.as_secs_f64());
-    eprintln!(
-        "\n{} {} flags detected ({})",
-        "\u{2714}".green().bold(),
-        flags.len(),
-        elapsed_str.dimmed(),
-    );
+    if !quiet {
+        let elapsed_str = format!("{:.2}s", elapsed.as_secs_f64());
+        eprintln!(
+            "\n{} {} flags detected ({})",
+            "\u{2713}".green().bold(),
+            flags.len(),
+            elapsed_str.dimmed(),
+        );
+    }
 }
 
 /// Compact output (one line per finding) for `fallow flags`.
+///
+/// Follows the established `tag:path:line:detail` convention from `compact.rs`.
 fn print_flags_compact(flags: &[FeatureFlag], config: &ResolvedConfig) {
     for flag in flags {
         let relative = flag
@@ -345,15 +365,12 @@ fn print_flags_compact(flags: &[FeatureFlag], config: &ResolvedConfig) {
             .unwrap_or(&flag.path)
             .to_string_lossy()
             .replace('\\', "/");
-        let kind = match flag.kind {
-            FlagKind::EnvironmentVariable => "env",
-            FlagKind::SdkCall => "sdk",
-            FlagKind::ConfigObject => "config",
+        let tag = match flag.kind {
+            FlagKind::EnvironmentVariable => "feature-flag-env",
+            FlagKind::SdkCall => "feature-flag-sdk",
+            FlagKind::ConfigObject => "feature-flag-config",
         };
-        println!(
-            "{relative}:{}: feature-flag ({kind}) {}",
-            flag.line, flag.flag_name
-        );
+        println!("{tag}:{relative}:{}:{}", flag.line, flag.flag_name);
     }
 }
 
