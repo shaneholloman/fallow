@@ -2254,6 +2254,106 @@ fn import_and_re_export_same_source() {
     assert_eq!(info.re_exports[0].source, "./mod");
 }
 
+// ── "Import then re-export" pattern detection ────────────────
+// Pattern: `import { X } from './a'; export { X };` is semantically
+// equivalent to `export { X } from './a';` and must be treated as a
+// re-export, not a local export. Without this, duplicate-export
+// detection fires and the re-export chain breaks.
+
+#[test]
+fn import_then_export_same_name_is_re_export() {
+    let info = parse("import { Foo } from './types';\nexport { Foo };");
+    assert_eq!(info.imports.len(), 1);
+    assert_eq!(info.re_exports.len(), 1);
+    assert_eq!(info.exports.len(), 0);
+    assert_eq!(info.re_exports[0].source, "./types");
+    assert_eq!(info.re_exports[0].imported_name, "Foo");
+    assert_eq!(info.re_exports[0].exported_name, "Foo");
+    assert!(!info.re_exports[0].is_type_only);
+}
+
+#[test]
+fn import_type_then_export_type_is_type_only_re_export() {
+    let info = parse("import type { Foo } from './types';\nexport type { Foo };");
+    assert_eq!(info.re_exports.len(), 1);
+    assert_eq!(info.exports.len(), 0);
+    assert!(info.re_exports[0].is_type_only);
+}
+
+#[test]
+fn value_import_then_type_export_is_type_only_re_export() {
+    // `import { MyEnum } from './a'; export type { MyEnum };`
+    // The `type` keyword on the export side erases the value reference,
+    // making this a type-only re-export even though the import is a value.
+    let info = parse("import { MyEnum } from './a';\nexport type { MyEnum };");
+    assert_eq!(info.re_exports.len(), 1);
+    assert_eq!(info.exports.len(), 0);
+    assert!(info.re_exports[0].is_type_only);
+}
+
+#[test]
+fn import_with_rename_then_export_is_re_export_with_original_name() {
+    // `import { X as Foo } from './a'; export { Foo };`
+    // The re-export must reference the ORIGINAL name on the remote side
+    // (`X`) even though the local binding is `Foo`.
+    let info = parse("import { X as Foo } from './a';\nexport { Foo };");
+    assert_eq!(info.re_exports.len(), 1);
+    assert_eq!(info.exports.len(), 0);
+    assert_eq!(info.re_exports[0].imported_name, "X");
+    assert_eq!(info.re_exports[0].exported_name, "Foo");
+}
+
+#[test]
+fn import_then_export_with_rename_is_re_export_with_alias() {
+    // `import { X } from './a'; export { X as Y };`
+    // Re-export should carry both the original name and the alias.
+    let info = parse("import { X } from './a';\nexport { X as Y };");
+    assert_eq!(info.re_exports.len(), 1);
+    assert_eq!(info.exports.len(), 0);
+    assert_eq!(info.re_exports[0].imported_name, "X");
+    assert_eq!(info.re_exports[0].exported_name, "Y");
+}
+
+#[test]
+fn default_import_then_export_is_re_export_of_default() {
+    // `import D from './a'; export { D };` re-exports the remote default.
+    let info = parse("import D from './a';\nexport { D };");
+    assert_eq!(info.re_exports.len(), 1);
+    assert_eq!(info.exports.len(), 0);
+    assert_eq!(info.re_exports[0].source, "./a");
+    assert_eq!(info.re_exports[0].imported_name, "default");
+    assert_eq!(info.re_exports[0].exported_name, "D");
+}
+
+#[test]
+fn mixed_export_splits_into_local_and_re_export() {
+    // `import { X } from './a'; const Y = 1; export { X, Y };`
+    // X matches an import → re-export. Y is local → regular export.
+    let info = parse("import { X } from './a';\nconst Y = 1;\nexport { X, Y };");
+    assert_eq!(info.re_exports.len(), 1);
+    assert_eq!(info.exports.len(), 1);
+    assert_eq!(info.re_exports[0].imported_name, "X");
+    assert_eq!(info.exports[0].name, ExportName::Named("Y".to_string()));
+}
+
+#[test]
+fn local_export_without_matching_import_stays_local() {
+    // Regression guard: unrelated local exports must not be converted.
+    let info = parse("const X = 1;\nexport { X };");
+    assert_eq!(info.re_exports.len(), 0);
+    assert_eq!(info.exports.len(), 1);
+    assert_eq!(info.exports[0].name, ExportName::Named("X".to_string()));
+}
+
+#[test]
+fn namespace_import_then_export_stays_local() {
+    // `import * as ns from './a'; export { ns };` — namespace re-exports
+    // are an edge case and not converted by this heuristic.
+    let info = parse("import * as ns from './a';\nexport { ns };");
+    assert_eq!(info.re_exports.len(), 0);
+    assert_eq!(info.exports.len(), 1);
+}
+
 mod proptests {
     use super::*;
     use proptest::prelude::*;

@@ -112,15 +112,54 @@ impl<'a> Visit<'a> for ModuleInfoExtractor {
                 self.extract_declaration_exports(declaration, is_type_only);
             }
             for spec in &decl.specifiers {
-                self.exports.push(ExportInfo {
-                    name: ExportName::Named(spec.exported.name().to_string()),
-                    local_name: Some(spec.local.name().to_string()),
-                    is_type_only: is_type_only || spec.export_kind.is_type(),
-                    is_public: false,
-                    span: spec.span,
-                    members: vec![],
-                    super_class: None,
+                let local_name_str = spec.local.name().as_str();
+                let spec_type_only = is_type_only || spec.export_kind.is_type();
+
+                // "Import then re-export" pattern: `import { X } from './a'; export { X };`
+                // is semantically equivalent to `export { X } from './a';`. Without this
+                // detection, we would emit an ExportInfo that (1) collides with the
+                // original export in duplicate-export detection and (2) is never reached
+                // by re-export chain propagation, causing false unused-export reports.
+                //
+                // Order-sensitive: relies on imports being visited before exports in
+                // source order. The reverse (`export { X }; import { X } from './a';`)
+                // is valid JS but vanishingly rare and falls back to local export.
+                let matching_import = self.imports.iter().find(|imp| {
+                    imp.local_name == local_name_str
+                        && matches!(
+                            imp.imported_name,
+                            ImportedName::Named(_) | ImportedName::Default
+                        )
                 });
+
+                if let Some(import) = matching_import {
+                    let imported_name_str = match &import.imported_name {
+                        ImportedName::Named(name) => name.clone(),
+                        ImportedName::Default => "default".to_string(),
+                        // The matches! guard above filters Namespace/SideEffect, so
+                        // this arm is unreachable. Crash loudly if the guard is ever
+                        // widened without updating this match.
+                        ImportedName::Namespace | ImportedName::SideEffect => {
+                            unreachable!("filtered by matches! guard above")
+                        }
+                    };
+                    self.re_exports.push(ReExportInfo {
+                        source: import.source.clone(),
+                        imported_name: imported_name_str,
+                        exported_name: spec.exported.name().to_string(),
+                        is_type_only: spec_type_only || import.is_type_only,
+                    });
+                } else {
+                    self.exports.push(ExportInfo {
+                        name: ExportName::Named(spec.exported.name().to_string()),
+                        local_name: Some(spec.local.name().to_string()),
+                        is_type_only: spec_type_only,
+                        is_public: false,
+                        span: spec.span,
+                        members: vec![],
+                        super_class: None,
+                    });
+                }
             }
         }
 
