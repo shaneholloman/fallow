@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.27.4] - 2026-04-10
+
+### Fixed
+
+- **Broken tsconfig chain no longer poisons sibling resolution** -- a solution-style `tsconfig.json` with `references` to a sibling tsconfig that has a broken `extends` chain (e.g., extending a non-existent file, as commonly scaffolded by Angular CLI / Nx workspaces) no longer fails import resolution for files covered by a healthy sibling. Previously, a broken `tsconfig.spec.json` (covering only `*.spec.ts`) caused every relative import in the workspace to be flagged as unresolved, even in files covered by a valid `tsconfig.app.json`. Fallow now retries resolution without tsconfig context when it detects a tsconfig-loading error (`TsconfigNotFound`, `TsconfigCircularExtend`, `TsconfigSelfReference`, malformed JSON, IO error), and emits a single `tracing::warn!` per unique broken chain so the configuration issue is visible instead of silent. Path aliases in the broken workspace remain unresolvable (they were already broken in `tsc`). ([#97](https://github.com/fallow-rs/fallow/issues/97))
+- **VS Code extension packaging** -- the root `LICENSE` file is now copied into `editors/vscode/` at package time so it is bundled in the VSIX. `vsce` only reads the extension's working directory, so the repo-root `LICENSE` was previously not included in the published extension.
+
+### Changed
+
+- **VS Code extension size reduced 48%** -- `.vscodeignore` now excludes `pnpm-lock.yaml`, `.fallow/`, `.test-dist/`, `test/`, `vitest.config.mts`, `tsconfig.test.json`, and `.fallowrc.json`. The packaged VSIX is 100 KB (down from 192 KB).
+- **CSS path alias regression tests** -- added coverage for `@/components/Button.css` sharing the `@`-prefix with scoped packages, ensuring path aliases stay as bare specifiers for the resolver's alias fallback to handle.
+
 ## [2.27.3] - 2026-04-10
 
 ### Fixed
@@ -1228,6 +1240,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cross-workspace resolution for npm/yarn/pnpm workspaces
 
 [Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.27.3...HEAD
+[2.27.4]: https://github.com/fallow-rs/fallow/compare/v2.27.3...v2.27.4
 [2.27.3]: https://github.com/fallow-rs/fallow/compare/v2.27.2...v2.27.3
 [2.27.2]: https://github.com/fallow-rs/fallow/compare/v2.27.1...v2.27.2
 [2.27.1]: https://github.com/fallow-rs/fallow/compare/v2.27.0...v2.27.1
