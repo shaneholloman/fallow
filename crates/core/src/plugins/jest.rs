@@ -10,65 +10,27 @@ use std::path::Path;
 use super::config_parser;
 use super::{Plugin, PluginResult};
 
-pub struct JestPlugin;
-
-const ENABLERS: &[&str] = &["jest"];
-
-const ENTRY_PATTERNS: &[&str] = &[
-    "**/*.test.{ts,tsx,js,jsx}",
-    "**/*.spec.{ts,tsx,js,jsx}",
-    "**/__tests__/**/*.{ts,tsx,js,jsx}",
-    "**/__mocks__/**/*.{ts,tsx,js,jsx,mjs,cjs}",
-];
-
-const CONFIG_PATTERNS: &[&str] = &["jest.config.{ts,js,mjs,cjs}", "jest.config.json"];
-
-const ALWAYS_USED: &[&str] = &["jest.config.{ts,js,mjs,cjs}", "jest.setup.{ts,js,tsx,jsx}"];
-
-const TOOLING_DEPENDENCIES: &[&str] = &["jest", "jest-environment-jsdom", "ts-jest", "babel-jest"];
-
-const FIXTURE_PATTERNS: &[&str] = &[
-    "**/__fixtures__/**/*.{ts,tsx,js,jsx,json}",
-    "**/fixtures/**/*.{ts,tsx,js,jsx,json}",
-];
-
 /// Built-in Jest reporter names that should not be treated as dependencies.
 const BUILTIN_REPORTERS: &[&str] = &["default", "verbose", "summary"];
 
-impl Plugin for JestPlugin {
-    fn name(&self) -> &'static str {
-        "jest"
-    }
-
-    fn enablers(&self) -> &'static [&'static str] {
-        ENABLERS
-    }
-
-    fn entry_patterns(&self) -> &'static [&'static str] {
-        ENTRY_PATTERNS
-    }
-
-    fn config_patterns(&self) -> &'static [&'static str] {
-        CONFIG_PATTERNS
-    }
-
-    fn always_used(&self) -> &'static [&'static str] {
-        ALWAYS_USED
-    }
-
-    fn tooling_dependencies(&self) -> &'static [&'static str] {
-        TOOLING_DEPENDENCIES
-    }
-
-    fn fixture_glob_patterns(&self) -> &'static [&'static str] {
-        FIXTURE_PATTERNS
-    }
-
-    fn package_json_config_key(&self) -> Option<&'static str> {
-        Some("jest")
-    }
-
-    fn resolve_config(&self, config_path: &Path, source: &str, root: &Path) -> PluginResult {
+define_plugin!(
+    struct JestPlugin => "jest",
+    enablers: &["jest"],
+    entry_patterns: &[
+        "**/*.test.{ts,tsx,js,jsx}",
+        "**/*.spec.{ts,tsx,js,jsx}",
+        "**/__tests__/**/*.{ts,tsx,js,jsx}",
+        "**/__mocks__/**/*.{ts,tsx,js,jsx,mjs,cjs}",
+    ],
+    config_patterns: &["jest.config.{ts,js,mjs,cjs}", "jest.config.json"],
+    always_used: &["jest.config.{ts,js,mjs,cjs}", "jest.setup.{ts,js,tsx,jsx}"],
+    tooling_dependencies: &["jest", "jest-environment-jsdom", "ts-jest", "babel-jest"],
+    fixture_glob_patterns: &[
+        "**/__fixtures__/**/*.{ts,tsx,js,jsx,json}",
+        "**/fixtures/**/*.{ts,tsx,js,jsx,json}",
+    ],
+    package_json_config_key: "jest",
+    resolve_config(config_path, source, root) {
         let mut result = PluginResult::default();
 
         // Handle JSON configs (jest.config.json)
@@ -91,8 +53,8 @@ impl Plugin for JestPlugin {
         extract_jest_dependencies(&parse_source, parse_path, &mut result);
 
         result
-    }
-}
+    },
+);
 
 /// Extract setup files from Jest config (setupFiles, setupFilesAfterEnv, globalSetup, globalTeardown).
 fn extract_jest_setup_files(

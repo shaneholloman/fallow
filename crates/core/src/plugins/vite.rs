@@ -3,59 +3,24 @@
 //! Detects Vite projects and marks conventional entry points and config files.
 //! Parses vite config to extract entry points, dependency references, and SSR externals.
 
-use std::path::Path;
-
 use super::config_parser;
 use super::{Plugin, PluginResult};
 
-pub struct VitePlugin;
-
-const ENABLERS: &[&str] = &["vite", "rolldown-vite"];
-
-const ENTRY_PATTERNS: &[&str] = &[
-    "src/main.{ts,tsx,js,jsx}",
-    "src/index.{ts,tsx,js,jsx}",
-    "index.html",
-];
-
-const CONFIG_PATTERNS: &[&str] = &["vite.config.{ts,js,mts,mjs}"];
-
-const ALWAYS_USED: &[&str] = &["vite.config.{ts,js,mts,mjs}"];
-
-const TOOLING_DEPENDENCIES: &[&str] = &["vite", "@vitejs/plugin-react", "@vitejs/plugin-vue"];
-
-impl Plugin for VitePlugin {
-    fn name(&self) -> &'static str {
-        "vite"
-    }
-
-    fn enablers(&self) -> &'static [&'static str] {
-        ENABLERS
-    }
-
-    fn entry_patterns(&self) -> &'static [&'static str] {
-        ENTRY_PATTERNS
-    }
-
-    fn config_patterns(&self) -> &'static [&'static str] {
-        CONFIG_PATTERNS
-    }
-
-    fn always_used(&self) -> &'static [&'static str] {
-        ALWAYS_USED
-    }
-
-    fn tooling_dependencies(&self) -> &'static [&'static str] {
-        TOOLING_DEPENDENCIES
-    }
-
-    fn virtual_module_prefixes(&self) -> &'static [&'static str] {
-        // Vite plugins create virtual modules with `virtual:` prefix
-        // (e.g., `virtual:pwa-register`, `virtual:emoji-mart-lang-importer`)
-        &["virtual:"]
-    }
-
-    fn resolve_config(&self, config_path: &Path, source: &str, root: &Path) -> PluginResult {
+define_plugin!(
+    struct VitePlugin => "vite",
+    enablers: &["vite", "rolldown-vite"],
+    entry_patterns: &[
+        "src/main.{ts,tsx,js,jsx}",
+        "src/index.{ts,tsx,js,jsx}",
+        "index.html",
+    ],
+    config_patterns: &["vite.config.{ts,js,mts,mjs}"],
+    always_used: &["vite.config.{ts,js,mts,mjs}"],
+    tooling_dependencies: &["vite", "@vitejs/plugin-react", "@vitejs/plugin-vue"],
+    // Vite plugins create virtual modules with `virtual:` prefix
+    // (e.g., `virtual:pwa-register`, `virtual:emoji-mart-lang-importer`)
+    virtual_module_prefixes: &["virtual:"],
+    resolve_config(config_path, source, root) {
         let mut result = PluginResult::default();
 
         let imports = config_parser::extract_imports(source, config_path);
@@ -133,8 +98,8 @@ impl Plugin for VitePlugin {
         }
 
         result
-    }
-}
+    },
+);
 
 #[cfg(test)]
 mod tests {

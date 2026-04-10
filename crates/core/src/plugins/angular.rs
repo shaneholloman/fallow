@@ -5,89 +5,60 @@
 //! Parses `angular.json` to extract styles, scripts, main, and polyfills
 //! from build targets as additional entry points.
 
+#[cfg(test)]
 use std::path::Path;
 
 use super::config_parser;
 use super::{Plugin, PluginResult};
 
-pub struct AngularPlugin;
-
-const ENABLERS: &[&str] = &["@angular/core"];
-
-const ENTRY_PATTERNS: &[&str] = &[
-    // Standard Angular CLI layout
-    "src/main.ts",
-    "src/app/**/*.component.ts",
-    "src/app/**/*.module.ts",
-    "src/app/**/*.service.ts",
-    "src/app/**/*.guard.ts",
-    "src/app/**/*.pipe.ts",
-    "src/app/**/*.directive.ts",
-    "src/app/**/*.resolver.ts",
-    "src/app/**/*.interceptor.ts",
-    // Nx monorepo layout (apps and libs under arbitrary paths)
-    "**/src/main.ts",
-    "**/src/app/**/*.component.ts",
-    "**/src/app/**/*.module.ts",
-    "**/src/app/**/*.service.ts",
-    "**/src/app/**/*.guard.ts",
-    "**/src/app/**/*.pipe.ts",
-    "**/src/app/**/*.directive.ts",
-    "**/src/app/**/*.resolver.ts",
-    "**/src/app/**/*.interceptor.ts",
-];
-
-const CONFIG_PATTERNS: &[&str] = &["angular.json", ".angular.json"];
-
-const ALWAYS_USED: &[&str] = &[
-    "angular.json",
-    ".angular.json",
-    "src/polyfills.ts",
-    "src/environments/**/*.ts",
-];
-
-const TOOLING_DEPENDENCIES: &[&str] = &[
-    "@angular/cli",
-    "@angular-devkit/build-angular",
-    "@angular/compiler-cli",
-    "@angular/compiler",
-    "@angular/build",
-    "zone.js",
-    "tslib",
-    // Peer dependencies of @angular/core that may not be directly imported
-    // but are required by the Angular framework at runtime
-    "rxjs",
-    "@angular/common",
-    "@angular/platform-browser",
-    "@angular/platform-browser-dynamic",
-];
-
-impl Plugin for AngularPlugin {
-    fn name(&self) -> &'static str {
-        "angular"
-    }
-
-    fn enablers(&self) -> &'static [&'static str] {
-        ENABLERS
-    }
-
-    fn entry_patterns(&self) -> &'static [&'static str] {
-        ENTRY_PATTERNS
-    }
-
-    fn config_patterns(&self) -> &'static [&'static str] {
-        CONFIG_PATTERNS
-    }
-
-    fn always_used(&self) -> &'static [&'static str] {
-        ALWAYS_USED
-    }
-
-    fn tooling_dependencies(&self) -> &'static [&'static str] {
-        TOOLING_DEPENDENCIES
-    }
-
-    fn resolve_config(&self, config_path: &Path, source: &str, _root: &Path) -> PluginResult {
+define_plugin!(
+    struct AngularPlugin => "angular",
+    enablers: &["@angular/core"],
+    entry_patterns: &[
+        // Standard Angular CLI layout
+        "src/main.ts",
+        "src/app/**/*.component.ts",
+        "src/app/**/*.module.ts",
+        "src/app/**/*.service.ts",
+        "src/app/**/*.guard.ts",
+        "src/app/**/*.pipe.ts",
+        "src/app/**/*.directive.ts",
+        "src/app/**/*.resolver.ts",
+        "src/app/**/*.interceptor.ts",
+        // Nx monorepo layout (apps and libs under arbitrary paths)
+        "**/src/main.ts",
+        "**/src/app/**/*.component.ts",
+        "**/src/app/**/*.module.ts",
+        "**/src/app/**/*.service.ts",
+        "**/src/app/**/*.guard.ts",
+        "**/src/app/**/*.pipe.ts",
+        "**/src/app/**/*.directive.ts",
+        "**/src/app/**/*.resolver.ts",
+        "**/src/app/**/*.interceptor.ts",
+    ],
+    config_patterns: &["angular.json", ".angular.json"],
+    always_used: &[
+        "angular.json",
+        ".angular.json",
+        "src/polyfills.ts",
+        "src/environments/**/*.ts",
+    ],
+    tooling_dependencies: &[
+        "@angular/cli",
+        "@angular-devkit/build-angular",
+        "@angular/compiler-cli",
+        "@angular/compiler",
+        "@angular/build",
+        "zone.js",
+        "tslib",
+        // Peer dependencies of @angular/core that may not be directly imported
+        // but are required by the Angular framework at runtime
+        "rxjs",
+        "@angular/common",
+        "@angular/platform-browser",
+        "@angular/platform-browser-dynamic",
+    ],
+    resolve_config(config_path, source, _root) {
         let mut result = PluginResult::default();
 
         // angular.json: projects.*.architect.build.options.styles -> entry patterns
@@ -161,8 +132,8 @@ impl Plugin for AngularPlugin {
         }
 
         result
-    }
-}
+    },
+);
 
 #[cfg(test)]
 mod tests {

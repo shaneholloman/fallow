@@ -7,26 +7,6 @@ use std::path::Path;
 
 use super::{PathRule, Plugin, PluginResult, UsedExportRule, config_parser};
 
-const ENABLERS: &[&str] = &["expo-router"];
-
-const CONFIG_PATTERNS: &[&str] = &["app.json", "app.config.{ts,js,mjs,cjs}"];
-
-const ALWAYS_USED: &[&str] = &[
-    "app.json",
-    "app.config.{ts,js,mjs,cjs}",
-    "metro.config.{ts,js,mjs,cjs}",
-    "babel.config.{ts,js,mjs,cjs}",
-    "expo-env.d.ts",
-];
-
-const TOOLING_DEPENDENCIES: &[&str] = &[
-    "expo",
-    "expo-router",
-    "expo-linking",
-    "expo-server",
-    "@expo/metro-runtime",
-];
-
 const ROUTE_FILE_EXPORTS: &[&str] = &[
     "default",
     "ErrorBoundary",
@@ -39,30 +19,25 @@ const NATIVE_INTENT_EXPORTS: &[&str] = &["redirectSystemPath", "legacy_subscribe
 const MIDDLEWARE_EXPORTS: &[&str] = &["default", "unstable_settings"];
 const DEFAULT_EXPORTS: &[&str] = &["default"];
 
-pub struct ExpoRouterPlugin;
-
-impl Plugin for ExpoRouterPlugin {
-    fn name(&self) -> &'static str {
-        "expo-router"
-    }
-
-    fn enablers(&self) -> &'static [&'static str] {
-        ENABLERS
-    }
-
-    fn config_patterns(&self) -> &'static [&'static str] {
-        CONFIG_PATTERNS
-    }
-
-    fn always_used(&self) -> &'static [&'static str] {
-        ALWAYS_USED
-    }
-
-    fn tooling_dependencies(&self) -> &'static [&'static str] {
-        TOOLING_DEPENDENCIES
-    }
-
-    fn resolve_config(&self, config_path: &Path, source: &str, root: &Path) -> PluginResult {
+define_plugin!(
+    struct ExpoRouterPlugin => "expo-router",
+    enablers: &["expo-router"],
+    config_patterns: &["app.json", "app.config.{ts,js,mjs,cjs}"],
+    always_used: &[
+        "app.json",
+        "app.config.{ts,js,mjs,cjs}",
+        "metro.config.{ts,js,mjs,cjs}",
+        "babel.config.{ts,js,mjs,cjs}",
+        "expo-env.d.ts",
+    ],
+    tooling_dependencies: &[
+        "expo",
+        "expo-router",
+        "expo-linking",
+        "expo-server",
+        "@expo/metro-runtime",
+    ],
+    resolve_config(config_path, source, root) {
         let mut result = PluginResult::default();
 
         for import in config_parser::extract_imports(source, config_path) {
@@ -76,8 +51,8 @@ impl Plugin for ExpoRouterPlugin {
         add_route_root_patterns(&mut result, &route_root);
 
         result
-    }
-}
+    },
+);
 
 fn extract_route_root(source: &str, config_path: &Path, root: &Path) -> Option<String> {
     let raw = config_parser::extract_config_plugin_option_string_from_paths(

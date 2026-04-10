@@ -2,63 +2,29 @@
 //!
 //! Detects Playwright projects and marks test files and config as entry points.
 
+#[cfg(test)]
 use std::path::Path;
 
 use super::config_parser;
 use super::{Plugin, PluginResult};
 
-pub struct PlaywrightPlugin;
-
-const ENABLERS: &[&str] = &["@playwright/test"];
-
-const ENTRY_PATTERNS: &[&str] = &[
-    "**/*.spec.{ts,tsx,js,jsx}",
-    "**/*.test.{ts,tsx,js,jsx}",
-    "tests/**/*.{ts,tsx,js,jsx}",
-    "e2e/**/*.{ts,tsx,js,jsx}",
-];
-
-const CONFIG_PATTERNS: &[&str] = &["playwright.config.{ts,js}"];
-
-const ALWAYS_USED: &[&str] = &["playwright.config.{ts,js}"];
-
-const TOOLING_DEPENDENCIES: &[&str] = &["@playwright/test", "playwright"];
-
-const FIXTURE_PATTERNS: &[&str] = &[
-    "**/fixtures/**/*.{ts,tsx,js,jsx,json}",
-    "e2e/fixtures/**/*.{ts,tsx,js,jsx,json}",
-];
-
-impl Plugin for PlaywrightPlugin {
-    fn name(&self) -> &'static str {
-        "playwright"
-    }
-
-    fn enablers(&self) -> &'static [&'static str] {
-        ENABLERS
-    }
-
-    fn entry_patterns(&self) -> &'static [&'static str] {
-        ENTRY_PATTERNS
-    }
-
-    fn config_patterns(&self) -> &'static [&'static str] {
-        CONFIG_PATTERNS
-    }
-
-    fn always_used(&self) -> &'static [&'static str] {
-        ALWAYS_USED
-    }
-
-    fn tooling_dependencies(&self) -> &'static [&'static str] {
-        TOOLING_DEPENDENCIES
-    }
-
-    fn fixture_glob_patterns(&self) -> &'static [&'static str] {
-        FIXTURE_PATTERNS
-    }
-
-    fn resolve_config(&self, config_path: &Path, source: &str, root: &Path) -> PluginResult {
+define_plugin!(
+    struct PlaywrightPlugin => "playwright",
+    enablers: &["@playwright/test"],
+    entry_patterns: &[
+        "**/*.spec.{ts,tsx,js,jsx}",
+        "**/*.test.{ts,tsx,js,jsx}",
+        "tests/**/*.{ts,tsx,js,jsx}",
+        "e2e/**/*.{ts,tsx,js,jsx}",
+    ],
+    config_patterns: &["playwright.config.{ts,js}"],
+    always_used: &["playwright.config.{ts,js}"],
+    tooling_dependencies: &["@playwright/test", "playwright"],
+    fixture_glob_patterns: &[
+        "**/fixtures/**/*.{ts,tsx,js,jsx,json}",
+        "e2e/fixtures/**/*.{ts,tsx,js,jsx,json}",
+    ],
+    resolve_config(config_path, source, root) {
         let mut result = PluginResult::default();
 
         let imports = config_parser::extract_imports(source, config_path);
@@ -67,7 +33,7 @@ impl Plugin for PlaywrightPlugin {
             result.referenced_dependencies.push(dep);
         }
 
-        // globalSetup / globalTeardown → setup files
+        // globalSetup / globalTeardown -> setup files
         if let Some(setup) =
             config_parser::extract_config_string(source, config_path, &["globalSetup"])
         {
@@ -84,8 +50,8 @@ impl Plugin for PlaywrightPlugin {
         }
 
         result
-    }
-}
+    },
+);
 
 #[cfg(test)]
 mod tests {

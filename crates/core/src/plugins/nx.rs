@@ -4,64 +4,40 @@
 //! Parses `project.json` to extract executor references as tooling dependencies
 //! and `options.main` as entry points.
 
+#[cfg(test)]
 use std::path::Path;
 
 use super::config_parser;
 use super::{Plugin, PluginResult};
 
-pub struct NxPlugin;
-
-const ENABLERS: &[&str] = &["nx"];
-
-const CONFIG_PATTERNS: &[&str] = &["**/project.json"];
-
-const ALWAYS_USED: &[&str] = &["nx.json", "**/project.json"];
-
-const TOOLING_DEPENDENCIES: &[&str] = &[
-    "nx",
-    "@nx/workspace",
-    "@nx/js",
-    "@nx/react",
-    "@nx/next",
-    "@nx/node",
-    "@nx/web",
-    "@nx/vite",
-    "@nx/jest",
-    "@nx/eslint",
-    "@nx/angular",
-    "@nx/storybook",
-    "@nx/webpack",
-    "@nx/cypress",
-    "@nx/playwright",
-    "@nx/rollup",
-    "@nx/esbuild",
-    "@nx/rspack",
-    "@nx/express",
-    "@nx/nest",
-];
-
-impl Plugin for NxPlugin {
-    fn name(&self) -> &'static str {
-        "nx"
-    }
-
-    fn enablers(&self) -> &'static [&'static str] {
-        ENABLERS
-    }
-
-    fn config_patterns(&self) -> &'static [&'static str] {
-        CONFIG_PATTERNS
-    }
-
-    fn always_used(&self) -> &'static [&'static str] {
-        ALWAYS_USED
-    }
-
-    fn tooling_dependencies(&self) -> &'static [&'static str] {
-        TOOLING_DEPENDENCIES
-    }
-
-    fn resolve_config(&self, config_path: &Path, source: &str, _root: &Path) -> PluginResult {
+define_plugin!(
+    struct NxPlugin => "nx",
+    enablers: &["nx"],
+    config_patterns: &["**/project.json"],
+    always_used: &["nx.json", "**/project.json"],
+    tooling_dependencies: &[
+        "nx",
+        "@nx/workspace",
+        "@nx/js",
+        "@nx/react",
+        "@nx/next",
+        "@nx/node",
+        "@nx/web",
+        "@nx/vite",
+        "@nx/jest",
+        "@nx/eslint",
+        "@nx/angular",
+        "@nx/storybook",
+        "@nx/webpack",
+        "@nx/cypress",
+        "@nx/playwright",
+        "@nx/rollup",
+        "@nx/esbuild",
+        "@nx/rspack",
+        "@nx/express",
+        "@nx/nest",
+    ],
+    resolve_config(config_path, source, _root) {
         let mut result = PluginResult::default();
 
         // project.json: targets.*.executor → referenced dependency
@@ -106,8 +82,8 @@ impl Plugin for NxPlugin {
         }
 
         result
-    }
-}
+    },
+);
 
 #[cfg(test)]
 mod tests {

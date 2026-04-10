@@ -13,38 +13,13 @@ use std::path::Path;
 use super::config_parser;
 use super::{Plugin, PluginResult};
 
-pub struct TypeScriptPlugin;
-
-const ENABLERS: &[&str] = &["typescript"];
-
-const CONFIG_PATTERNS: &[&str] = &["tsconfig.json", "tsconfig.*.json"];
-
-const ALWAYS_USED: &[&str] = &["tsconfig.json", "tsconfig.*.json"];
-
-const TOOLING_DEPENDENCIES: &[&str] = &["typescript", "ts-node", "tsx", "ts-loader"];
-
-impl Plugin for TypeScriptPlugin {
-    fn name(&self) -> &'static str {
-        "typescript"
-    }
-
-    fn enablers(&self) -> &'static [&'static str] {
-        ENABLERS
-    }
-
-    fn config_patterns(&self) -> &'static [&'static str] {
-        CONFIG_PATTERNS
-    }
-
-    fn always_used(&self) -> &'static [&'static str] {
-        ALWAYS_USED
-    }
-
-    fn tooling_dependencies(&self) -> &'static [&'static str] {
-        TOOLING_DEPENDENCIES
-    }
-
-    fn resolve_config(&self, config_path: &Path, source: &str, root: &Path) -> PluginResult {
+define_plugin!(
+    struct TypeScriptPlugin => "typescript",
+    enablers: &["typescript"],
+    config_patterns: &["tsconfig.json", "tsconfig.*.json"],
+    always_used: &["tsconfig.json", "tsconfig.*.json"],
+    tooling_dependencies: &["typescript", "ts-node", "tsx", "ts-loader"],
+    resolve_config(config_path, source, root) {
         let mut result = PluginResult::default();
 
         // tsconfig.json is JSON — wrap in parens to make it a valid JS expression for Oxc
@@ -117,8 +92,8 @@ impl Plugin for TypeScriptPlugin {
         parse_tsconfig_references(&parse_source, parse_path, root, &mut result);
 
         result
-    }
-}
+    },
+);
 
 /// Extract `compilerOptions.plugins[].name` from a tsconfig as referenced dependencies.
 fn parse_tsconfig_plugins(source: &str, path: &Path, result: &mut PluginResult) {
