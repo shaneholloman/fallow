@@ -7,10 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.28.0] - 2026-04-11
+
+### Added
+
+- **Configurable class member allowlist** -- new top-level `usedClassMembers` config field and per-plugin `usedClassMembers` field on external plugins extend the built-in Angular/React lifecycle allowlist with framework-invoked method names. Useful for libraries that call consumer methods reflectively through an interface contract: ag-Grid's `agInit`/`refresh`, TypeORM's `MigrationInterface.up`/`down`, Web Components' `connectedCallback`/`disconnectedCallback`/`attributeChangedCallback`, and any strategy/plugin pattern. The allowlist is merged with plugin contributions during analysis and scoped to class methods and properties, so enum members with matching names are still flagged. ([#98](https://github.com/fallow-rs/fallow/issues/98))
+- **Angular `stylePreprocessorOptions.includePaths`** -- the Angular plugin now reads `projects.*.architect.build.options.stylePreprocessorOptions.includePaths` from `angular.json`, and the Nx plugin reads the same key from `project.json`. Bare SCSS `@import 'variables'` / `@use 'mixins'` specifiers that fail file-local resolution retry against each configured include directory using the SCSS partial and directory-index conventions. Eliminates false unresolved-imports and false unused-files for Angular and Nx projects that share SCSS partials through `includePaths`. Parent-relative specifiers (`../shared/vars`) are left untouched so they cannot be silently redirected. ([#103](https://github.com/fallow-rs/fallow/issues/103))
+
 ### Fixed
 
 - **Self-referencing and cross-workspace package imports in monorepo libraries** -- when a workspace library uses its own name in import specifiers (a [Node.js v12+ feature](https://nodejs.org/api/packages.html#self-referencing-a-package-using-its-name) commonly used by Angular libraries built with `ng-packagr`), secondary entry point files are no longer reported as unused. A new workspace package fallback strips the matching package name prefix from any bare specifier whose package name is in the workspace registry and resolves the remainder against the library's source tree via `oxc_resolver::resolve_file`, bypassing the `package.json` `exports` map's pointers at compiled output. The fallback also covers cross-workspace imports in monorepos that haven't run `npm install`, where bare `@org/pkg/sub` specifiers would previously fall through to `NpmPackage` classification and create false-positive unused-file and unlisted-dependency reports. ([#106](https://github.com/fallow-rs/fallow/issues/106))
 - **SCSS `sass:*` built-in modules no longer reported as unlisted npm dependencies** -- the Sass compiler's [built-in modules](https://sass-lang.com/documentation/modules/) imported via `@use 'sass:string'`, `@use 'sass:math'`, etc. are now recognized alongside the existing `node:`, `bun:`, `cloudflare:`, and Deno `std` platform builtins. These are language-level Sass features, not npm packages, and cannot appear in `package.json`. Previously, every unique `sass:*` module used across a codebase produced a separate false-positive unlisted dependency report (up to 7 per Sass codebase for the full module set: `math`, `string`, `color`, `list`, `map`, `meta`, `selector`). The prefix guard is strict: `sass-loader`, `@types/sass`, and the `sass` compiler package itself remain normal npm packages. ([#104](https://github.com/fallow-rs/fallow/issues/104))
+- **Entry points inside ignored output directories now fall back to source index** -- when a `package.json` `main`/`module`/`exports` field resolves to a file inside an ignored output directory (`dist`, `build`, `out`, `esm`, `cjs`) and no direct source mirror exists in `src/`, fallow now probes `src/index.*`, `src/main.*`, `index.*`, `main.*` in the package root. Prevents TypeScript libraries whose compiled entry has no one-to-one source mapping (e.g. `dist/esm2022/index.js` with only `src/index.ts`) from having their entire source tree marked unreachable. Emits a single `tracing::info!` per fallback so the heuristic is visible in logs. ([#102](https://github.com/fallow-rs/fallow/issues/102))
 
 ## [2.27.6] - 2026-04-11
 
@@ -1262,7 +1270,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--changed-since` and `--fail-on-issues` for CI
 - Cross-workspace resolution for npm/yarn/pnpm workspaces
 
-[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.27.6...HEAD
+[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.28.0...HEAD
+[2.28.0]: https://github.com/fallow-rs/fallow/compare/v2.27.6...v2.28.0
 [2.27.6]: https://github.com/fallow-rs/fallow/compare/v2.27.5...v2.27.6
 [2.27.5]: https://github.com/fallow-rs/fallow/compare/v2.27.4...v2.27.5
 [2.27.4]: https://github.com/fallow-rs/fallow/compare/v2.27.3...v2.27.4
