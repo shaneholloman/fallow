@@ -423,3 +423,233 @@ pub fn compute_unused_import_bindings(
     }
     unused
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{has_public_tag, scan_jsdoc_imports_in};
+    use fallow_types::extract::{ImportInfo, ImportedName};
+
+    // ── has_public_tag ────────────────────────────────────────────
+
+    #[test]
+    fn has_public_tag_matches_bare_tag() {
+        assert!(has_public_tag(" * @public"));
+    }
+
+    #[test]
+    fn has_public_tag_matches_api_public_variant() {
+        assert!(has_public_tag(" * @api public"));
+    }
+
+    #[test]
+    fn has_public_tag_rejects_partial_word() {
+        assert!(!has_public_tag(" * @publicly"));
+    }
+
+    #[test]
+    fn has_public_tag_rejects_at_apipublic() {
+        assert!(!has_public_tag(" * @apipublic"));
+    }
+
+    #[test]
+    fn has_public_tag_rejects_missing_at() {
+        assert!(!has_public_tag(" * public"));
+    }
+
+    // ── scan_jsdoc_imports_in ─────────────────────────────────────
+
+    fn scan(body: &str) -> Vec<ImportInfo> {
+        let mut imports = Vec::new();
+        scan_jsdoc_imports_in(body, &mut imports);
+        imports
+    }
+
+    #[test]
+    fn scan_jsdoc_single_import_with_member() {
+        let imports = scan(" * @param foo {import('./types').Foo}");
+        assert_eq!(imports.len(), 1);
+        assert_eq!(imports[0].source, "./types");
+        assert_eq!(
+            imports[0].imported_name,
+            ImportedName::Named("Foo".to_string())
+        );
+        assert!(imports[0].is_type_only);
+        assert!(imports[0].local_name.is_empty());
+    }
+
+    #[test]
+    fn scan_jsdoc_double_quoted_path() {
+        let imports = scan(r#" * @type {import("./types").Foo}"#);
+        assert_eq!(imports.len(), 1);
+        assert_eq!(imports[0].source, "./types");
+    }
+
+    #[test]
+    fn scan_jsdoc_multiple_imports_in_same_body() {
+        let imports = scan(" * @param a {import('./a').A} @param b {import('./b').B}");
+        assert_eq!(imports.len(), 2);
+        assert_eq!(imports[0].source, "./a");
+        assert_eq!(imports[1].source, "./b");
+    }
+
+    #[test]
+    fn scan_jsdoc_union_annotation_captures_both_members() {
+        let imports = scan(" * @type {import('./a').A | import('./b').B}");
+        assert_eq!(imports.len(), 2);
+        assert_eq!(
+            imports[0].imported_name,
+            ImportedName::Named("A".to_string())
+        );
+        assert_eq!(
+            imports[1].imported_name,
+            ImportedName::Named("B".to_string())
+        );
+    }
+
+    #[test]
+    fn scan_jsdoc_nested_member_uses_first_segment() {
+        let imports = scan(" * @type {import('./types').ns.Foo}");
+        assert_eq!(imports.len(), 1);
+        assert_eq!(
+            imports[0].imported_name,
+            ImportedName::Named("ns".to_string())
+        );
+    }
+
+    #[test]
+    fn scan_jsdoc_parent_relative_path() {
+        let imports = scan(" * @type {import('../lib/types.js').Foo}");
+        assert_eq!(imports.len(), 1);
+        assert_eq!(imports[0].source, "../lib/types.js");
+    }
+
+    #[test]
+    fn scan_jsdoc_bare_package_specifier() {
+        let imports = scan(" * @type {import('@scope/pkg').Client}");
+        assert_eq!(imports.len(), 1);
+        assert_eq!(imports[0].source, "@scope/pkg");
+        assert_eq!(
+            imports[0].imported_name,
+            ImportedName::Named("Client".to_string())
+        );
+    }
+
+    #[test]
+    fn scan_jsdoc_without_member_is_side_effect() {
+        let imports = scan(" * @type {import('./types')}");
+        assert_eq!(imports.len(), 1);
+        assert_eq!(imports[0].source, "./types");
+        assert_eq!(imports[0].imported_name, ImportedName::SideEffect);
+        assert!(imports[0].is_type_only);
+    }
+
+    #[test]
+    fn scan_jsdoc_empty_path_is_skipped() {
+        let imports = scan(" * @type {import('').Foo}");
+        assert!(imports.is_empty());
+    }
+
+    #[test]
+    fn scan_jsdoc_truncated_no_closing_quote_does_not_panic() {
+        // `find(quote)` returns None, inner loop breaks, no panic.
+        let imports = scan(" * @type {import('./truncated");
+        assert!(imports.is_empty());
+    }
+
+    #[test]
+    fn scan_jsdoc_missing_closing_paren_is_skipped() {
+        // After the path, we expect `)`. If missing, skip this match and
+        // continue the outer loop.
+        let imports = scan(" * @type {import('./types'.Foo}");
+        assert!(imports.is_empty());
+    }
+
+    #[test]
+    fn scan_jsdoc_whitespace_between_paren_and_dot() {
+        // `import('./types') .Foo` with whitespace before the dot.
+        let imports = scan(" * @type {import('./types') .Foo}");
+        assert_eq!(imports.len(), 1);
+        assert_eq!(imports[0].source, "./types");
+        assert_eq!(
+            imports[0].imported_name,
+            ImportedName::Named("Foo".to_string())
+        );
+    }
+
+    #[test]
+    fn scan_jsdoc_whitespace_between_paren_and_quote() {
+        // `import( './types')` with whitespace between open-paren and the
+        // quote — less common but valid in loose formatters.
+        let imports = scan(" * @type {import( './types').Foo}");
+        assert_eq!(imports.len(), 1);
+        assert_eq!(imports[0].source, "./types");
+    }
+
+    #[test]
+    fn scan_jsdoc_non_quote_after_paren_skipped() {
+        // `import(identifier)` is not a string-literal form, so skip.
+        let imports = scan(" * @type {import(foo).Bar}");
+        assert!(imports.is_empty());
+    }
+
+    #[test]
+    fn scan_jsdoc_ignores_prose_with_import_word() {
+        // The word "import" not followed by `(` must not match.
+        let imports = scan(" * This is an important note about imports.");
+        assert!(imports.is_empty());
+    }
+
+    #[test]
+    fn scan_jsdoc_utf8_path_works() {
+        // Multi-byte characters in the path must not panic on slicing.
+        let imports = scan(" * @type {import('./héllo').Foo}");
+        assert_eq!(imports.len(), 1);
+        assert_eq!(imports[0].source, "./héllo");
+    }
+
+    #[test]
+    fn scan_jsdoc_empty_body_is_empty() {
+        assert!(scan("").is_empty());
+    }
+
+    #[test]
+    fn scan_jsdoc_no_import_in_body_is_empty() {
+        assert!(scan(" * @param foo The foo parameter").is_empty());
+    }
+
+    #[test]
+    fn scan_jsdoc_appends_to_existing_imports() {
+        // Ensures the scanner appends rather than replaces.
+        let mut imports = vec![ImportInfo {
+            source: "existing".to_string(),
+            imported_name: ImportedName::Default,
+            local_name: "existing".to_string(),
+            is_type_only: false,
+            span: oxc_span::Span::default(),
+            source_span: oxc_span::Span::default(),
+        }];
+        scan_jsdoc_imports_in(" * {import('./new').Foo}", &mut imports);
+        assert_eq!(imports.len(), 2);
+        assert_eq!(imports[0].source, "existing");
+        assert_eq!(imports[1].source, "./new");
+    }
+
+    #[test]
+    fn scan_jsdoc_ident_boundary_stops_at_bracket() {
+        // Member parse stops at the first non-ident char (`}` here).
+        let imports = scan(" * @type {import('./t').Abc}");
+        assert_eq!(imports.len(), 1);
+        assert_eq!(
+            imports[0].imported_name,
+            ImportedName::Named("Abc".to_string())
+        );
+    }
+
+    #[test]
+    fn scan_jsdoc_empty_member_name_is_skipped() {
+        // `import('./x').` with no ident after the dot: member name is empty,
+        // should be skipped (no ImportInfo pushed).
+        let imports = scan(" * @type {import('./x').}");
+        assert!(imports.is_empty());
+    }
+}
