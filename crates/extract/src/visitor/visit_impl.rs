@@ -773,6 +773,45 @@ impl<'a> Visit<'a> for ModuleInfoExtractor {
         }
         walk::walk_jsx_opening_element(self, element);
     }
+
+    /// Track asset references inside `` html`...` `` tagged template literals
+    /// as `SideEffect` imports.
+    ///
+    /// SSR helpers like `hono/html`, `lit-html`, and `htm` emit HTML via a
+    /// tagged template whose tag is the identifier `html`. The static markup
+    /// lives in the template quasis, and `${...}` interpolations are used for
+    /// dynamic content only. When a layout component writes
+    /// `` html`<script src="/static/app.js"></script>` ``, the `/static/app.js`
+    /// file must stay reachable from that module, exactly like the HTML parser
+    /// and the JSX `<script src>` override handle the same markup in other
+    /// file types. See issue #105 (till's follow-up comment).
+    ///
+    /// Only the `Expression::Identifier` tag named `html` is matched — member
+    /// expressions (`lit.html`), call expressions, and other identifiers are
+    /// deliberately skipped to avoid conflating unrelated tagged templates
+    /// (`css`, `sql`, `gql`, `styled.div`) with HTML. Each quasi is scanned
+    /// independently so an asset reference spanning an interpolation boundary
+    /// is ignored rather than producing a garbled, unresolvable specifier.
+    fn visit_tagged_template_expression(&mut self, expr: &TaggedTemplateExpression<'a>) {
+        if is_html_tagged_template(&expr.tag) {
+            for quasi in &expr.quasi.quasis {
+                let text = quasi
+                    .value
+                    .cooked
+                    .as_ref()
+                    .map_or_else(|| quasi.value.raw.as_str(), |c| c.as_str());
+                for raw in crate::html::collect_asset_refs(text) {
+                    self.push_jsx_asset_import(&raw);
+                }
+            }
+        }
+        walk::walk_tagged_template_expression(self, expr);
+    }
+}
+
+/// Returns true when the tagged template's tag is the bare identifier `html`.
+fn is_html_tagged_template(tag: &Expression<'_>) -> bool {
+    matches!(tag, Expression::Identifier(id) if id.name == "html")
 }
 
 impl ModuleInfoExtractor {

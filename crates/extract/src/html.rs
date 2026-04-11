@@ -64,49 +64,30 @@ pub(crate) fn is_remote_url(src: &str) -> bool {
         || src.starts_with("data:")
 }
 
-/// Parse an HTML file, extracting script and stylesheet references as imports.
-pub(crate) fn parse_html_to_module(file_id: FileId, source: &str, content_hash: u64) -> ModuleInfo {
-    let suppressions = crate::suppress::parse_suppressions_from_source(source);
-
-    // Strip HTML comments before matching to avoid false positives.
+/// Extract local (non-remote) asset references from HTML-like markup.
+///
+/// Returns the raw `src`/`href` strings (trimmed, remote URLs filtered). Shared
+/// between the HTML file parser and the JS/TS visitor's tagged template
+/// literal override so `` html`<script src="...">` `` in Hono/lit-html/htm
+/// layouts emits the same asset edges as a real `.html` file.
+pub(crate) fn collect_asset_refs(source: &str) -> Vec<String> {
     let stripped = HTML_COMMENT_RE.replace_all(source, "");
+    let mut refs: Vec<String> = Vec::new();
 
-    let mut imports = Vec::new();
-
-    // Extract <script src="..."> references.
-    // Bare filenames (e.g., `src="app.js"`) are normalized to `./app.js` so
-    // the resolver doesn't misclassify them as npm packages.
     for cap in SCRIPT_SRC_RE.captures_iter(&stripped) {
         if let Some(m) = cap.get(1) {
             let src = m.as_str().trim();
             if !src.is_empty() && !is_remote_url(src) {
-                imports.push(ImportInfo {
-                    source: normalize_asset_url(src),
-                    imported_name: ImportedName::SideEffect,
-                    local_name: String::new(),
-                    is_type_only: false,
-                    span: Span::default(),
-                    source_span: Span::default(),
-                });
+                refs.push(src.to_string());
             }
         }
     }
 
-    // Extract <link rel="stylesheet" href="..."> and <link rel="modulepreload" href="...">.
-    // Handle both attribute orders: rel before href, and href before rel.
-    // Bare filenames are normalized identically to `<script src>`.
     for cap in LINK_HREF_RE.captures_iter(&stripped) {
         if let Some(m) = cap.get(2) {
             let href = m.as_str().trim();
             if !href.is_empty() && !is_remote_url(href) {
-                imports.push(ImportInfo {
-                    source: normalize_asset_url(href),
-                    imported_name: ImportedName::SideEffect,
-                    local_name: String::new(),
-                    is_type_only: false,
-                    span: Span::default(),
-                    source_span: Span::default(),
-                });
+                refs.push(href.to_string());
             }
         }
     }
@@ -114,17 +95,31 @@ pub(crate) fn parse_html_to_module(file_id: FileId, source: &str, content_hash: 
         if let Some(m) = cap.get(1) {
             let href = m.as_str().trim();
             if !href.is_empty() && !is_remote_url(href) {
-                imports.push(ImportInfo {
-                    source: normalize_asset_url(href),
-                    imported_name: ImportedName::SideEffect,
-                    local_name: String::new(),
-                    is_type_only: false,
-                    span: Span::default(),
-                    source_span: Span::default(),
-                });
+                refs.push(href.to_string());
             }
         }
     }
+
+    refs
+}
+
+/// Parse an HTML file, extracting script and stylesheet references as imports.
+pub(crate) fn parse_html_to_module(file_id: FileId, source: &str, content_hash: u64) -> ModuleInfo {
+    let suppressions = crate::suppress::parse_suppressions_from_source(source);
+
+    // Bare filenames (e.g., `src="app.js"`) are normalized to `./app.js` so
+    // the resolver doesn't misclassify them as npm packages.
+    let mut imports: Vec<ImportInfo> = collect_asset_refs(source)
+        .into_iter()
+        .map(|raw| ImportInfo {
+            source: normalize_asset_url(&raw),
+            imported_name: ImportedName::SideEffect,
+            local_name: String::new(),
+            is_type_only: false,
+            span: Span::default(),
+            source_span: Span::default(),
+        })
+        .collect();
 
     // Deduplicate: the same asset may be referenced by both <script src> and
     // <link rel="modulepreload" href> for the same path.

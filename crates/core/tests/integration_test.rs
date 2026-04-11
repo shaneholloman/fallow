@@ -35,6 +35,8 @@ mod framework_convention_coverage_router;
 mod framework_convention_coverage_vitepress;
 #[path = "integration_test/frameworks.rs"]
 mod frameworks;
+#[path = "integration_test/hono_html_tagged_template.rs"]
+mod hono_html_tagged_template;
 #[path = "integration_test/html_entry.rs"]
 mod html_entry;
 #[path = "integration_test/jsx_assets_and_jsdoc.rs"]

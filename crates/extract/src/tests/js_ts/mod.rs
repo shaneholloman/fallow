@@ -3,6 +3,7 @@ mod classes;
 mod complexity;
 mod dynamic_imports;
 mod exports;
+mod html_tagged_template;
 mod imports;
 mod jsdoc;
 mod jsx_assets;
