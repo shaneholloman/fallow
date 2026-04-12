@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.29.1] - 2026-04-12
+
+### Fixed
+
+- **Feature flag inline suppression now works** -- `// fallow-ignore-next-line feature-flag` and `// fallow-ignore-file feature-flag` now suppress individual or all feature flag findings in the `fallow flags` command. Previously, the JSON output suggested this comment but the command never checked the suppression system, so the comment was silently ignored. Both the built-in detection loop and the custom SDK/env-prefix detection loop now call `is_suppressed()` / `is_file_suppressed()` with `IssueKind::FeatureFlag`.
+
 ## [2.29.0] - 2026-04-12
 
 ### Added
@@ -1290,7 +1296,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--changed-since` and `--fail-on-issues` for CI
 - Cross-workspace resolution for npm/yarn/pnpm workspaces
 
-[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.29.0...HEAD
+[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.29.1...HEAD
+[2.29.1]: https://github.com/fallow-rs/fallow/compare/v2.29.0...v2.29.1
 [2.29.0]: https://github.com/fallow-rs/fallow/compare/v2.28.2...v2.29.0
 [2.28.2]: https://github.com/fallow-rs/fallow/compare/v2.28.1...v2.28.2
 [2.28.1]: https://github.com/fallow-rs/fallow/compare/v2.28.0...v2.28.1
