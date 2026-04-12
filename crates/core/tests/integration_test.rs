@@ -77,3 +77,12 @@ mod workspace_cross_imports;
 mod inheritance_members;
 #[path = "integration_test/scss_partials.rs"]
 mod scss_partials;
+
+#[path = "integration_test/arrow_wrapped_imports.rs"]
+mod arrow_wrapped_imports;
+#[path = "integration_test/entry_export_validation.rs"]
+mod entry_export_validation;
+#[path = "integration_test/script_multiplexers.rs"]
+mod script_multiplexers;
+#[path = "integration_test/visibility_tags.rs"]
+mod visibility_tags;

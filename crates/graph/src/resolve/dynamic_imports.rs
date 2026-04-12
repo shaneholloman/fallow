@@ -49,16 +49,23 @@ pub(super) fn resolve_single_dynamic_import(
         return imp
             .destructured_names
             .iter()
-            .map(|name| ResolvedImport {
-                info: ImportInfo {
-                    source: imp.source.clone(),
-                    imported_name: ImportedName::Named(name.clone()),
-                    local_name: name.clone(),
-                    is_type_only: false,
-                    span: imp.span,
-                    source_span: Span::default(),
-                },
-                target: target.clone(),
+            .map(|name| {
+                let imported_name = if name == "default" {
+                    ImportedName::Default
+                } else {
+                    ImportedName::Named(name.clone())
+                };
+                ResolvedImport {
+                    info: ImportInfo {
+                        source: imp.source.clone(),
+                        imported_name,
+                        local_name: name.clone(),
+                        is_type_only: false,
+                        span: imp.span,
+                        source_span: Span::default(),
+                    },
+                    target: target.clone(),
+                }
             })
             .collect();
     }
