@@ -123,7 +123,20 @@ pub fn run_flags(opts: &FlagsOptions<'_>) -> ExitCode {
         };
 
         // Built-in flag results from parse/cache
+        let file_suppressed = fallow_core::suppress::is_file_suppressed(
+            &module.suppressions,
+            fallow_core::suppress::IssueKind::FeatureFlag,
+        );
         for flag_use in &module.flag_uses {
+            if file_suppressed
+                || fallow_core::suppress::is_suppressed(
+                    &module.suppressions,
+                    flag_use.line,
+                    fallow_core::suppress::IssueKind::FeatureFlag,
+                )
+            {
+                continue;
+            }
             flags.push(flag_use_to_feature_flag(flag_use, module, path));
         }
 
@@ -144,7 +157,13 @@ pub fn run_flags(opts: &FlagsOptions<'_>) -> ExitCode {
                 let already_found = module.flag_uses.iter().any(|existing| {
                     existing.line == flag_use.line && existing.flag_name == flag_use.flag_name
                 });
-                if !already_found {
+                if !already_found
+                    && !fallow_core::suppress::is_suppressed(
+                        &module.suppressions,
+                        flag_use.line,
+                        fallow_core::suppress::IssueKind::FeatureFlag,
+                    )
+                {
                     flags.push(flag_use_to_feature_flag(flag_use, module, path));
                 }
             }
