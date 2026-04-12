@@ -57,7 +57,7 @@ fallow watch                # Re-analyze on file changes
 
 ## Dead code
 
-Finds unused files, exports, dependencies, types, enum members, class members, unresolved imports, unlisted dependencies, duplicate exports, circular dependencies (including cross-package cycles in monorepos), boundary violations, type-only dependencies, and test-only production dependencies. Entry points are auto-detected from package.json fields, framework conventions, and plugin patterns.
+Finds unused files, exports, dependencies, types, enum members, class members, unresolved imports, unlisted dependencies, duplicate exports, circular dependencies (including cross-package cycles in monorepos), boundary violations, type-only dependencies, and test-only production dependencies. Entry points are auto-detected from package.json fields, framework conventions, and plugin patterns. Arrow-wrapped dynamic imports (`React.lazy`, `loadable`, `defineAsyncComponent`) are tracked as references. Script multiplexers (`concurrently`, `npm-run-all`) are analyzed to discover transitive script dependencies.
 
 ```bash
 fallow dead-code                          # All dead code issues
@@ -66,6 +66,8 @@ fallow dead-code --circular-deps          # Only circular dependencies
 fallow dead-code --boundary-violations    # Only boundary violations
 fallow dead-code --production             # Exclude test/dev files
 fallow dead-code --changed-since main     # Only changed files (for PRs)
+fallow dead-code --file src/utils.ts       # Single file (lint-staged integration)
+fallow dead-code --include-entry-exports  # Also check exports from entry files
 fallow dead-code --group-by owner         # Group by CODEOWNERS for team triage
 fallow dead-code --group-by directory     # Group by first directory component
 fallow dead-code --group-by package       # Group by workspace package (monorepo)
@@ -292,7 +294,7 @@ export const keepThis = 1;
 // Suppress all issues in this file
 ```
 
-Also supports `/** @public */` JSDoc tags for library exports consumed externally.
+Also supports JSDoc visibility tags (`/** @public */`, `/** @internal */`, `/** @beta */`, `/** @alpha */`) to suppress unused export reports for library APIs consumed externally.
 
 ## Limitations
 
