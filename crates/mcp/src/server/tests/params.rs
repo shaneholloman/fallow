@@ -319,6 +319,22 @@ fn find_dupes_params_cross_language_false_deserialize() {
     assert_eq!(params.cross_language, Some(false));
 }
 
+// ── FindDupesParams: ignore_imports deserialization ──────────────
+
+#[test]
+fn find_dupes_params_ignore_imports_true_deserialize() {
+    let json = r#"{"ignore_imports": true}"#;
+    let params: FindDupesParams = serde_json::from_str(json).unwrap();
+    assert_eq!(params.ignore_imports, Some(true));
+}
+
+#[test]
+fn find_dupes_params_ignore_imports_false_deserialize() {
+    let json = r#"{"ignore_imports": false}"#;
+    let params: FindDupesParams = serde_json::from_str(json).unwrap();
+    assert_eq!(params.ignore_imports, Some(false));
+}
+
 // ── FixParams: all fields deserialize ─────────────────────────────
 
 #[test]

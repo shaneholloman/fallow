@@ -133,6 +133,7 @@ pub fn run_combined(opts: &CombinedOptions<'_>) -> ExitCode {
             threshold: dupes_cfg.threshold,
             skip_local: dupes_cfg.skip_local,
             cross_language: dupes_cfg.cross_language,
+            ignore_imports: dupes_cfg.ignore_imports,
             top: None,
             baseline_path: None,
             save_baseline_path: None,

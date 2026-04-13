@@ -1,4 +1,5 @@
 use super::common::{create_config, fixture_path};
+use fallow_core::discover::{DiscoveredFile, FileId};
 
 #[test]
 fn duplicate_code_detects_exact_clones() {
@@ -164,5 +165,75 @@ fn duplicate_code_find_duplicates_in_project_convenience() {
     assert!(
         !report.clone_groups.is_empty(),
         "Convenience function should detect clones"
+    );
+}
+
+#[test]
+fn ignore_imports_removes_import_only_clones() {
+    // Create two files with identical sorted import blocks but different runtime code.
+    // Without ignore_imports, the import blocks produce clone groups.
+    // With ignore_imports, the imports are stripped and only runtime code is compared.
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let src = dir.path().join("src");
+    std::fs::create_dir_all(&src).expect("create src");
+
+    let imports = "import { A } from './a';\n\
+                    import { B } from './b';\n\
+                    import { C } from './c';\n\
+                    import { D } from './d';\n\
+                    import { E } from './e';\n\
+                    import { F } from './f';\n\
+                    import { G } from './g';\n\
+                    import { H } from './h';\n";
+
+    // File 1: identical imports + unique code
+    let file1 = format!("{imports}\nexport function foo() {{ return A + B + C; }}\n");
+    // File 2: identical imports + different code
+    let file2 = format!("{imports}\nexport function bar() {{ return D * E * F; }}\n");
+
+    std::fs::write(src.join("file1.ts"), &file1).expect("write file1");
+    std::fs::write(src.join("file2.ts"), &file2).expect("write file2");
+    std::fs::write(dir.path().join("package.json"), r#"{"name": "test"}"#)
+        .expect("write package.json");
+
+    let files = vec![
+        DiscoveredFile {
+            id: FileId(0),
+            path: src.join("file1.ts"),
+            size_bytes: file1.len() as u64,
+        },
+        DiscoveredFile {
+            id: FileId(1),
+            path: src.join("file2.ts"),
+            size_bytes: file2.len() as u64,
+        },
+    ];
+
+    // Without ignore_imports: should detect import block duplication
+    let config_with_imports = fallow_core::duplicates::DuplicatesConfig {
+        min_tokens: 10,
+        min_lines: 3,
+        ..Default::default()
+    };
+    let report_with =
+        fallow_core::duplicates::find_duplicates(dir.path(), &files, &config_with_imports);
+    assert!(
+        !report_with.clone_groups.is_empty(),
+        "Without ignore_imports, identical import blocks should be detected as clones"
+    );
+
+    // With ignore_imports: import block clones should disappear
+    let config_ignore = fallow_core::duplicates::DuplicatesConfig {
+        min_tokens: 10,
+        min_lines: 3,
+        ignore_imports: true,
+        ..Default::default()
+    };
+    let report_without =
+        fallow_core::duplicates::find_duplicates(dir.path(), &files, &config_ignore);
+    assert!(
+        report_without.clone_groups.is_empty(),
+        "With ignore_imports=true, import-only clones should be eliminated, but found {} groups",
+        report_without.clone_groups.len()
     );
 }

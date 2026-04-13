@@ -502,7 +502,7 @@ fn strip_types_non_null_assertion_matches_js() {
     let stripped = tokenize_cross_language("const x = value!;");
     let js_tokens = {
         let path = PathBuf::from("test.js");
-        tokenize_file(&path, "const x = value;").tokens
+        tokenize_file(&path, "const x = value;", false).tokens
     };
     assert_eq!(
         stripped.len(),
@@ -545,7 +545,7 @@ fn strip_types_arrow_function_matches_js() {
     let stripped = tokenize_cross_language("const add = (a: number, b: number): number => a + b;");
     let js_tokens = {
         let path = PathBuf::from("test.js");
-        tokenize_file(&path, "const add = (a, b) => a + b;").tokens
+        tokenize_file(&path, "const add = (a, b) => a + b;", false).tokens
     };
     assert_eq!(
         stripped.len(),
@@ -592,7 +592,7 @@ fn strip_types_mixed_import_keeps_only_value_import() {
 fn token_spans_are_within_source_bounds() {
     let source = "const x = 1 + 2;\nif (x > 0) { return x; }";
     let path = PathBuf::from("test.ts");
-    let result = tokenize_file(&path, source);
+    let result = tokenize_file(&path, source, false);
     let source_len = source.len() as u32;
     for (i, token) in result.tokens.iter().enumerate() {
         assert!(
@@ -626,7 +626,7 @@ fn token_spans_are_monotonically_non_decreasing() {
     // the start positions should be non-decreasing overall.
     let source = "const a = 1;\nconst b = 2;\nconst c = 3;";
     let path = PathBuf::from("test.ts");
-    let result = tokenize_file(&path, source);
+    let result = tokenize_file(&path, source, false);
     // Group by top-level statement boundaries (each `const` keyword)
     // and verify spans within each group are non-decreasing.
     let mut last_keyword_start = 0u32;

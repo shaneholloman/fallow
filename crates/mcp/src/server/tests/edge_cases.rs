@@ -903,6 +903,42 @@ fn find_dupes_args_cross_language_none_is_omitted() {
     assert!(!args.contains(&"--cross-language".to_string()));
 }
 
+// ── find_dupes: ignore_imports true ──────────────────────────────
+
+#[test]
+fn find_dupes_args_ignore_imports_true() {
+    let params = FindDupesParams {
+        ignore_imports: Some(true),
+        ..Default::default()
+    };
+    let args = build_find_dupes_args(&params).unwrap();
+    assert!(args.contains(&"--ignore-imports".to_string()));
+}
+
+// ── find_dupes: ignore_imports false is omitted ──────────────────
+
+#[test]
+fn find_dupes_args_ignore_imports_false_is_omitted() {
+    let params = FindDupesParams {
+        ignore_imports: Some(false),
+        ..Default::default()
+    };
+    let args = build_find_dupes_args(&params).unwrap();
+    assert!(!args.contains(&"--ignore-imports".to_string()));
+}
+
+// ── find_dupes: ignore_imports None is omitted ───────────────────
+
+#[test]
+fn find_dupes_args_ignore_imports_none_is_omitted() {
+    let params = FindDupesParams {
+        ignore_imports: None,
+        ..Default::default()
+    };
+    let args = build_find_dupes_args(&params).unwrap();
+    assert!(!args.contains(&"--ignore-imports".to_string()));
+}
+
 // ── find_dupes: skip_local true ───────────────────────────────────
 
 #[test]

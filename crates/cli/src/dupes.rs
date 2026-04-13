@@ -41,6 +41,7 @@ pub struct DupesOptions<'a> {
     pub threshold: f64,
     pub skip_local: bool,
     pub cross_language: bool,
+    pub ignore_imports: bool,
     pub top: Option<usize>,
     pub baseline_path: Option<&'a std::path::Path>,
     pub save_baseline_path: Option<&'a std::path::Path>,
@@ -90,6 +91,7 @@ fn build_dupes_config(
         ignore: toml_dupes.ignore.clone(),
         skip_local: opts.skip_local,
         cross_language: opts.cross_language || toml_dupes.cross_language,
+        ignore_imports: opts.ignore_imports || toml_dupes.ignore_imports,
         normalization: toml_dupes.normalization.clone(),
     }
 }
@@ -403,6 +405,7 @@ mod tests {
             threshold: 0.0,
             skip_local: false,
             cross_language: false,
+            ignore_imports: false,
             top: None,
             baseline_path: None,
             save_baseline_path: None,
@@ -647,6 +650,37 @@ mod tests {
         let toml = DuplicatesConfig::default();
         let config = build_dupes_config(&opts, &toml);
         assert!(config.skip_local);
+    }
+
+    #[test]
+    fn build_config_ignore_imports_cli_true_overrides_toml_false() {
+        let root = PathBuf::from("/project");
+        let mut opts = default_opts_for_config(&root, DupesMode::Mild);
+        opts.ignore_imports = true;
+        let toml = DuplicatesConfig::default();
+        let config = build_dupes_config(&opts, &toml);
+        assert!(config.ignore_imports);
+    }
+
+    #[test]
+    fn build_config_ignore_imports_toml_true_with_cli_false() {
+        let root = PathBuf::from("/project");
+        let opts = default_opts_for_config(&root, DupesMode::Mild);
+        let toml = DuplicatesConfig {
+            ignore_imports: true,
+            ..DuplicatesConfig::default()
+        };
+        let config = build_dupes_config(&opts, &toml);
+        assert!(config.ignore_imports, "OR semantics: toml true should win");
+    }
+
+    #[test]
+    fn build_config_ignore_imports_both_false() {
+        let root = PathBuf::from("/project");
+        let opts = default_opts_for_config(&root, DupesMode::Mild);
+        let toml = DuplicatesConfig::default();
+        let config = build_dupes_config(&opts, &toml);
+        assert!(!config.ignore_imports);
     }
 
     // ── DuplicationBaselineData integration ──────────────────────────

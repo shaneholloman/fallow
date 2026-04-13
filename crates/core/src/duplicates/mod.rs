@@ -53,6 +53,12 @@ pub fn find_duplicates(
         fallow_config::ResolvedNormalization::resolve(config.mode, &config.normalization);
 
     let strip_types = config.cross_language;
+    let skip_imports = config.ignore_imports;
+
+    tracing::debug!(
+        ignore_imports = skip_imports,
+        "duplication tokenization config"
+    );
 
     // Step 1 & 2: Tokenize and normalize all files in parallel, also parse suppressions
     let file_data: Vec<(
@@ -84,9 +90,9 @@ pub fn find_duplicates(
 
             // Tokenize (with optional type stripping for cross-language detection)
             let file_tokens = if strip_types {
-                tokenize_file_cross_language(&file.path, &source, true)
+                tokenize_file_cross_language(&file.path, &source, true, skip_imports)
             } else {
-                tokenize_file(&file.path, &source)
+                tokenize_file(&file.path, &source, skip_imports)
             };
             if file_tokens.tokens.is_empty() {
                 return None;

@@ -176,7 +176,7 @@ import { ref } from 'vue';
 const count = ref(0);
 </script>"#;
     let path = PathBuf::from("Component.vue");
-    let result = tokenize_file(&path, vue_source);
+    let result = tokenize_file(&path, vue_source, false);
     assert!(!result.tokens.is_empty(), "Vue SFC should produce tokens");
     let has_import = result
         .tokens
@@ -198,7 +198,7 @@ function increment() { count += 1; }
 </script>
 <button on:click={increment}>{count}</button>";
     let path = PathBuf::from("Component.svelte");
-    let result = tokenize_file(&path, svelte_source);
+    let result = tokenize_file(&path, svelte_source, false);
     assert!(
         !result.tokens.is_empty(),
         "Svelte SFC should produce tokens"
@@ -223,7 +223,7 @@ function increment() { count += 1; }
 fn tokenize_vue_sfc_adjusts_span_offsets() {
     let vue_source = "<template><div/></template>\n<script>\nconst x = 1;\n</script>";
     let path = PathBuf::from("Test.vue");
-    let result = tokenize_file(&path, vue_source);
+    let result = tokenize_file(&path, vue_source, false);
     // The script body starts after "<template><div/></template>\n<script>\n"
     let script_body_offset = vue_source.find("const x").unwrap() as u32;
     // All token spans should reference positions in the full SFC source,
@@ -248,7 +248,7 @@ fn tokenize_vue_sfc_adjusts_span_offsets() {
 fn tokenize_astro_extracts_frontmatter() {
     let astro_source = "---\nimport { Layout } from '../layouts/Layout.astro';\nconst title = 'Home';\n---\n<Layout title={title}><h1>Hello</h1></Layout>";
     let path = PathBuf::from("page.astro");
-    let result = tokenize_file(&path, astro_source);
+    let result = tokenize_file(&path, astro_source, false);
     assert!(
         !result.tokens.is_empty(),
         "Astro frontmatter should produce tokens"
@@ -264,7 +264,7 @@ fn tokenize_astro_extracts_frontmatter() {
 fn tokenize_astro_without_frontmatter_returns_empty() {
     let astro_source = "<html><body>Hello</body></html>";
     let path = PathBuf::from("page.astro");
-    let result = tokenize_file(&path, astro_source);
+    let result = tokenize_file(&path, astro_source, false);
     assert!(
         result.tokens.is_empty(),
         "Astro without frontmatter should produce no tokens"
@@ -275,7 +275,7 @@ fn tokenize_astro_without_frontmatter_returns_empty() {
 fn tokenize_astro_adjusts_span_offsets() {
     let astro_source = "---\nconst x = 1;\n---\n<div/>";
     let path = PathBuf::from("page.astro");
-    let result = tokenize_file(&path, astro_source);
+    let result = tokenize_file(&path, astro_source, false);
     assert!(!result.tokens.is_empty());
     // "---\n" is 4 bytes — spans should be offset from there
     for token in &result.tokens {
@@ -291,7 +291,7 @@ fn tokenize_astro_adjusts_span_offsets() {
 fn tokenize_mdx_extracts_imports_and_exports() {
     let mdx_source = "import { Button } from './Button';\nexport const meta = { title: 'Hello' };\n\n# Hello World\n\n<Button>Click me</Button>";
     let path = PathBuf::from("page.mdx");
-    let result = tokenize_file(&path, mdx_source);
+    let result = tokenize_file(&path, mdx_source, false);
     assert!(
         !result.tokens.is_empty(),
         "MDX should produce tokens from imports/exports"
@@ -312,7 +312,7 @@ fn tokenize_mdx_extracts_imports_and_exports() {
 fn tokenize_mdx_without_statements_returns_empty() {
     let mdx_source = "# Just Markdown\n\nNo imports or exports here.";
     let path = PathBuf::from("page.mdx");
-    let result = tokenize_file(&path, mdx_source);
+    let result = tokenize_file(&path, mdx_source, false);
     assert!(
         result.tokens.is_empty(),
         "MDX without imports/exports should produce no tokens"
@@ -323,7 +323,7 @@ fn tokenize_mdx_without_statements_returns_empty() {
 fn tokenize_css_returns_empty() {
     let css_source = ".foo { color: red; }\n.bar { font-size: 16px; }";
     let path = PathBuf::from("styles.css");
-    let result = tokenize_file(&path, css_source);
+    let result = tokenize_file(&path, css_source, false);
     assert!(
         result.tokens.is_empty(),
         "CSS files should produce no tokens"
@@ -335,7 +335,7 @@ fn tokenize_css_returns_empty() {
 fn tokenize_scss_returns_empty() {
     let scss_source = "$color: red;\n.foo { color: $color; }";
     let path = PathBuf::from("styles.scss");
-    let result = tokenize_file(&path, scss_source);
+    let result = tokenize_file(&path, scss_source, false);
     assert!(
         result.tokens.is_empty(),
         "SCSS files should produce no tokens"
@@ -348,7 +348,7 @@ fn tokenize_scss_returns_empty() {
 fn file_tokens_line_count_matches_source() {
     let source = "const x = 1;\nconst y = 2;\nconst z = 3;";
     let path = PathBuf::from("test.ts");
-    let result = tokenize_file(&path, source);
+    let result = tokenize_file(&path, source, false);
     assert_eq!(result.line_count, 3);
     assert_eq!(result.source, source);
 }
@@ -356,7 +356,7 @@ fn file_tokens_line_count_matches_source() {
 #[test]
 fn file_tokens_line_count_minimum_is_one() {
     let path = PathBuf::from("test.ts");
-    let result = tokenize_file(&path, "");
+    let result = tokenize_file(&path, "", false);
     assert_eq!(result.line_count, 1, "Empty file should have line_count 1");
 }
 
@@ -375,7 +375,7 @@ return (
 }
 "#;
     let path = PathBuf::from("app.js");
-    let result = tokenize_file(&path, jsx_code);
+    let result = tokenize_file(&path, jsx_code, false);
     let has_brackets = result
         .tokens
         .iter()
@@ -389,6 +389,6 @@ return (
 #[test]
 fn tokenize_no_extension_uses_default_source_type() {
     let path = PathBuf::from("Makefile");
-    let result = tokenize_file(&path, "const x = 1;");
+    let result = tokenize_file(&path, "const x = 1;", false);
     assert!(result.line_count >= 1);
 }

@@ -20,7 +20,7 @@ fn strip_types_removes_parameter_type_annotations() {
 
     let js_tokens = {
         let path = PathBuf::from("test.js");
-        tokenize_file(&path, "function foo(x) { return x; }").tokens
+        tokenize_file(&path, "function foo(x) { return x; }", false).tokens
     };
     assert_eq!(
         stripped.len(),
@@ -160,7 +160,7 @@ fn strip_types_removes_generic_type_parameters() {
     let stripped = tokenize_cross_language("function identity<T>(x: T): T { return x; }");
     let js_tokens = {
         let path = PathBuf::from("test.js");
-        tokenize_file(&path, "function identity(x) { return x; }").tokens
+        tokenize_file(&path, "function identity(x) { return x; }", false).tokens
     };
     assert_eq!(
         stripped.len(),
@@ -228,7 +228,7 @@ return "too young";
     let stripped = tokenize_cross_language(ts_code);
     let js_tokens = {
         let path = PathBuf::from("test.js");
-        tokenize_file(&path, js_code).tokens
+        tokenize_file(&path, js_code, false).tokens
     };
 
     assert_eq!(
@@ -270,6 +270,7 @@ fn strip_types_removes_complex_generics() {
         tokenize_file(
             &path,
             "function merge(a, b) { return Object.assign(a, b); }",
+            false,
         )
         .tokens
     };
@@ -302,7 +303,7 @@ import { ref } from 'vue';
 const count: Ref<number> = ref(0);
 </script>"#;
     let path = PathBuf::from("Component.vue");
-    let result = tokenize_file_cross_language(&path, vue_source, true);
+    let result = tokenize_file_cross_language(&path, vue_source, true, false);
     let import_count = result
         .tokens
         .iter()
@@ -318,7 +319,7 @@ const count: Ref<number> = ref(0);
 fn tokenize_cross_language_produces_correct_metadata() {
     let path = PathBuf::from("test.ts");
     let source = "const x: number = 1;\nconst y: string = 'hello';";
-    let result = tokenize_file_cross_language(&path, source, true);
+    let result = tokenize_file_cross_language(&path, source, true, false);
     assert_eq!(result.line_count, 2);
     assert_eq!(result.source, source);
     assert!(!result.tokens.is_empty());
@@ -366,7 +367,7 @@ fn strip_types_non_null_assertion_matches_js() {
     let stripped = tokenize_cross_language("const x = value!;");
     let js_tokens = {
         let path = PathBuf::from("test.js");
-        tokenize_file(&path, "const x = value;").tokens
+        tokenize_file(&path, "const x = value;", false).tokens
     };
     assert_eq!(
         stripped.len(),
@@ -400,7 +401,7 @@ fn strip_types_arrow_function_matches_js() {
     let stripped = tokenize_cross_language("const add = (a: number, b: number): number => a + b;");
     let js_tokens = {
         let path = PathBuf::from("test.js");
-        tokenize_file(&path, "const add = (a, b) => a + b;").tokens
+        tokenize_file(&path, "const add = (a, b) => a + b;", false).tokens
     };
     assert_eq!(
         stripped.len(),

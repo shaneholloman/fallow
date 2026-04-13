@@ -93,6 +93,10 @@ inputs:
     description: 'Strip TypeScript type annotations for TS<->JS clone matching (dupes command)'
     required: false
     default: 'false'
+  ignore-imports:
+    description: 'Exclude import declarations from clone detection (dupes command)'
+    required: false
+    default: 'false'
   # Workspace
   workspace:
     description: 'Scope output to a single workspace package by name (monorepo support)'
@@ -239,6 +243,7 @@ runs:
         INPUT_THRESHOLD: ${{ inputs.threshold }}
         INPUT_SKIP_LOCAL: ${{ inputs.skip-local }}
         INPUT_CROSS_LANGUAGE: ${{ inputs.cross-language }}
+        INPUT_IGNORE_IMPORTS: ${{ inputs.ignore-imports }}
         INPUT_DRY_RUN: ${{ inputs.dry-run }}
         INPUT_WORKSPACE: ${{ inputs.workspace }}
         INPUT_MAX_CYCLOMATIC: ${{ inputs.max-cyclomatic }}

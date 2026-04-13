@@ -14,8 +14,8 @@ mod inner {
         #[test]
         fn tokenize_is_deterministic(source in "[a-zA-Z0-9 (){};=+\\-*/'\",.<>:!?\\n]{1,200}") {
             let path = PathBuf::from("test.ts");
-            let tokens1 = tokenize_file(&path, &source).tokens;
-            let tokens2 = tokenize_file(&path, &source).tokens;
+            let tokens1 = tokenize_file(&path, &source, false).tokens;
+            let tokens2 = tokenize_file(&path, &source, false).tokens;
             prop_assert_eq!(tokens1.len(), tokens2.len(), "Token count should be deterministic");
             for (a, b) in tokens1.iter().zip(tokens2.iter()) {
                 prop_assert_eq!(&a.kind, &b.kind, "Token kinds should match");
@@ -28,7 +28,7 @@ mod inner {
         #[test]
         fn all_spans_within_source_bounds(source in "[a-zA-Z0-9 (){};=+\\-*/'\",.<>:!?\\n]{1,200}") {
             let path = PathBuf::from("test.ts");
-            let file_tokens = tokenize_file(&path, &source);
+            let file_tokens = tokenize_file(&path, &source, false);
             let source_len = file_tokens.source.len() as u32;
             for token in &file_tokens.tokens {
                 prop_assert!(
@@ -53,14 +53,14 @@ mod inner {
         #[test]
         fn tokenize_never_panics(source in "[a-zA-Z0-9 (){};=+\\-*/'\",.<>:!?\\[\\]\\n]{0,300}") {
             let path = PathBuf::from("test.ts");
-            let _ = tokenize_file(&path, &source);
+            let _ = tokenize_file(&path, &source, false);
         }
 
         /// Line count is always >= 1.
         #[test]
         fn line_count_at_least_one(source in ".*") {
             let path = PathBuf::from("test.ts");
-            let ft = tokenize_file(&path, &source);
+            let ft = tokenize_file(&path, &source, false);
             prop_assert!(ft.line_count >= 1, "line_count should be at least 1");
         }
     }

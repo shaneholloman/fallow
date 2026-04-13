@@ -20,13 +20,17 @@ pub(super) struct TokenExtractor {
     /// When true, skip TypeScript type annotations, interfaces, and type aliases
     /// to enable cross-language clone detection between .ts and .js files.
     strip_types: bool,
+    /// When true, skip all `import` declarations from the token stream to reduce
+    /// noise from sorted import blocks that naturally look similar across files.
+    skip_imports: bool,
 }
 
 impl TokenExtractor {
-    pub(super) const fn with_strip_types(strip_types: bool) -> Self {
+    pub(super) const fn new(strip_types: bool, skip_imports: bool) -> Self {
         Self {
             tokens: Vec::new(),
             strip_types,
+            skip_imports,
         }
     }
 
@@ -468,6 +472,10 @@ impl<'a> Visit<'a> for TokenExtractor {
     // ── Import/Export ───────────────────────────────────────
 
     fn visit_import_declaration(&mut self, decl: &ImportDeclaration<'a>) {
+        // Skip all import declarations when ignoring imports for duplication detection
+        if self.skip_imports {
+            return;
+        }
         // Skip `import type { ... } from '...'` when stripping types
         if self.strip_types && decl.import_kind.is_type() {
             return;

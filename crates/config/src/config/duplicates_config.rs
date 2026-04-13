@@ -53,6 +53,16 @@ pub struct DuplicatesConfig {
     #[serde(default)]
     pub cross_language: bool,
 
+    /// Exclude ES `import` declarations from clone detection.
+    ///
+    /// When enabled, all `import` statements (value imports, type imports, and
+    /// side-effect imports) are stripped from the token stream before clone
+    /// detection. This reduces noise from sorted import blocks that naturally
+    /// look similar across files. Only affects ES `import` declarations;
+    /// CommonJS `require()` calls are not filtered.
+    #[serde(default)]
+    pub ignore_imports: bool,
+
     /// Fine-grained normalization overrides on top of the detection mode.
     #[serde(default)]
     pub normalization: NormalizationConfig,
@@ -69,6 +79,7 @@ impl Default for DuplicatesConfig {
             ignore: vec![],
             skip_local: false,
             cross_language: false,
+            ignore_imports: false,
             normalization: NormalizationConfig::default(),
         }
     }
@@ -187,6 +198,7 @@ mod tests {
         assert!(config.ignore.is_empty());
         assert!(!config.skip_local);
         assert!(!config.cross_language);
+        assert!(!config.ignore_imports);
     }
 
     // ── DetectionMode FromStr ────────────────────────────────────────
@@ -337,7 +349,8 @@ mod tests {
             "threshold": 5.0,
             "ignore": ["**/vendor/**"],
             "skipLocal": true,
-            "crossLanguage": true
+            "crossLanguage": true,
+            "ignoreImports": true
         }"#;
         let config: DuplicatesConfig = serde_json::from_str(json).unwrap();
         assert!(!config.enabled);
@@ -348,6 +361,7 @@ mod tests {
         assert_eq!(config.ignore, vec!["**/vendor/**"]);
         assert!(config.skip_local);
         assert!(config.cross_language);
+        assert!(config.ignore_imports);
     }
 
     #[test]
@@ -385,6 +399,7 @@ threshold = 3.0
 ignore = ["vendor/**"]
 skipLocal = true
 crossLanguage = true
+ignoreImports = true
 
 [normalization]
 ignoreIdentifiers = true
@@ -400,6 +415,7 @@ ignoreNumericValues = false
         assert_eq!(config.ignore, vec!["vendor/**"]);
         assert!(config.skip_local);
         assert!(config.cross_language);
+        assert!(config.ignore_imports);
         assert_eq!(config.normalization.ignore_identifiers, Some(true));
         assert_eq!(config.normalization.ignore_string_values, Some(true));
         assert_eq!(config.normalization.ignore_numeric_values, Some(false));
@@ -500,6 +516,7 @@ ignoreNumericValues = false
             ignore: vec!["test/**".to_string()],
             skip_local: true,
             cross_language: true,
+            ignore_imports: true,
             normalization: NormalizationConfig {
                 ignore_identifiers: Some(true),
                 ignore_string_values: None,
@@ -515,6 +532,7 @@ ignoreNumericValues = false
         assert!((restored.threshold - 5.5).abs() < f64::EPSILON);
         assert!(restored.skip_local);
         assert!(restored.cross_language);
+        assert!(restored.ignore_imports);
         assert_eq!(restored.normalization.ignore_identifiers, Some(true));
         assert!(restored.normalization.ignore_string_values.is_none());
         assert_eq!(restored.normalization.ignore_numeric_values, Some(false));

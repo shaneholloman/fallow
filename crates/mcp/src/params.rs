@@ -139,6 +139,9 @@ pub struct FindDupesParams {
     /// Enable cross-language detection (strip TS type annotations for TS<->JS matching).
     pub cross_language: Option<bool>,
 
+    /// Exclude import declarations from clone detection (reduces noise from sorted import blocks).
+    pub ignore_imports: Option<bool>,
+
     /// Show only the N largest clone groups.
     pub top: Option<usize>,
 

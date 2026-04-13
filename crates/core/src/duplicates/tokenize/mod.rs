@@ -20,36 +20,49 @@ use super::token_visitor::TokenExtractor;
 /// When `strip_types` is true, TypeScript type annotations, interfaces, and type
 /// aliases are stripped from the token stream. This enables cross-language clone
 /// detection between `.ts` and `.js` files.
+///
+/// When `skip_imports` is true, ES `import` declarations are excluded from the
+/// token stream to reduce noise from sorted import blocks.
 #[must_use]
-pub fn tokenize_file(path: &Path, source: &str) -> FileTokens {
-    tokenize_file_inner(path, source, false)
+pub fn tokenize_file(path: &Path, source: &str, skip_imports: bool) -> FileTokens {
+    tokenize_file_inner(path, source, false, skip_imports)
 }
 
 /// Tokenize a source file with optional type stripping for cross-language detection.
 #[must_use]
-pub fn tokenize_file_cross_language(path: &Path, source: &str, strip_types: bool) -> FileTokens {
-    tokenize_file_inner(path, source, strip_types)
+pub fn tokenize_file_cross_language(
+    path: &Path,
+    source: &str,
+    strip_types: bool,
+    skip_imports: bool,
+) -> FileTokens {
+    tokenize_file_inner(path, source, strip_types, skip_imports)
 }
 
-fn tokenize_file_inner(path: &Path, source: &str, strip_types: bool) -> FileTokens {
+fn tokenize_file_inner(
+    path: &Path,
+    source: &str,
+    strip_types: bool,
+    skip_imports: bool,
+) -> FileTokens {
     use crate::extract::{extract_astro_frontmatter, extract_mdx_statements, is_sfc_file};
 
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
     if is_sfc_file(path) {
-        return tokenize_sfc(source, strip_types);
+        return tokenize_sfc(source, strip_types, skip_imports);
     }
     if ext == "astro" {
-        return tokenize_astro(source, strip_types, extract_astro_frontmatter);
+        return tokenize_astro(source, strip_types, skip_imports, extract_astro_frontmatter);
     }
     if ext == "mdx" {
-        return tokenize_mdx(source, strip_types, extract_mdx_statements);
+        return tokenize_mdx(source, strip_types, skip_imports, extract_mdx_statements);
     }
     if ext == "css" || ext == "scss" {
         return empty_tokens(source);
     }
 
-    tokenize_js_ts(path, source, strip_types)
+    tokenize_js_ts(path, source, strip_types, skip_imports)
 }
 
 /// Tokenize Vue/Svelte SFC `<script>` blocks.
@@ -57,7 +70,7 @@ fn tokenize_file_inner(path: &Path, source: &str, strip_types: bool) -> FileToke
     clippy::cast_possible_truncation,
     reason = "byte offsets are bounded by source size"
 )]
-fn tokenize_sfc(source: &str, strip_types: bool) -> FileTokens {
+fn tokenize_sfc(source: &str, strip_types: bool, skip_imports: bool) -> FileTokens {
     let scripts = crate::extract::extract_sfc_scripts(source);
     let mut all_tokens = Vec::new();
 
@@ -71,7 +84,7 @@ fn tokenize_sfc(source: &str, strip_types: bool) -> FileTokens {
         let allocator = Allocator::default();
         let parser_return = Parser::new(&allocator, &script.body, source_type).parse();
 
-        let mut extractor = TokenExtractor::with_strip_types(strip_types);
+        let mut extractor = TokenExtractor::new(strip_types, skip_imports);
         extractor.visit_program(&parser_return.program);
 
         let offset = script.byte_offset as u32;
@@ -96,13 +109,14 @@ fn tokenize_sfc(source: &str, strip_types: bool) -> FileTokens {
 fn tokenize_astro(
     source: &str,
     strip_types: bool,
+    skip_imports: bool,
     extract_fn: fn(&str) -> Option<fallow_extract::sfc::SfcScript>,
 ) -> FileTokens {
     if let Some(script) = extract_fn(source) {
         let allocator = Allocator::default();
         let parser_return = Parser::new(&allocator, &script.body, SourceType::ts()).parse();
 
-        let mut extractor = TokenExtractor::with_strip_types(strip_types);
+        let mut extractor = TokenExtractor::new(strip_types, skip_imports);
         extractor.visit_program(&parser_return.program);
 
         let offset = script.byte_offset as u32;
@@ -120,13 +134,18 @@ fn tokenize_astro(
 }
 
 /// Tokenize MDX import/export statements.
-fn tokenize_mdx(source: &str, strip_types: bool, extract_fn: fn(&str) -> String) -> FileTokens {
+fn tokenize_mdx(
+    source: &str,
+    strip_types: bool,
+    skip_imports: bool,
+    extract_fn: fn(&str) -> String,
+) -> FileTokens {
     let statements = extract_fn(source);
     if !statements.is_empty() {
         let allocator = Allocator::default();
         let parser_return = Parser::new(&allocator, &statements, SourceType::jsx()).parse();
 
-        let mut extractor = TokenExtractor::with_strip_types(strip_types);
+        let mut extractor = TokenExtractor::new(strip_types, skip_imports);
         extractor.visit_program(&parser_return.program);
 
         return FileTokens {
@@ -148,12 +167,12 @@ fn empty_tokens(source: &str) -> FileTokens {
 }
 
 /// Tokenize a standard JS/TS file, with JSX fallback for parse errors.
-fn tokenize_js_ts(path: &Path, source: &str, strip_types: bool) -> FileTokens {
+fn tokenize_js_ts(path: &Path, source: &str, strip_types: bool, skip_imports: bool) -> FileTokens {
     let source_type = SourceType::from_path(path).unwrap_or_default();
     let allocator = Allocator::default();
     let parser_return = Parser::new(&allocator, source, source_type).parse();
 
-    let mut extractor = TokenExtractor::with_strip_types(strip_types);
+    let mut extractor = TokenExtractor::new(strip_types, skip_imports);
     extractor.visit_program(&parser_return.program);
 
     // If parsing produced very few tokens relative to source size (likely parse errors
@@ -166,7 +185,7 @@ fn tokenize_js_ts(path: &Path, source: &str, strip_types: bool) -> FileTokens {
         };
         let allocator2 = Allocator::default();
         let retry_return = Parser::new(&allocator2, source, jsx_type).parse();
-        let mut retry_extractor = TokenExtractor::with_strip_types(strip_types);
+        let mut retry_extractor = TokenExtractor::new(strip_types, skip_imports);
         retry_extractor.visit_program(&retry_return.program);
         if retry_extractor.tokens.len() > extractor.tokens.len() {
             extractor = retry_extractor;

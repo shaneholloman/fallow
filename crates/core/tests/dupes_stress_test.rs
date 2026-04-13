@@ -321,8 +321,8 @@ function handlePayload(payload) {
 
     use fallow_core::duplicates::tokenize::tokenize_file;
 
-    let ft_a = tokenize_file(&PathBuf::from("a.ts"), code_a);
-    let ft_b = tokenize_file(&PathBuf::from("b.ts"), code_b);
+    let ft_a = tokenize_file(&PathBuf::from("a.ts"), code_a, false);
+    let ft_b = tokenize_file(&PathBuf::from("b.ts"), code_b, false);
 
     // Normalize in semantic mode (blinds identifiers).
     let hashed_a = normalize_and_hash(&ft_a.tokens, DetectionMode::Semantic);
@@ -348,8 +348,8 @@ function handlePayload(payload) {
     // because identifiers are NOT blinded and thus differ across files.
     // (Keywords and punctuation still match, so small structural fragments may
     // appear, but the whole-function match should only exist in semantic mode.)
-    let ft_a2 = tokenize_file(&PathBuf::from("a.ts"), code_a);
-    let ft_b2 = tokenize_file(&PathBuf::from("b.ts"), code_b);
+    let ft_a2 = tokenize_file(&PathBuf::from("a.ts"), code_a, false);
+    let ft_b2 = tokenize_file(&PathBuf::from("b.ts"), code_b, false);
     let hashed_a2 = normalize_and_hash(&ft_a2.tokens, DetectionMode::Strict);
     let hashed_b2 = normalize_and_hash(&ft_b2.tokens, DetectionMode::Strict);
 

@@ -46,6 +46,9 @@ pub fn build_find_dupes_args(params: &FindDupesParams) -> Result<Vec<String>, St
     if params.cross_language == Some(true) {
         args.push("--cross-language".to_string());
     }
+    if params.ignore_imports == Some(true) {
+        args.push("--ignore-imports".to_string());
+    }
     if let Some(top) = params.top {
         args.extend(["--top".to_string(), top.to_string()]);
     }

@@ -68,6 +68,7 @@ build_command_args() {
       [ -n "${INPUT_THRESHOLD:-}" ] && ARGS+=(--threshold "$INPUT_THRESHOLD")
       [ "${INPUT_SKIP_LOCAL:-}" = "true" ] && ARGS+=(--skip-local)
       [ "${INPUT_CROSS_LANGUAGE:-}" = "true" ] && ARGS+=(--cross-language)
+      [ "${INPUT_IGNORE_IMPORTS:-}" = "true" ] && ARGS+=(--ignore-imports)
       [ "$include_top" = "true" ] && [ -n "${INPUT_TOP:-}" ] && ARGS+=(--top "$INPUT_TOP")
       ;;
     health)

@@ -359,6 +359,10 @@ enum Command {
         #[arg(long)]
         cross_language: bool,
 
+        /// Exclude import declarations from clone detection (reduces noise from sorted import blocks)
+        #[arg(long)]
+        ignore_imports: bool,
+
         /// Show only the N largest clone groups
         #[arg(long)]
         top: Option<usize>,
@@ -1189,6 +1193,7 @@ fn dispatch_subcommand(
             threshold,
             skip_local,
             cross_language,
+            ignore_imports,
             top,
             trace,
         } => {
@@ -1212,6 +1217,7 @@ fn dispatch_subcommand(
                 threshold,
                 skip_local,
                 cross_language,
+                ignore_imports,
                 top,
                 baseline_path: cli.baseline.as_deref(),
                 save_baseline_path: cli.save_baseline.as_deref(),

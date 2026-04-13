@@ -92,6 +92,7 @@
         "ignore": [],
         "skipLocal": false,
         "crossLanguage": false,
+        "ignoreImports": false,
         "normalization": {}
       }
     },
@@ -491,6 +492,11 @@
         },
         "crossLanguage": {
           "description": "Enable cross-language clone detection by stripping type annotations.\n\nWhen enabled, TypeScript type annotations (parameter types, return types,\ngenerics, interfaces, type aliases) are stripped from the token stream,\nallowing detection of clones between `.ts` and `.js` files.",
+          "type": "boolean",
+          "default": false
+        },
+        "ignoreImports": {
+          "description": "Exclude ES `import` declarations from clone detection.\n\nWhen enabled, all `import` statements (value imports, type imports, and\nside-effect imports) are stripped from the token stream before clone\ndetection. This reduces noise from sorted import blocks that naturally\nlook similar across files. Only affects ES `import` declarations;\nCommonJS `require()` calls are not filtered.",
           "type": "boolean",
           "default": false
         },

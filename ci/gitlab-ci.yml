@@ -107,6 +107,7 @@ variables:
   FALLOW_THRESHOLD: ""          # Fail if duplication exceeds this %
   FALLOW_SKIP_LOCAL: "false"
   FALLOW_CROSS_LANGUAGE: "false"
+  FALLOW_IGNORE_IMPORTS: "false"
 
   # Health specific
   FALLOW_MAX_CYCLOMATIC: ""
@@ -294,6 +295,7 @@ variables:
           [ -n "$FALLOW_THRESHOLD" ]           && ARGS+=(--threshold "$FALLOW_THRESHOLD")
           [ "$FALLOW_SKIP_LOCAL" = "true" ]    && ARGS+=(--skip-local)
           [ "$FALLOW_CROSS_LANGUAGE" = "true" ] && ARGS+=(--cross-language)
+          [ "$FALLOW_IGNORE_IMPORTS" = "true" ] && ARGS+=(--ignore-imports)
           [ -n "$FALLOW_TOP" ]                 && ARGS+=(--top "$FALLOW_TOP")
           ;;
         health)

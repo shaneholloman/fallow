@@ -262,6 +262,7 @@ fn find_dupes_schema_contains_expected_properties() {
         "threshold",
         "skip_local",
         "cross_language",
+        "ignore_imports",
         "top",
         "baseline",
         "save_baseline",

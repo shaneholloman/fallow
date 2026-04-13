@@ -345,10 +345,26 @@ fn run_audit_check<'a>(
 }
 
 /// Run duplication analysis for the audit pipeline.
+///
+/// Reads duplication settings from the project config file so that user
+/// options like `ignoreImports`, `crossLanguage`, and `skipLocal` are
+/// respected (same as combined mode).
 fn run_audit_dupes<'a>(
     opts: &'a AuditOptions<'a>,
     changed_since: Option<&'a str>,
 ) -> Result<Option<DupesResult>, ExitCode> {
+    let dupes_cfg = match crate::load_config(
+        opts.root,
+        opts.config_path,
+        opts.output,
+        opts.no_cache,
+        opts.threads,
+        opts.production,
+        opts.quiet,
+    ) {
+        Ok(c) => c.duplicates,
+        Err(code) => return Err(code),
+    };
     match crate::dupes::execute_dupes(&DupesOptions {
         root: opts.root,
         config_path: opts.config_path,
@@ -356,12 +372,13 @@ fn run_audit_dupes<'a>(
         no_cache: opts.no_cache,
         threads: opts.threads,
         quiet: opts.quiet,
-        mode: DupesMode::Mild,
-        min_tokens: 50,
-        min_lines: 5,
-        threshold: 0.0,
-        skip_local: false,
-        cross_language: false,
+        mode: DupesMode::from(dupes_cfg.mode),
+        min_tokens: dupes_cfg.min_tokens,
+        min_lines: dupes_cfg.min_lines,
+        threshold: dupes_cfg.threshold,
+        skip_local: dupes_cfg.skip_local,
+        cross_language: dupes_cfg.cross_language,
+        ignore_imports: dupes_cfg.ignore_imports,
         top: None,
         baseline_path: None,
         save_baseline_path: None,
