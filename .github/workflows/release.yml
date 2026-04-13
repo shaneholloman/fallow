@@ -213,6 +213,7 @@ jobs:
           name: npm-${{ matrix.npm_dir }}
           path: |
             target/${{ matrix.target }}/release/${{ matrix.binary }}
+            target/${{ matrix.target }}/release/${{ matrix.lsp_binary }}
             target/${{ matrix.target }}/release/${{ matrix.mcp_binary }}
 
   release:
@@ -282,7 +283,7 @@ jobs:
 
       - name: Set binary permissions
         run: |
-          for bin in npm/*/fallow npm/*/fallow-mcp; do
+          for bin in npm/*/fallow npm/*/fallow-lsp npm/*/fallow-mcp; do
             [ -f "$bin" ] && chmod +x "$bin"
           done
 

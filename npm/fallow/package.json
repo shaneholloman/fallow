@@ -26,6 +26,7 @@
   },
   "bin": {
     "fallow": "bin/fallow",
+    "fallow-lsp": "bin/fallow-lsp",
     "fallow-mcp": "bin/fallow-mcp"
   },
   "files": [

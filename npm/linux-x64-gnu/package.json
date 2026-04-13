@@ -15,6 +15,7 @@
   ],
   "files": [
     "fallow",
+    "fallow-lsp",
     "fallow-mcp"
   ]
 }

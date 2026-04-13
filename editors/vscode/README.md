@@ -26,7 +26,7 @@ code --install-extension fallow-rs.fallow-vscode
 
 ### Manual
 
-1. Install the `fallow` and `fallow-lsp` binaries (see [fallow installation](https://docs.fallow.tools/installation))
+1. Install the `fallow` npm package or the standalone `fallow` / `fallow-lsp` binaries (see [fallow installation](https://docs.fallow.tools/installation))
 2. Install the extension VSIX file: `code --install-extension fallow-vscode-*.vsix`
 
 ## Commands
@@ -56,9 +56,10 @@ code --install-extension fallow-rs.fallow-vscode
 The extension looks for the `fallow-lsp` binary in this order:
 
 1. `fallow.lspPath` setting (if configured)
-2. `fallow-lsp` in `PATH`
-3. Previously downloaded binary in extension storage
-4. Auto-download from GitHub releases (if `fallow.autoDownload` is enabled)
+2. Local `node_modules/.bin/fallow-lsp`
+3. `fallow-lsp` in `PATH`
+4. Previously downloaded binary in extension storage
+5. Auto-download from GitHub releases (if `fallow.autoDownload` is enabled)
 
 ## Development
 

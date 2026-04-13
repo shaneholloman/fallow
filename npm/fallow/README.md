@@ -14,6 +14,8 @@ Unused code, circular dependencies, code duplication, complexity hotspots, and a
 npm install -g fallow
 ```
 
+This installs the `fallow` CLI plus the companion `fallow-lsp` and `fallow-mcp` binaries.
+
 ## Usage
 
 ```bash
