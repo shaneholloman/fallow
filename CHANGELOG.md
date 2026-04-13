@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.32.0] - 2026-04-13
+
+### Added
+
+- **Stale suppression detection** -- detects orphaned `// fallow-ignore-next-line` and `// fallow-ignore-file` comments that no longer match any active issue. Implemented via a `SuppressionContext` that tracks which suppressions are consumed by detectors during analysis. Default severity: `warn` (reports without failing CI). Non-core suppression kinds (complexity, feature flags, code duplication, dependency-level) are excluded from stale detection to avoid false positives. New `--stale-suppressions` CLI flag to filter output to stale findings only. Full support across all 6 output formats, LSP diagnostics (`HINT` severity with `UNNECESSARY` tag), MCP server, GitHub Action annotations, and GitLab CI summaries.
+- **`@expected-unused` JSDoc tag** -- marks an export as intentionally unused. Unlike `@public` (permanent exemption), `@expected-unused` reports a stale suppression when the export becomes used (gains references from reachable modules). Useful for API completeness patterns where exports exist for symmetry but have no internal consumers yet.
+- **Structured suppression origin in JSON output** -- stale suppression findings include a discriminated `origin` field (`"type": "comment"` with `issue_kind` and `is_file_level`, or `"type": "jsdoc_tag"` with `export_name`) for machine consumers to distinguish inline comments from JSDoc tags.
+
+### Fixed
+
+- **Health test no longer fails with global git signing config** -- isolated temp repo git operations from global config (`GIT_CONFIG_GLOBAL=/dev/null`) to prevent commit signing requirements from breaking the `--changed-since` integration test.
+
 ## [2.31.0] - 2026-04-13
 
 ### Added
@@ -1322,7 +1334,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--changed-since` and `--fail-on-issues` for CI
 - Cross-workspace resolution for npm/yarn/pnpm workspaces
 
-[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.31.0...HEAD
+[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.32.0...HEAD
+[2.32.0]: https://github.com/fallow-rs/fallow/compare/v2.31.0...v2.32.0
 [2.31.0]: https://github.com/fallow-rs/fallow/compare/v2.30.0...v2.31.0
 [2.30.0]: https://github.com/fallow-rs/fallow/compare/v2.29.1...v2.30.0
 [2.29.1]: https://github.com/fallow-rs/fallow/compare/v2.29.0...v2.29.1
