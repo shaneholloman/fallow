@@ -34,18 +34,18 @@ struct FunctionFrame {
 }
 
 /// AST visitor that computes per-function complexity metrics.
-pub struct ComplexityVisitor {
+pub struct ComplexityVisitor<'a> {
     stack: Vec<FunctionFrame>,
     pub results: Vec<FunctionComplexity>,
     /// Line offsets for byte-offset to line/col conversion.
-    line_offsets: Vec<u32>,
+    line_offsets: &'a [u32],
     /// Name override from a parent node (e.g., method name from `MethodDefinition`,
     /// variable name from `const foo = function() {}`).
     pending_name: Option<String>,
 }
 
-impl ComplexityVisitor {
-    pub const fn new(line_offsets: Vec<u32>) -> Self {
+impl<'a> ComplexityVisitor<'a> {
+    pub const fn new(line_offsets: &'a [u32]) -> Self {
         Self {
             stack: Vec::new(),
             results: Vec::new(),
@@ -68,13 +68,10 @@ impl ComplexityVisitor {
 
     fn pop_function(&mut self) {
         if let Some(frame) = self.stack.pop() {
-            let (line, col) = fallow_types::extract::byte_offset_to_line_col(
-                &self.line_offsets,
-                frame.span.start,
-            );
+            let (line, col) =
+                fallow_types::extract::byte_offset_to_line_col(self.line_offsets, frame.span.start);
             let end_line =
-                fallow_types::extract::byte_offset_to_line_col(&self.line_offsets, frame.span.end)
-                    .0;
+                fallow_types::extract::byte_offset_to_line_col(self.line_offsets, frame.span.end).0;
             self.results.push(FunctionComplexity {
                 name: frame.name,
                 line,
@@ -179,10 +176,10 @@ impl ComplexityVisitor {
     }
 }
 
-impl<'a> Visit<'a> for ComplexityVisitor {
+impl<'ast> Visit<'ast> for ComplexityVisitor<'_> {
     // ── Function boundaries ─────────────────────────────────────
 
-    fn visit_function(&mut self, func: &Function<'a>, flags: ScopeFlags) {
+    fn visit_function(&mut self, func: &Function<'ast>, flags: ScopeFlags) {
         // Prefer the function's own name (func.id) over pending_name from parent
         let name = func
             .id
@@ -210,7 +207,7 @@ impl<'a> Visit<'a> for ComplexityVisitor {
         }
     }
 
-    fn visit_arrow_function_expression(&mut self, arrow: &ArrowFunctionExpression<'a>) {
+    fn visit_arrow_function_expression(&mut self, arrow: &ArrowFunctionExpression<'ast>) {
         let name = self
             .pending_name
             .take()
@@ -234,7 +231,7 @@ impl<'a> Visit<'a> for ComplexityVisitor {
 
     // ── Name capture from parent nodes ──────────────────────────
 
-    fn visit_method_definition(&mut self, method: &MethodDefinition<'a>) {
+    fn visit_method_definition(&mut self, method: &MethodDefinition<'ast>) {
         // Capture method name for the inner Function node
         if let Some(name) = method.key.static_name() {
             self.pending_name = Some(name.to_string());
@@ -243,7 +240,7 @@ impl<'a> Visit<'a> for ComplexityVisitor {
         self.pending_name = None;
     }
 
-    fn visit_variable_declarator(&mut self, decl: &VariableDeclarator<'a>) {
+    fn visit_variable_declarator(&mut self, decl: &VariableDeclarator<'ast>) {
         // Capture `const foo = function() {}` or `const foo = () => {}`
         if let Some(id) = decl.id.get_binding_identifier() {
             self.pending_name = Some(id.name.to_string());
@@ -252,7 +249,7 @@ impl<'a> Visit<'a> for ComplexityVisitor {
         self.pending_name = None;
     }
 
-    fn visit_property_definition(&mut self, prop: &PropertyDefinition<'a>) {
+    fn visit_property_definition(&mut self, prop: &PropertyDefinition<'ast>) {
         // Capture class property initializers: `foo = () => {}`
         if let Some(name) = prop.key.static_name() {
             self.pending_name = Some(name.to_string());
@@ -261,7 +258,7 @@ impl<'a> Visit<'a> for ComplexityVisitor {
         self.pending_name = None;
     }
 
-    fn visit_object_property(&mut self, prop: &ObjectProperty<'a>) {
+    fn visit_object_property(&mut self, prop: &ObjectProperty<'ast>) {
         // Capture object method shorthand: `{ foo() {} }` and object arrow properties: `{ foo: () => {} }`
         if let Some(name) = prop.key.static_name() {
             self.pending_name = Some(name.to_string());
@@ -270,7 +267,7 @@ impl<'a> Visit<'a> for ComplexityVisitor {
         self.pending_name = None;
     }
 
-    fn visit_export_default_declaration(&mut self, decl: &ExportDefaultDeclaration<'a>) {
+    fn visit_export_default_declaration(&mut self, decl: &ExportDefaultDeclaration<'ast>) {
         // Capture `export default function() {}` as "default"
         self.pending_name = Some("default".to_string());
         walk::walk_export_default_declaration(self, decl);
@@ -279,7 +276,7 @@ impl<'a> Visit<'a> for ComplexityVisitor {
 
     // ── Structural complexity (both cyclomatic + cognitive) ──────
 
-    fn visit_if_statement(&mut self, stmt: &IfStatement<'a>) {
+    fn visit_if_statement(&mut self, stmt: &IfStatement<'ast>) {
         // Cyclomatic: +1 for each if (including else-if)
         self.inc_cyclomatic();
 
@@ -329,7 +326,7 @@ impl<'a> Visit<'a> for ComplexityVisitor {
         }
     }
 
-    fn visit_for_statement(&mut self, stmt: &ForStatement<'a>) {
+    fn visit_for_statement(&mut self, stmt: &ForStatement<'ast>) {
         self.inc_cyclomatic();
         self.inc_cognitive_with_nesting();
         if let Some(init) = &stmt.init {
@@ -346,7 +343,7 @@ impl<'a> Visit<'a> for ComplexityVisitor {
         self.dec_nesting();
     }
 
-    fn visit_for_in_statement(&mut self, stmt: &ForInStatement<'a>) {
+    fn visit_for_in_statement(&mut self, stmt: &ForInStatement<'ast>) {
         self.inc_cyclomatic();
         self.inc_cognitive_with_nesting();
         self.visit_for_statement_left(&stmt.left);
@@ -356,7 +353,7 @@ impl<'a> Visit<'a> for ComplexityVisitor {
         self.dec_nesting();
     }
 
-    fn visit_for_of_statement(&mut self, stmt: &ForOfStatement<'a>) {
+    fn visit_for_of_statement(&mut self, stmt: &ForOfStatement<'ast>) {
         self.inc_cyclomatic();
         self.inc_cognitive_with_nesting();
         self.visit_for_statement_left(&stmt.left);
@@ -366,7 +363,7 @@ impl<'a> Visit<'a> for ComplexityVisitor {
         self.dec_nesting();
     }
 
-    fn visit_while_statement(&mut self, stmt: &WhileStatement<'a>) {
+    fn visit_while_statement(&mut self, stmt: &WhileStatement<'ast>) {
         self.inc_cyclomatic();
         self.inc_cognitive_with_nesting();
         self.visit_expression(&stmt.test);
@@ -375,7 +372,7 @@ impl<'a> Visit<'a> for ComplexityVisitor {
         self.dec_nesting();
     }
 
-    fn visit_do_while_statement(&mut self, stmt: &DoWhileStatement<'a>) {
+    fn visit_do_while_statement(&mut self, stmt: &DoWhileStatement<'ast>) {
         self.inc_cyclomatic();
         self.inc_cognitive_with_nesting();
         self.inc_nesting();
@@ -384,7 +381,7 @@ impl<'a> Visit<'a> for ComplexityVisitor {
         self.visit_expression(&stmt.test);
     }
 
-    fn visit_switch_statement(&mut self, stmt: &SwitchStatement<'a>) {
+    fn visit_switch_statement(&mut self, stmt: &SwitchStatement<'ast>) {
         // Cognitive: +1 for the switch (not per-case), with nesting
         self.inc_cognitive_with_nesting();
         self.visit_expression(&stmt.discriminant);
@@ -395,7 +392,7 @@ impl<'a> Visit<'a> for ComplexityVisitor {
         self.dec_nesting();
     }
 
-    fn visit_switch_case(&mut self, case: &SwitchCase<'a>) {
+    fn visit_switch_case(&mut self, case: &SwitchCase<'ast>) {
         // Cyclomatic: +1 per case (classic variant), not for default
         if case.test.is_some() {
             self.inc_cyclomatic();
@@ -404,7 +401,7 @@ impl<'a> Visit<'a> for ComplexityVisitor {
         walk::walk_switch_case(self, case);
     }
 
-    fn visit_catch_clause(&mut self, clause: &CatchClause<'a>) {
+    fn visit_catch_clause(&mut self, clause: &CatchClause<'ast>) {
         self.inc_cyclomatic();
         self.inc_cognitive_with_nesting();
         self.inc_nesting();
@@ -414,7 +411,7 @@ impl<'a> Visit<'a> for ComplexityVisitor {
 
     // ── Conditional expression (ternary) ────────────────────────
 
-    fn visit_conditional_expression(&mut self, expr: &ConditionalExpression<'a>) {
+    fn visit_conditional_expression(&mut self, expr: &ConditionalExpression<'ast>) {
         self.inc_cyclomatic();
         self.inc_cognitive_with_nesting();
         self.visit_expression(&expr.test);
@@ -426,7 +423,7 @@ impl<'a> Visit<'a> for ComplexityVisitor {
 
     // ── Logical expressions ─────────────────────────────────────
 
-    fn visit_logical_expression(&mut self, expr: &LogicalExpression<'a>) {
+    fn visit_logical_expression(&mut self, expr: &LogicalExpression<'ast>) {
         // Cyclomatic: +1 per logical operator
         self.inc_cyclomatic();
 
@@ -451,7 +448,7 @@ impl<'a> Visit<'a> for ComplexityVisitor {
 
     // ── Assignment expressions with logical operators ───────────
 
-    fn visit_assignment_expression(&mut self, expr: &AssignmentExpression<'a>) {
+    fn visit_assignment_expression(&mut self, expr: &AssignmentExpression<'ast>) {
         // Cyclomatic: +1 for &&=, ||=, ??=
         if matches!(
             expr.operator,
@@ -466,7 +463,7 @@ impl<'a> Visit<'a> for ComplexityVisitor {
 
     // ── Optional chaining ───────────────────────────────────────
 
-    fn visit_chain_expression(&mut self, expr: &ChainExpression<'a>) {
+    fn visit_chain_expression(&mut self, expr: &ChainExpression<'ast>) {
         // Cyclomatic: +1 per optional chain link
         match &expr.expression {
             ChainElement::CallExpression(call) => {
@@ -497,14 +494,14 @@ impl<'a> Visit<'a> for ComplexityVisitor {
 
     // ── Break/continue with label ───────────────────────────────
 
-    fn visit_break_statement(&mut self, stmt: &BreakStatement<'a>) {
+    fn visit_break_statement(&mut self, stmt: &BreakStatement<'ast>) {
         if stmt.label.is_some() {
             self.inc_cognitive_flat();
         }
         walk::walk_break_statement(self, stmt);
     }
 
-    fn visit_continue_statement(&mut self, stmt: &ContinueStatement<'a>) {
+    fn visit_continue_statement(&mut self, stmt: &ContinueStatement<'ast>) {
         if stmt.label.is_some() {
             self.inc_cognitive_flat();
         }
@@ -513,10 +510,7 @@ impl<'a> Visit<'a> for ComplexityVisitor {
 }
 
 /// Compute per-function complexity metrics from a parsed Oxc program.
-pub fn compute_complexity(
-    program: &Program<'_>,
-    line_offsets: Vec<u32>,
-) -> Vec<FunctionComplexity> {
+pub fn compute_complexity(program: &Program<'_>, line_offsets: &[u32]) -> Vec<FunctionComplexity> {
     let mut visitor = ComplexityVisitor::new(line_offsets);
 
     // Push a module-level frame for top-level code
@@ -539,7 +533,7 @@ mod tests {
         let source_type = SourceType::tsx();
         let parser_return = Parser::new(&allocator, source, source_type).parse();
         let line_offsets = compute_line_offsets(source);
-        compute_complexity(&parser_return.program, line_offsets)
+        compute_complexity(&parser_return.program, &line_offsets)
     }
 
     fn find_fn<'a>(results: &'a [FunctionComplexity], name: &str) -> &'a FunctionComplexity {
