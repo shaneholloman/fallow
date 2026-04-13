@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.33.0] - 2026-04-13
+
+### Added
+
+- **`ignoreImports` config option** -- excludes ES `import` declarations from clone detection, reducing noise from sorted import blocks that naturally look similar across files. Available as `ignoreImports: true` in the `duplicates` config section and `--ignore-imports` CLI flag on the `dupes` command. Only affects ES import statements; CommonJS `require()` calls and re-exports are unaffected. Default: `false`. ([#113](https://github.com/fallow-rs/fallow/issues/113))
+
+### Fixed
+
+- **`fallow audit` now respects project duplication config** -- the `audit` command previously hardcoded default values for duplication settings (`mode`, `minTokens`, `minLines`, `skipLocal`, `crossLanguage`), ignoring user configuration. Now reads from the project config file, matching the behavior of `fallow` (combined mode) and `fallow dupes`.
+- **Hardened CI workflow permissions** -- tightened GitHub Actions permissions for OpenSSF Scorecard compliance.
+
 ## [2.32.1] - 2026-04-13
 
 ### Fixed
@@ -1340,7 +1351,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--changed-since` and `--fail-on-issues` for CI
 - Cross-workspace resolution for npm/yarn/pnpm workspaces
 
-[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.32.1...HEAD
+[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.33.0...HEAD
+[2.33.0]: https://github.com/fallow-rs/fallow/compare/v2.32.1...v2.33.0
 [2.32.1]: https://github.com/fallow-rs/fallow/compare/v2.32.0...v2.32.1
 [2.32.0]: https://github.com/fallow-rs/fallow/compare/v2.31.0...v2.32.0
 [2.31.0]: https://github.com/fallow-rs/fallow/compare/v2.30.0...v2.31.0
