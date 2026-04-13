@@ -179,7 +179,14 @@ fn build_module_node(
     // importing from this barrel can have their references attached.
     // Without this, `export { Foo } from './source'` on a barrel would
     // not be trackable as an export of the barrel module.
-    if let Some(resolved) = module_by_id.get(&file.id) {
+    if let Some(resolved) = module_by_id.get(&file.id)
+        && !resolved.re_exports.is_empty()
+    {
+        // O(1) duplicate check: pre-collect existing export names to avoid
+        // the O(M×N) linear scan per re-export on barrel files.
+        let mut existing_names: FxHashSet<ExportName> =
+            exports.iter().map(|e| e.name.clone()).collect();
+
         for re in &resolved.re_exports {
             // Skip star re-exports without an alias (`export * from './x'`)
             // — they don't create a named export on the barrel.
@@ -188,16 +195,16 @@ fn build_module_node(
                 continue;
             }
 
-            // Avoid duplicates: if an export with this name already exists
-            // (e.g. the module both declares and re-exports the same name),
-            // skip creating another one.
             let export_name = if re.info.exported_name == "default" {
                 ExportName::Default
             } else {
                 ExportName::Named(re.info.exported_name.clone())
             };
-            let already_exists = exports.iter().any(|e| e.name == export_name);
-            if already_exists {
+
+            // Avoid duplicates: if an export with this name already exists
+            // (e.g. the module both declares and re-exports the same name),
+            // skip creating another one.
+            if !existing_names.insert(export_name.clone()) {
                 continue;
             }
 
