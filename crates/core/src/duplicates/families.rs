@@ -53,11 +53,14 @@ pub fn group_into_families(clone_groups: &[CloneGroup], root: &Path) -> Vec<Clon
         })
         .collect();
 
-    // Sort by total duplicated lines descending (most impactful families first)
+    // Sort by total duplicated lines descending (most impactful families first).
+    // Third tiebreaker (first file path) ensures deterministic output regardless
+    // of FxHashMap iteration order.
     families.sort_by(|a, b| {
         b.total_duplicated_lines
             .cmp(&a.total_duplicated_lines)
             .then(b.groups.len().cmp(&a.groups.len()))
+            .then_with(|| a.files.first().cmp(&b.files.first()))
     });
 
     families
