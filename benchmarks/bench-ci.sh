@@ -121,7 +121,7 @@ time_fallow() {
     local start end
     start=$(date +%s%N 2>/dev/null || python3 -c "import time; print(int(time.time()*1e9))")
 
-    "${FALLOW_BIN}" dead-code --quiet --format json "$@" --root "${dir}" \
+    "${FALLOW_BIN}" check --quiet --format json "$@" --root "${dir}" \
         >/dev/null 2>/dev/null || true
 
     end=$(date +%s%N 2>/dev/null || python3 -c "import time; print(int(time.time()*1e9))")
@@ -194,7 +194,7 @@ for entry in "${PROJECTS[@]}"; do
     # --- Warm runs (with cache) ---
     clear_cache "${dest}"
     # Populate cache
-    "${FALLOW_BIN}" dead-code --quiet --format json --root "${dest}" >/dev/null 2>/dev/null || true
+    "${FALLOW_BIN}" check --quiet --format json --root "${dest}" >/dev/null 2>/dev/null || true
     # Measure
     warm_times=()
     for (( i=0; i<RUNS; i++ )); do
