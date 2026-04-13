@@ -361,7 +361,10 @@ pub fn find_test_only_dependencies(
     let test_globs = {
         let mut builder = globset::GlobSetBuilder::new();
         for pattern in crate::discover::PRODUCTION_EXCLUDE_PATTERNS {
-            if let Ok(glob) = globset::Glob::new(pattern) {
+            if let Ok(glob) = globset::GlobBuilder::new(pattern)
+                .literal_separator(true)
+                .build()
+            {
                 builder.add(glob);
             }
         }

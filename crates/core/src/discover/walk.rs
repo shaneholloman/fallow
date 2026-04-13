@@ -30,8 +30,8 @@ pub const PRODUCTION_EXCLUDE_PATTERNS: &[&str] = &[
     "**/__fixtures__/**",
     "**/test/**",
     "**/tests/**",
-    // Dev/config files at project level
-    "**/*.config.*",
+    // Dev/config files at project root only (not nested src/ files like Angular's app.config.ts)
+    "*.config.*",
     "**/.*.js",
     "**/.*.ts",
     "**/.*.mjs",
@@ -101,7 +101,10 @@ pub fn discover_files(config: &ResolvedConfig) -> Vec<DiscoveredFile> {
     let production_excludes = if config.production {
         let mut builder = globset::GlobSetBuilder::new();
         for pattern in PRODUCTION_EXCLUDE_PATTERNS {
-            if let Ok(glob) = globset::Glob::new(pattern) {
+            if let Ok(glob) = globset::GlobBuilder::new(pattern)
+                .literal_separator(true)
+                .build()
+            {
                 builder.add(glob);
             }
         }
@@ -238,7 +241,12 @@ mod tests {
     fn build_production_glob_set() -> globset::GlobSet {
         let mut builder = globset::GlobSetBuilder::new();
         for pattern in PRODUCTION_EXCLUDE_PATTERNS {
-            builder.add(globset::Glob::new(pattern).expect("valid glob pattern"));
+            builder.add(
+                globset::GlobBuilder::new(pattern)
+                    .literal_separator(true)
+                    .build()
+                    .expect("valid glob pattern"),
+            );
         }
         builder.build().expect("valid glob set")
     }
@@ -264,10 +272,16 @@ mod tests {
     }
 
     #[test]
-    fn production_excludes_config_files() {
+    fn production_excludes_config_files_at_root_only() {
         let set = build_production_glob_set();
+        // Root-level tool configs should match
         assert!(set.is_match("vitest.config.ts"));
         assert!(set.is_match("jest.config.js"));
+        // Nested config files should NOT match (e.g. Angular app.config.ts)
+        assert!(!set.is_match("src/app/app.config.ts"));
+        assert!(!set.is_match("src/app/app.config.server.ts"));
+        // Workspace-level tool configs are no longer excluded (acceptable trade-off)
+        assert!(!set.is_match("packages/foo/vitest.config.ts"));
         // Source files should NOT match
         assert!(!set.is_match("src/config.ts"));
     }

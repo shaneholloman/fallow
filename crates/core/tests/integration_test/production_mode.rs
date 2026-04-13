@@ -88,6 +88,31 @@ fn production_mode_still_detects_unused_exports() {
 }
 
 #[test]
+fn production_mode_does_not_exclude_nested_config_files() {
+    // Regression test for #111: **/*.config.* excluded Angular's src/app/app.config.ts
+    let root = fixture_path("angular-production-config");
+    let config = create_production_config(root);
+    let results = fallow_core::analyze(&config).expect("analysis should succeed");
+
+    // app.config.ts is a runtime file imported by main.ts, NOT a tool config.
+    // It must be discovered in production mode so app.routes.ts stays reachable.
+    let unused_file_names: Vec<String> = results
+        .unused_files
+        .iter()
+        .map(|f| f.path.file_name().unwrap().to_string_lossy().to_string())
+        .collect();
+
+    assert!(
+        !unused_file_names.contains(&"app.config.ts".to_string()),
+        "app.config.ts should not be reported unused in production mode, found: {unused_file_names:?}"
+    );
+    assert!(
+        !unused_file_names.contains(&"app.routes.ts".to_string()),
+        "app.routes.ts should be reachable via app.config.ts in production mode, found: {unused_file_names:?}"
+    );
+}
+
+#[test]
 fn non_production_mode_includes_test_files() {
     let root = fixture_path("production-mode");
     let config = create_config(root);

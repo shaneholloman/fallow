@@ -41,6 +41,9 @@ define_plugin!(
         ".angular.json",
         "src/polyfills.ts",
         "src/environments/**/*.ts",
+        // Angular 17+ standalone app bootstrap config (runtime, not tool config)
+        "src/app/app.config.ts",
+        "src/app/app.config.server.ts",
     ],
     tooling_dependencies: &[
         "@angular/cli",
