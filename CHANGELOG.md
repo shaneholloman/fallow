@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.31.0] - 2026-04-13
+
+### Added
+
+- **5 new framework plugins** -- Hardhat, UnoCSS, Qwik, Convex, and pnpm are now detected automatically (85 to 90 total plugins).
+- **LSP binary distributed via npm** -- `fallow-lsp` is now included in the npm package alongside `fallow` and `fallow-mcp`. The VS Code extension resolves the LSP binary from `node_modules/.bin/fallow-lsp` without a separate install step.
+
+### Fixed
+
+- **`production: true` no longer excludes Angular `app.config.ts`** -- the `**/*.config.*` production exclude pattern was too broad, matching Angular's `src/app/app.config.ts` (a runtime application file) and breaking the entire import chain. Narrowed to `*.config.*` (root-anchored) with `literal_separator(true)` so nested config files in `src/` are preserved. Also added `app.config.ts` and `app.config.server.ts` to the Angular plugin's `always_used` list as defense-in-depth. ([#111](https://github.com/fallow-rs/fallow/issues/111))
+- **Health test no longer fails with global git signing config** -- isolated temp repo git operations from global config (`GIT_CONFIG_GLOBAL=/dev/null`) to prevent commit signing requirements from breaking the `--changed-since` integration test.
+
 ## [2.30.0] - 2026-04-12
 
 ### Added
@@ -1310,7 +1322,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--changed-since` and `--fail-on-issues` for CI
 - Cross-workspace resolution for npm/yarn/pnpm workspaces
 
-[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.30.0...HEAD
+[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.31.0...HEAD
+[2.31.0]: https://github.com/fallow-rs/fallow/compare/v2.30.0...v2.31.0
 [2.30.0]: https://github.com/fallow-rs/fallow/compare/v2.29.1...v2.30.0
 [2.29.1]: https://github.com/fallow-rs/fallow/compare/v2.29.0...v2.29.1
 [2.29.0]: https://github.com/fallow-rs/fallow/compare/v2.28.2...v2.29.0
