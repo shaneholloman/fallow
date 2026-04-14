@@ -566,16 +566,26 @@ fn render_findings(
             cog_val.dimmed().to_string()
         };
 
-        // Line 1: function name (tag likely generated code)
+        // Line 1: function name with severity badge (tag likely generated code)
+        let severity_tag = match finding.severity {
+            crate::health_types::FindingSeverity::Critical => {
+                format!(" {}", "CRITICAL".red().bold())
+            }
+            crate::health_types::FindingSeverity::High => {
+                format!(" {}", "HIGH".yellow().bold())
+            }
+            crate::health_types::FindingSeverity::Moderate => String::new(),
+        };
         let generated_tag = if is_likely_generated(&finding.name, finding.cyclomatic) {
             format!(" {}", "(generated)".dimmed())
         } else {
             String::new()
         };
         lines.push(format!(
-            "    {} {}{}",
+            "    {} {}{}{}",
             format!(":{}", finding.line).dimmed(),
             finding.name.bold(),
+            severity_tag,
             generated_tag,
         ));
         // Line 2: metrics (indented, aligned like hotspots)
@@ -1207,6 +1217,7 @@ mod tests {
                 line_count: 80,
                 param_count: 0,
                 exceeded: crate::health_types::ExceededThreshold::Both,
+                severity: crate::health_types::FindingSeverity::High,
             }],
             summary: crate::health_types::HealthSummary {
                 files_analyzed: 10,
@@ -1241,6 +1252,7 @@ mod tests {
                 line_count: 50,
                 param_count: 0,
                 exceeded: crate::health_types::ExceededThreshold::Both,
+                severity: crate::health_types::FindingSeverity::High,
             }],
             summary: crate::health_types::HealthSummary {
                 files_analyzed: 100,
@@ -1271,6 +1283,7 @@ mod tests {
                     line_count: 40,
                     param_count: 0,
                     exceeded: crate::health_types::ExceededThreshold::Both,
+                    severity: crate::health_types::FindingSeverity::High,
                 },
                 crate::health_types::HealthFinding {
                     path: root.join("src/parser.ts"),
@@ -1282,6 +1295,7 @@ mod tests {
                     line_count: 30,
                     param_count: 0,
                     exceeded: crate::health_types::ExceededThreshold::Both,
+                    severity: crate::health_types::FindingSeverity::High,
                 },
             ],
             summary: crate::health_types::HealthSummary {
@@ -2459,6 +2473,7 @@ mod tests {
             line_count: 80,
             param_count: 0,
             exceeded: crate::health_types::ExceededThreshold::Both,
+            severity: crate::health_types::FindingSeverity::Moderate,
         }];
         report.health_score = Some(crate::health_types::HealthScore {
             score: 75.0,
@@ -2548,6 +2563,7 @@ mod tests {
             line_count: 50,
             param_count: 0,
             exceeded: crate::health_types::ExceededThreshold::Cyclomatic,
+            severity: crate::health_types::FindingSeverity::Moderate,
         }];
         let lines = build_health_human_lines(&report, &root);
         let text = plain(&lines);
@@ -2570,6 +2586,7 @@ mod tests {
             line_count: 50,
             param_count: 0,
             exceeded: crate::health_types::ExceededThreshold::Cognitive,
+            severity: crate::health_types::FindingSeverity::High,
         }];
         let lines = build_health_human_lines(&report, &root);
         let text = plain(&lines);
@@ -2593,6 +2610,7 @@ mod tests {
                 line_count: 50,
                 param_count: 0,
                 exceeded: crate::health_types::ExceededThreshold::Both,
+                severity: crate::health_types::FindingSeverity::Moderate,
             },
             crate::health_types::HealthFinding {
                 path: root.join("src/b.ts"),
@@ -2604,6 +2622,7 @@ mod tests {
                 line_count: 40,
                 param_count: 0,
                 exceeded: crate::health_types::ExceededThreshold::Both,
+                severity: crate::health_types::FindingSeverity::Moderate,
             },
         ];
         let lines = build_health_human_lines(&report, &root);
@@ -2628,6 +2647,7 @@ mod tests {
             line_count: 50,
             param_count: 0,
             exceeded: crate::health_types::ExceededThreshold::Both,
+            severity: crate::health_types::FindingSeverity::Moderate,
         }];
         let lines = build_health_human_lines(&report, &root);
         let text = plain(&lines);

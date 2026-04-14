@@ -4,8 +4,8 @@ expression: output
 ---
 ## Fallow: 1 high complexity function
 
-| File | Function | Cyclomatic | Cognitive | Lines |
-|:-----|:---------|:-----------|:----------|:------|
-| `src/complex.ts:42` | `processData` | 25 **!** | 30 **!** | 120 |
+| File | Function | Severity | Cyclomatic | Cognitive | Lines |
+|:-----|:---------|:---------|:-----------|:----------|:------|
+| `src/complex.ts:42` | `processData` | high | 25 **!** | 30 **!** | 120 |
 
 **50** files, **200** functions analyzed (thresholds: cyclomatic > 20, cognitive > 15)

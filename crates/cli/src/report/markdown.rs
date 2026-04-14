@@ -615,8 +615,8 @@ fn write_findings_section(
         );
     }
 
-    out.push_str("| File | Function | Cyclomatic | Cognitive | Lines |\n");
-    out.push_str("|:-----|:---------|:-----------|:----------|:------|\n");
+    out.push_str("| File | Function | Severity | Cyclomatic | Cognitive | Lines |\n");
+    out.push_str("|:-----|:---------|:---------|:-----------|:----------|:------|\n");
 
     for finding in &report.findings {
         let file_str = rel(&finding.path);
@@ -630,9 +630,14 @@ fn write_findings_section(
         } else {
             ""
         };
+        let severity_label = match finding.severity {
+            crate::health_types::FindingSeverity::Critical => "critical",
+            crate::health_types::FindingSeverity::High => "high",
+            crate::health_types::FindingSeverity::Moderate => "moderate",
+        };
         let _ = writeln!(
             out,
-            "| `{file_str}:{line}` | `{name}` | {cyc}{cyc_marker} | {cog}{cog_marker} | {lines} |",
+            "| `{file_str}:{line}` | `{name}` | {severity_label} | {cyc}{cyc_marker} | {cog}{cog_marker} | {lines} |",
             line = finding.line,
             name = escape_backticks(&finding.name),
             cyc = finding.cyclomatic,
@@ -1205,6 +1210,7 @@ mod tests {
                 line_count: 80,
                 param_count: 0,
                 exceeded: crate::health_types::ExceededThreshold::Both,
+                severity: crate::health_types::FindingSeverity::High,
             }],
             summary: crate::health_types::HealthSummary {
                 files_analyzed: 10,
@@ -1238,6 +1244,7 @@ mod tests {
                 line_count: 30,
                 param_count: 0,
                 exceeded: crate::health_types::ExceededThreshold::Cognitive,
+                severity: crate::health_types::FindingSeverity::High,
             }],
             summary: crate::health_types::HealthSummary {
                 files_analyzed: 5,
@@ -1547,6 +1554,7 @@ mod tests {
                 line_count: 50,
                 param_count: 0,
                 exceeded: crate::health_types::ExceededThreshold::Both,
+                severity: crate::health_types::FindingSeverity::High,
             }],
             summary: crate::health_types::HealthSummary {
                 files_analyzed: 5,
@@ -1595,6 +1603,7 @@ mod tests {
                 line_count: 50,
                 param_count: 0,
                 exceeded: crate::health_types::ExceededThreshold::Both,
+                severity: crate::health_types::FindingSeverity::High,
             }],
             summary: crate::health_types::HealthSummary {
                 files_analyzed: 5,
@@ -1644,6 +1653,7 @@ mod tests {
                 line_count: 10,
                 param_count: 0,
                 exceeded: crate::health_types::ExceededThreshold::Both,
+                severity: crate::health_types::FindingSeverity::High,
             }],
             summary: crate::health_types::HealthSummary {
                 files_analyzed: 1,
@@ -1692,6 +1702,7 @@ mod tests {
                 line_count: 10,
                 param_count: 0,
                 exceeded: crate::health_types::ExceededThreshold::Both,
+                severity: crate::health_types::FindingSeverity::High,
             }],
             summary: crate::health_types::HealthSummary {
                 files_analyzed: 10,
@@ -1769,6 +1780,7 @@ mod tests {
                 line_count: 10,
                 param_count: 0,
                 exceeded: crate::health_types::ExceededThreshold::Both,
+                severity: crate::health_types::FindingSeverity::High,
             }],
             summary: crate::health_types::HealthSummary {
                 files_analyzed: 5,

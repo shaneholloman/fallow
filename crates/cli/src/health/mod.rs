@@ -78,6 +78,8 @@ pub struct HealthOptions<'a> {
     pub coverage_root: Option<&'a std::path::Path>,
     /// Show detailed pipeline timing breakdown.
     pub performance: bool,
+    /// Only exit with error for findings at or above this severity level.
+    pub min_severity: Option<FindingSeverity>,
 }
 
 /// Run health analysis using pre-parsed modules from the dead-code pipeline.
@@ -205,6 +207,16 @@ fn execute_health_inner(
     sort_findings(&mut findings, &opts.sort);
     let complexity_ms = t.elapsed().as_secs_f64() * 1000.0;
     let total_above_threshold = findings.len();
+
+    // Count severity tiers before baseline filtering and --top truncation
+    let (mut sev_critical, mut sev_high, mut sev_moderate) = (0usize, 0usize, 0usize);
+    for f in &findings {
+        match f.severity {
+            FindingSeverity::Critical => sev_critical += 1,
+            FindingSeverity::High => sev_high += 1,
+            FindingSeverity::Moderate => sev_moderate += 1,
+        }
+    }
 
     // Load baseline for filtering (save happens after targets are computed)
     let loaded_baseline = if let Some(load_path) = opts.baseline {
@@ -454,6 +466,9 @@ fn execute_health_inner(
         health_trend,
         istanbul_coverage.is_some(),
         large_functions,
+        sev_critical,
+        sev_high,
+        sev_moderate,
     );
 
     let timings = if opts.performance {
@@ -776,6 +791,9 @@ fn assemble_health_report(
     health_trend: Option<crate::health_types::HealthTrend>,
     has_istanbul_coverage: bool,
     large_functions: Vec<LargeFunctionEntry>,
+    sev_critical: usize,
+    sev_high: usize,
+    sev_moderate: usize,
 ) -> HealthReport {
     let coverage_gaps = if effective_coverage_gaps {
         score_output.as_ref().map(|o| o.coverage.report.clone())
@@ -842,6 +860,9 @@ fn assemble_health_report(
             } else {
                 None
             },
+            severity_critical_count: sev_critical,
+            severity_high_count: sev_high,
+            severity_moderate_count: sev_moderate,
         },
         vital_signs: Some(vital_signs),
         health_score,
@@ -993,6 +1014,14 @@ fn collect_findings(
                     line_count: fc.line_count,
                     param_count: fc.param_count,
                     exceeded,
+                    severity: compute_finding_severity(
+                        fc.cognitive,
+                        fc.cyclomatic,
+                        DEFAULT_COGNITIVE_HIGH,
+                        DEFAULT_COGNITIVE_CRITICAL,
+                        DEFAULT_CYCLOMATIC_HIGH,
+                        DEFAULT_CYCLOMATIC_CRITICAL,
+                    ),
                 });
             }
         }
@@ -1092,6 +1121,7 @@ pub fn run_health(opts: &HealthOptions<'_>) -> ExitCode {
         opts.quiet,
         opts.explain,
         opts.min_score,
+        opts.min_severity,
         opts.summary,
     )
 }
@@ -1110,6 +1140,7 @@ pub fn print_health_result(
     quiet: bool,
     explain: bool,
     min_score: Option<f64>,
+    min_severity: Option<FindingSeverity>,
     summary: bool,
 ) -> ExitCode {
     let ctx = report::ReportContext {
@@ -1142,7 +1173,13 @@ pub fn print_health_result(
         return ExitCode::from(1);
     }
 
-    if !result.report.findings.is_empty() {
+    // Check findings against --min-severity filter
+    let has_failing_findings = if let Some(min_sev) = min_severity {
+        result.report.findings.iter().any(|f| f.severity >= min_sev)
+    } else {
+        !result.report.findings.is_empty()
+    };
+    if has_failing_findings {
         return ExitCode::from(1);
     }
 

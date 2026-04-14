@@ -23,7 +23,7 @@ expression: redact_health_sarif_version(&json_str)
               },
               "helpUri": "https://docs.fallow.tools/explanations/health#cyclomatic-complexity",
               "defaultConfiguration": {
-                "level": "warning"
+                "level": "note"
               }
             },
             {
@@ -36,7 +36,7 @@ expression: redact_health_sarif_version(&json_str)
               },
               "helpUri": "https://docs.fallow.tools/explanations/health#cognitive-complexity",
               "defaultConfiguration": {
-                "level": "warning"
+                "level": "note"
               }
             },
             {
@@ -49,7 +49,7 @@ expression: redact_health_sarif_version(&json_str)
               },
               "helpUri": "https://docs.fallow.tools/explanations/health#complexity-metrics",
               "defaultConfiguration": {
-                "level": "warning"
+                "level": "note"
               }
             },
             {

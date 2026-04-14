@@ -253,6 +253,9 @@ pub struct HealthParams {
     /// Fail if the health score is below this threshold (0–100). Implies --score.
     pub min_score: Option<f64>,
 
+    /// Only exit with error for findings at or above this severity (moderate, high, critical).
+    pub min_severity: Option<String>,
+
     /// Git history window for hotspot analysis. Accepts durations (6m, 90d, 1y) or ISO dates.
     pub since: Option<String>,
 

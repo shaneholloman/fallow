@@ -491,25 +491,6 @@ pub(super) fn print_grouped_codeclimate(
     emit_json(&value, "CodeClimate")
 }
 
-/// Compute graduated severity for health findings based on threshold ratio.
-///
-/// - 1.0×–1.5× threshold → minor
-/// - 1.5×–2.5× threshold → major
-/// - >2.5× threshold → critical
-fn health_severity(value: u16, threshold: u16) -> &'static str {
-    if threshold == 0 {
-        return "minor";
-    }
-    let ratio = f64::from(value) / f64::from(threshold);
-    if ratio > 2.5 {
-        "critical"
-    } else if ratio > 1.5 {
-        "major"
-    } else {
-        "minor"
-    }
-}
-
 /// Build CodeClimate JSON array from health/complexity analysis results.
 #[must_use]
 pub fn build_health_codeclimate(report: &HealthReport, root: &Path) -> serde_json::Value {
@@ -539,20 +520,11 @@ pub fn build_health_codeclimate(report: &HealthReport, root: &Path) -> serde_jso
             ExceededThreshold::Cyclomatic => "fallow/high-cyclomatic-complexity",
             ExceededThreshold::Cognitive => "fallow/high-cognitive-complexity",
         };
-        // Graduate severity: use the worst exceeded metric
-        let severity = match finding.exceeded {
-            ExceededThreshold::Both => {
-                let cyc_sev = health_severity(finding.cyclomatic, cyc_t);
-                let cog_sev = health_severity(finding.cognitive, cog_t);
-                // Pick the more severe of the two
-                match (cyc_sev, cog_sev) {
-                    ("critical", _) | (_, "critical") => "critical",
-                    ("major", _) | (_, "major") => "major",
-                    _ => "minor",
-                }
-            }
-            ExceededThreshold::Cyclomatic => health_severity(finding.cyclomatic, cyc_t),
-            ExceededThreshold::Cognitive => health_severity(finding.cognitive, cog_t),
+        // Map finding severity to CodeClimate severity levels
+        let severity = match finding.severity {
+            crate::health_types::FindingSeverity::Critical => "critical",
+            crate::health_types::FindingSeverity::High => "major",
+            crate::health_types::FindingSeverity::Moderate => "minor",
         };
         let line_str = finding.line.to_string();
         let fp = fingerprint_hash(&[check_name, &path, &line_str, &finding.name]);
@@ -689,6 +661,22 @@ mod tests {
     use fallow_config::RulesConfig;
     use fallow_core::results::*;
     use std::path::PathBuf;
+
+    /// Compute graduated severity for health findings based on threshold ratio.
+    /// Kept for unit test coverage of the original CodeClimate severity model.
+    fn health_severity(value: u16, threshold: u16) -> &'static str {
+        if threshold == 0 {
+            return "minor";
+        }
+        let ratio = f64::from(value) / f64::from(threshold);
+        if ratio > 2.5 {
+            "critical"
+        } else if ratio > 1.5 {
+            "major"
+        } else {
+            "minor"
+        }
+    }
 
     #[test]
     fn codeclimate_empty_results_produces_empty_array() {

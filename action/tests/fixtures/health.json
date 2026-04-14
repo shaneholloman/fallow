@@ -2,15 +2,55 @@
   "schema_version": 3,
   "version": "2.2.2",
   "elapsed_ms": 26,
-  "findings": [],
+  "findings": [
+    {
+      "path": "src/helpers/content-parser.ts",
+      "name": "parseContentBlocks",
+      "line": 27,
+      "col": 0,
+      "cyclomatic": 57,
+      "cognitive": 107,
+      "line_count": 180,
+      "param_count": 2,
+      "exceeded": "both",
+      "severity": "critical"
+    },
+    {
+      "path": "src/helpers/content-parser.ts",
+      "name": "renderBlock",
+      "line": 210,
+      "col": 0,
+      "cyclomatic": 22,
+      "cognitive": 28,
+      "line_count": 65,
+      "param_count": 1,
+      "exceeded": "both",
+      "severity": "high"
+    },
+    {
+      "path": "src/helpers/format.ts",
+      "name": "formatDuration",
+      "line": 15,
+      "col": 0,
+      "cyclomatic": 21,
+      "cognitive": 18,
+      "line_count": 40,
+      "param_count": 2,
+      "exceeded": "cyclomatic",
+      "severity": "moderate"
+    }
+  ],
   "summary": {
     "files_analyzed": 12,
     "functions_analyzed": 17,
-    "functions_above_threshold": 2,
+    "functions_above_threshold": 3,
     "max_cyclomatic_threshold": 20,
     "max_cognitive_threshold": 15,
     "files_scored": 6,
-    "average_maintainability": 86.8
+    "average_maintainability": 86.8,
+    "severity_critical_count": 1,
+    "severity_high_count": 1,
+    "severity_moderate_count": 1
   },
   "vital_signs": {
     "dead_file_pct": 0.0,

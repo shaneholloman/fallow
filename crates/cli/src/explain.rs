@@ -260,7 +260,7 @@ pub fn health_meta() -> Value {
             },
             "maintainability_index": {
                 "name": "Maintainability Index",
-                "description": "Composite score: 100 - (complexity_density \u{00d7} 30) - (dead_code_ratio \u{00d7} 20) - min(ln(fan_out+1) \u{00d7} 4, 15). Clamped to [0, 100]. Higher is better.",
+                "description": "Composite score: 100 - (complexity_density \u{00d7} 30 \u{00d7} dampening) - (dead_code_ratio \u{00d7} 20) - min(ln(fan_out+1) \u{00d7} 4, 15), where dampening = min(lines/50, 1.0). Clamped to [0, 100]. Higher is better.",
                 "range": "[0, 100]",
                 "interpretation": "higher is better; <40 poor, 40\u{2013}70 moderate, >70 good"
             },

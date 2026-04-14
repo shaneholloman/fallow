@@ -6,6 +6,23 @@ pub const HOTSPOT_SCORE_THRESHOLD: f64 = 50.0;
 /// Cognitive complexity threshold above which a function is flagged for extraction.
 pub const COGNITIVE_EXTRACTION_THRESHOLD: u16 = 30;
 
+/// Default cognitive complexity threshold for "high" severity (warning tier).
+pub const DEFAULT_COGNITIVE_HIGH: u16 = 25;
+
+/// Default cognitive complexity threshold for "critical" severity.
+pub const DEFAULT_COGNITIVE_CRITICAL: u16 = 40;
+
+/// Default cyclomatic complexity threshold for "high" severity (warning tier).
+pub const DEFAULT_CYCLOMATIC_HIGH: u16 = 30;
+
+/// Default cyclomatic complexity threshold for "critical" severity.
+pub const DEFAULT_CYCLOMATIC_CRITICAL: u16 = 50;
+
+/// Minimum lines of code for full complexity density weight in the MI formula.
+/// Files smaller than this get a proportional dampening factor to prevent
+/// density from dominating the score on trivially small files.
+pub const MI_DENSITY_MIN_LINES: f64 = 50.0;
+
 /// Project-level health score: a single 0–100 number with letter grade.
 ///
 /// ## Score Formula
@@ -124,6 +141,8 @@ pub struct HealthFinding {
     pub param_count: u8,
     /// Which threshold was exceeded.
     pub exceeded: ExceededThreshold,
+    /// How far above the threshold: moderate (just above), high, or critical.
+    pub severity: FindingSeverity,
 }
 
 /// Which complexity threshold was exceeded.
@@ -136,6 +155,51 @@ pub enum ExceededThreshold {
     Cognitive,
     /// Both thresholds exceeded.
     Both,
+}
+
+/// Severity tier indicating how far a function exceeds complexity thresholds.
+///
+/// Determined by the highest tier reached across both cognitive and cyclomatic
+/// scores. Default thresholds: cognitive 25/40, cyclomatic 30/50.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, clap::ValueEnum)]
+#[serde(rename_all = "snake_case")]
+pub enum FindingSeverity {
+    /// Above threshold but manageable (cognitive < 25 or cyclomatic < 30).
+    Moderate,
+    /// Recommended for extraction (cognitive 25-39 or cyclomatic 30-49).
+    High,
+    /// Immediate extraction candidate (cognitive >= 40 or cyclomatic >= 50).
+    Critical,
+}
+
+/// Compute the severity tier for a complexity finding.
+///
+/// Uses the highest tier reached across both cognitive and cyclomatic scores.
+pub fn compute_finding_severity(
+    cognitive: u16,
+    cyclomatic: u16,
+    cognitive_high: u16,
+    cognitive_critical: u16,
+    cyclomatic_high: u16,
+    cyclomatic_critical: u16,
+) -> FindingSeverity {
+    let cog = if cognitive >= cognitive_critical {
+        FindingSeverity::Critical
+    } else if cognitive >= cognitive_high {
+        FindingSeverity::High
+    } else {
+        FindingSeverity::Moderate
+    };
+
+    let cyc = if cyclomatic >= cyclomatic_critical {
+        FindingSeverity::Critical
+    } else if cyclomatic >= cyclomatic_high {
+        FindingSeverity::High
+    } else {
+        FindingSeverity::Moderate
+    };
+
+    cog.max(cyc)
 }
 
 /// A function exceeding the very-high-risk size threshold (>60 LOC).
@@ -181,6 +245,12 @@ pub struct HealthSummary {
     /// Only present when `coverage_model` is `istanbul`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub istanbul_total: Option<usize>,
+    /// Number of findings with critical severity.
+    pub severity_critical_count: usize,
+    /// Number of findings with high severity.
+    pub severity_high_count: usize,
+    /// Number of findings with moderate severity.
+    pub severity_moderate_count: usize,
 }
 
 #[cfg(test)]
@@ -197,6 +267,9 @@ impl Default for HealthSummary {
             coverage_model: None,
             istanbul_matched: None,
             istanbul_total: None,
+            severity_critical_count: 0,
+            severity_high_count: 0,
+            severity_moderate_count: 0,
         }
     }
 }
@@ -208,14 +281,16 @@ impl Default for HealthSummary {
 /// ## Maintainability Index Formula
 ///
 /// ```text
+/// dampening = min(lines / 50, 1.0)
 /// fan_out_penalty = min(ln(fan_out + 1) × 4, 15)
 /// maintainability = 100
-///     - (complexity_density × 30)
+///     - (complexity_density × 30 × dampening)
 ///     - (dead_code_ratio × 20)
 ///     - fan_out_penalty
 /// ```
 ///
-/// Clamped to \[0, 100\]. Higher is better.
+/// Clamped to \[0, 100\]. Higher is better. The dampening factor prevents
+/// complexity density from dominating the score on small files (< 50 lines).
 ///
 /// - **complexity_density**: total cyclomatic complexity / lines of code
 /// - **dead_code_ratio**: fraction of value exports (excluding type-only exports) with zero references (0.0–1.0)
@@ -405,5 +480,81 @@ mod tests {
 
         let json = serde_json::to_string(&CoverageModel::Istanbul).unwrap();
         assert_eq!(json, r#""istanbul""#);
+    }
+
+    // --- FindingSeverity ---
+
+    #[test]
+    fn finding_severity_serializes_as_snake_case() {
+        assert_eq!(
+            serde_json::to_string(&FindingSeverity::Moderate).unwrap(),
+            r#""moderate""#,
+        );
+        assert_eq!(
+            serde_json::to_string(&FindingSeverity::High).unwrap(),
+            r#""high""#,
+        );
+        assert_eq!(
+            serde_json::to_string(&FindingSeverity::Critical).unwrap(),
+            r#""critical""#,
+        );
+    }
+
+    #[test]
+    fn finding_severity_ordering() {
+        assert!(FindingSeverity::Moderate < FindingSeverity::High);
+        assert!(FindingSeverity::High < FindingSeverity::Critical);
+    }
+
+    #[test]
+    fn compute_severity_moderate_when_below_high_thresholds() {
+        let severity = compute_finding_severity(20, 25, 25, 40, 30, 50);
+        assert_eq!(severity, FindingSeverity::Moderate);
+    }
+
+    #[test]
+    fn compute_severity_high_from_cognitive() {
+        let severity = compute_finding_severity(25, 20, 25, 40, 30, 50);
+        assert_eq!(severity, FindingSeverity::High);
+    }
+
+    #[test]
+    fn compute_severity_high_from_cyclomatic() {
+        let severity = compute_finding_severity(20, 30, 25, 40, 30, 50);
+        assert_eq!(severity, FindingSeverity::High);
+    }
+
+    #[test]
+    fn compute_severity_critical_from_cognitive() {
+        let severity = compute_finding_severity(40, 20, 25, 40, 30, 50);
+        assert_eq!(severity, FindingSeverity::Critical);
+    }
+
+    #[test]
+    fn compute_severity_critical_from_cyclomatic() {
+        let severity = compute_finding_severity(20, 50, 25, 40, 30, 50);
+        assert_eq!(severity, FindingSeverity::Critical);
+    }
+
+    #[test]
+    fn compute_severity_uses_highest_across_dimensions() {
+        // Cognitive is critical, cyclomatic is moderate -> critical
+        let severity = compute_finding_severity(45, 20, 25, 40, 30, 50);
+        assert_eq!(severity, FindingSeverity::Critical);
+    }
+
+    #[test]
+    fn compute_severity_at_exact_boundaries() {
+        // At exactly the high threshold -> high
+        let severity = compute_finding_severity(25, 30, 25, 40, 30, 50);
+        assert_eq!(severity, FindingSeverity::High);
+
+        // One below high threshold -> moderate
+        let severity = compute_finding_severity(24, 29, 25, 40, 30, 50);
+        assert_eq!(severity, FindingSeverity::Moderate);
+
+        // At exactly the critical threshold -> critical
+        let severity = compute_finding_severity(40, 50, 25, 40, 30, 50);
+        assert_eq!(severity, FindingSeverity::Critical);
     }
 }

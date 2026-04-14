@@ -102,6 +102,10 @@ assert_contains "$OUT_CLEAN" "No code duplication" "clean: no duplication"
 echo "  summary-health.jq:"
 OUT=$(jq -r -f "$JQ_DIR/summary-health.jq" "$FIXTURES/health.json" 2>&1)
 assert_valid_markdown "$OUT" "produces output"
+assert_contains "$OUT" "Severity" "severity column header present"
+assert_contains "$OUT" "critical" "critical severity in table"
+assert_contains "$OUT" "high" "high severity in table"
+assert_contains "$OUT" "moderate" "moderate severity in table"
 
 OUT_CLEAN=$(jq -r -f "$JQ_DIR/summary-health.jq" "$FIXTURES/health-clean.json" 2>&1)
 assert_contains "$OUT_CLEAN" "No functions exceed" "clean: no functions exceed"
@@ -198,9 +202,11 @@ assert_contains "$OUT" "Code duplication" "mentions duplication"
 
 echo "  annotations-health.jq:"
 OUT=$(jq -r -f "$JQ_DIR/annotations-health.jq" "$FIXTURES/health.json" 2>&1)
-# health-clean has no findings, so no output expected even from non-clean
-# (our fixture might have no findings above threshold)
-assert_valid_markdown "$OUT" "produces output or empty"
+assert_contains "$OUT" "::error" "critical finding emits ::error annotation"
+assert_contains "$OUT" "::warning" "high/moderate findings emit ::warning annotation"
+assert_contains "$OUT" "(critical)" "critical severity in annotation title"
+assert_contains "$OUT" "(high)" "high severity in annotation title"
+assert_contains "$OUT" "parseContentBlocks" "includes function name"
 
 # --- Review comment jq tests ---
 
@@ -230,6 +236,8 @@ assert_contains "$OUT" "View duplicated code" "includes code fragment"
 echo "  review-comments-health.jq:"
 OUT=$(jq -f "$JQ_DIR/review-comments-health.jq" "$FIXTURES/health.json" 2>&1)
 assert_valid_json "$OUT" "produces valid JSON"
+assert_contains "$OUT" "critical" "includes severity in review comment"
+assert_contains "$OUT" "parseContentBlocks" "includes function name"
 
 echo "  review-body.jq:"
 OUT=$(jq -r -f "$JQ_DIR/review-body.jq" "$FIXTURES/combined.json" 2>&1)

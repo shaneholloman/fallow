@@ -140,6 +140,9 @@ inputs:
     description: 'Compute health score (0-100 with letter grade). Enables the health delta header in PR comments. Works with health and bare command (all analyses).'
     required: false
     default: 'false'
+  min-severity:
+    description: 'Only fail for findings at or above this severity (moderate, high, critical). Use "critical" to only fail on critical complexity findings.'
+    required: false
   save-snapshot:
     description: 'Save vital signs snapshot to .fallow/snapshots/ for trend tracking. Use actions/cache to persist across runs. Provide a path or leave empty for default. Works with health and bare command.'
     required: false
@@ -257,6 +260,7 @@ runs:
         INPUT_SINCE: ${{ inputs.since }}
         INPUT_MIN_COMMITS: ${{ inputs.min-commits }}
         INPUT_SCORE: ${{ inputs.score }}
+        INPUT_MIN_SEVERITY: ${{ inputs.min-severity }}
         INPUT_SAVE_SNAPSHOT: ${{ inputs.save-snapshot }}
         INPUT_TREND: ${{ inputs.trend }}
         INPUT_ISSUE_TYPES: ${{ inputs.issue-types }}

@@ -176,9 +176,14 @@ pub(super) fn print_health_compact(report: &crate::health_types::HealthReport, r
     }
     for finding in &report.findings {
         let relative = normalize_uri(&relative_path(&finding.path, root).display().to_string());
+        let severity = match finding.severity {
+            crate::health_types::FindingSeverity::Critical => "critical",
+            crate::health_types::FindingSeverity::High => "high",
+            crate::health_types::FindingSeverity::Moderate => "moderate",
+        };
         println!(
-            "high-complexity:{}:{}:{}:cyclomatic={},cognitive={}",
-            relative, finding.line, finding.name, finding.cyclomatic, finding.cognitive,
+            "high-complexity:{}:{}:{}:cyclomatic={},cognitive={},severity={}",
+            relative, finding.line, finding.name, finding.cyclomatic, finding.cognitive, severity,
         );
     }
     for score in &report.file_scores {

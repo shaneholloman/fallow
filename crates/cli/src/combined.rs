@@ -313,6 +313,7 @@ fn print_human_sections(
             opts.quiet,
             opts.explain,
             None,
+            None,
             opts.summary,
         );
         max_exit = max_exit.max(exit_code_to_u8(code));
@@ -661,6 +662,7 @@ fn build_health_opts<'a>(opts: &'a CombinedOptions<'a>) -> HealthOptions<'a> {
         coverage: None,
         coverage_root: None,
         performance: opts.performance,
+        min_severity: None,
     }
 }
 

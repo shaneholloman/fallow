@@ -588,9 +588,15 @@ fn compute_coverage_gaps(
 ///
 /// Formula:
 /// ```text
+/// dampening = min(lines / 50, 1.0)
 /// fan_out_penalty = min(ln(fan_out + 1) * 4, 15)
-/// MI = 100 - (complexity_density * 30) - (dead_code_ratio * 20) - fan_out_penalty
+/// MI = 100 - (complexity_density * 30 * dampening) - (dead_code_ratio * 20) - fan_out_penalty
 /// ```
+///
+/// The dampening factor prevents complexity density from dominating the score
+/// on small files. A 5-line utility with CC=2 has density 0.40, but is trivially
+/// readable; without dampening it scores worse than a 192-line function with CC=57
+/// (density 0.30). Files under 50 lines get proportionally reduced density weight.
 ///
 /// Fan-out uses logarithmic scaling capped at 15 points to reflect diminishing
 /// marginal risk (the 30th import is less concerning than the 5th) and prevent
@@ -601,13 +607,18 @@ pub(super) fn compute_maintainability_index(
     complexity_density: f64,
     dead_code_ratio: f64,
     fan_out: usize,
+    lines: u32,
 ) -> f64 {
+    let dampening = (f64::from(lines) / crate::health_types::MI_DENSITY_MIN_LINES).min(1.0);
     let fan_out_penalty = ((fan_out as f64).ln_1p() * 4.0).min(15.0);
     #[expect(
         clippy::suboptimal_flops,
         reason = "formula matches documented specification"
     )]
-    let score = 100.0 - (complexity_density * 30.0) - (dead_code_ratio * 20.0) - fan_out_penalty;
+    let score = 100.0
+        - (complexity_density * 30.0 * dampening)
+        - (dead_code_ratio * 20.0)
+        - fan_out_penalty;
     score.clamp(0.0, 100.0)
 }
 
@@ -775,6 +786,7 @@ pub(super) fn compute_file_scores(
             complexity_density_rounded,
             dead_code_ratio_rounded,
             fan_out,
+            lines,
         );
 
         // CRAP scoring: combine per-function CC with coverage data.
@@ -890,21 +902,21 @@ mod tests {
     #[test]
     fn maintainability_perfect_score() {
         // No complexity, no dead code, no fan-out -> 100
-        assert!((compute_maintainability_index(0.0, 0.0, 0) - 100.0).abs() < f64::EPSILON);
+        assert!((compute_maintainability_index(0.0, 0.0, 0, 100) - 100.0).abs() < f64::EPSILON);
     }
 
     #[test]
     fn maintainability_clamped_at_zero() {
-        // Very high complexity density -> clamped to 0
-        assert!((compute_maintainability_index(10.0, 1.0, 100) - 0.0).abs() < f64::EPSILON);
+        // Very high complexity density on a large file -> clamped to 0
+        assert!((compute_maintainability_index(10.0, 1.0, 100, 200) - 0.0).abs() < f64::EPSILON);
     }
 
     #[test]
     fn maintainability_formula_correct() {
-        // complexity_density=0.5, dead_code_ratio=0.3, fan_out=10
+        // complexity_density=0.5, dead_code_ratio=0.3, fan_out=10, lines=100 (no dampening)
         // fan_out_penalty = min(ln(11) * 4, 15) = min(9.59, 15) = 9.59
         // 100 - 15 - 6 - 9.59 = 69.41
-        let result = compute_maintainability_index(0.5, 0.3, 10);
+        let result = compute_maintainability_index(0.5, 0.3, 10, 100);
         let expected = 11.0_f64.ln().mul_add(-4.0, 100.0 - 15.0 - 6.0);
         assert!((result - expected).abs() < 0.01);
     }
@@ -914,18 +926,18 @@ mod tests {
         // Fully dead file: dead_code_ratio=1.0, fan_out=0
         // fan_out_penalty = min(ln(1) * 4, 15) = 0
         // 100 - 0 - 20 - 0 = 80
-        let result = compute_maintainability_index(0.0, 1.0, 0);
+        let result = compute_maintainability_index(0.0, 1.0, 0, 100);
         assert!((result - 80.0).abs() < f64::EPSILON);
     }
 
     #[test]
     fn maintainability_fan_out_is_logarithmic() {
         // fan_out=10: penalty = min(ln(11) * 4, 15) ~ 9.59
-        let result_10 = compute_maintainability_index(0.0, 0.0, 10);
+        let result_10 = compute_maintainability_index(0.0, 0.0, 10, 100);
         // fan_out=100: penalty = min(ln(101) * 4, 15) = 15 (capped)
-        let result_100 = compute_maintainability_index(0.0, 0.0, 100);
+        let result_100 = compute_maintainability_index(0.0, 0.0, 100, 100);
         // fan_out=200: also capped at 15
-        let result_200 = compute_maintainability_index(0.0, 0.0, 200);
+        let result_200 = compute_maintainability_index(0.0, 0.0, 200, 100);
 
         // Logarithmic: 10->100 jump is much less than 10x the penalty
         assert!(result_10 > 90.0); // ~90.4
@@ -938,8 +950,58 @@ mod tests {
     fn maintainability_fan_out_capped_at_15() {
         // Very high fan-out should not push score below 65 (100 - 0 - 20 - 15)
         // even with full dead code
-        let result = compute_maintainability_index(0.0, 1.0, 1000);
+        let result = compute_maintainability_index(0.0, 1.0, 1000, 100);
         assert!((result - 65.0).abs() < f64::EPSILON);
+    }
+
+    // --- LOC dampening ---
+
+    #[test]
+    fn maintainability_small_file_dampened() {
+        // 5-line file with density 0.40: dampening = 5/50 = 0.10
+        // penalty = 0.40 * 30 * 0.10 = 1.2
+        // MI = 100 - 1.2 = 98.8
+        let small = compute_maintainability_index(0.40, 0.0, 0, 5);
+        assert!((small - 98.8).abs() < 0.01);
+    }
+
+    #[test]
+    fn maintainability_large_file_undampened() {
+        // 192-line file with density 0.30: dampening = 1.0 (above threshold)
+        // penalty = 0.30 * 30 = 9.0
+        // MI = 100 - 9.0 = 91.0
+        let large = compute_maintainability_index(0.30, 0.0, 0, 192);
+        assert!((large - 91.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn maintainability_small_file_ranks_better_than_complex_large_file() {
+        // Regression test for issue #118:
+        // 5-line type guard (CC=2, density=0.40) must score higher than
+        // 192-line nightmare function (CC=57, density=0.30)
+        let trivial = compute_maintainability_index(0.40, 0.0, 0, 5);
+        let nightmare = compute_maintainability_index(0.30, 0.0, 0, 192);
+        assert!(
+            trivial > nightmare,
+            "trivial file ({trivial}) should rank better than nightmare ({nightmare})"
+        );
+    }
+
+    #[test]
+    fn maintainability_at_dampening_boundary() {
+        // At exactly 50 lines: dampening = 1.0 (full weight)
+        let at_boundary = compute_maintainability_index(0.5, 0.0, 0, 50);
+        // At 51 lines: also 1.0
+        let above_boundary = compute_maintainability_index(0.5, 0.0, 0, 51);
+        // Both should get full density penalty
+        assert!((at_boundary - above_boundary).abs() < 0.01);
+    }
+
+    #[test]
+    fn maintainability_zero_lines_zero_density_penalty() {
+        // 0 lines: dampening = 0.0, density penalty is zeroed out
+        let result = compute_maintainability_index(5.0, 0.0, 0, 0);
+        assert!((result - 100.0).abs() < f64::EPSILON);
     }
 
     // --- compute_complexity_density ---
@@ -1315,9 +1377,9 @@ mod tests {
 
     #[test]
     fn maintainability_only_complexity_penalty() {
-        // complexity_density = 3.0 -> penalty = 3.0 * 30 = 90
+        // complexity_density = 3.0, lines=100 (no dampening) -> penalty = 3.0 * 30 = 90
         // 100 - 90 - 0 - 0 = 10
-        let result = compute_maintainability_index(3.0, 0.0, 0);
+        let result = compute_maintainability_index(3.0, 0.0, 0, 100);
         assert!((result - 10.0).abs() < f64::EPSILON);
     }
 
@@ -1325,25 +1387,25 @@ mod tests {
     fn maintainability_only_dead_code_penalty() {
         // dead_code_ratio = 0.5 -> penalty = 0.5 * 20 = 10
         // 100 - 0 - 10 - 0 = 90
-        let result = compute_maintainability_index(0.0, 0.5, 0);
+        let result = compute_maintainability_index(0.0, 0.5, 0, 100);
         assert!((result - 90.0).abs() < f64::EPSILON);
     }
 
     #[test]
     fn maintainability_fan_out_one() {
         // fan_out = 1: penalty = min(ln(2) * 4, 15) = ~2.77
-        let result = compute_maintainability_index(0.0, 0.0, 1);
+        let result = compute_maintainability_index(0.0, 0.0, 1, 100);
         let expected = 2.0_f64.ln().mul_add(-4.0, 100.0);
         assert!((result - expected).abs() < 0.01);
     }
 
     #[test]
     fn maintainability_all_penalties_maxed() {
-        // complexity_density = 10.0 -> 300 penalty (clamped total to 0)
+        // complexity_density = 10.0, lines=200 (no dampening) -> 300 penalty (clamped total to 0)
         // dead_code_ratio = 1.0 -> 20 penalty
         // fan_out = 1000 -> 15 penalty (capped)
         // Total raw = 100 - 300 - 20 - 15 = -235 -> clamped to 0
-        let result = compute_maintainability_index(10.0, 1.0, 1000);
+        let result = compute_maintainability_index(10.0, 1.0, 1000, 200);
         assert!(result.abs() < f64::EPSILON);
     }
 

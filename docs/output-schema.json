@@ -387,7 +387,7 @@
 
     "HealthSummary": {
       "type": "object",
-      "required": ["files_analyzed", "functions_analyzed", "functions_above_threshold", "max_cyclomatic_threshold", "max_cognitive_threshold"],
+      "required": ["files_analyzed", "functions_analyzed", "functions_above_threshold", "max_cyclomatic_threshold", "max_cognitive_threshold", "severity_critical_count", "severity_high_count", "severity_moderate_count"],
       "properties": {
         "files_analyzed": {
           "type": "integer",
@@ -431,12 +431,24 @@
         "istanbul_total": {
           "type": "integer",
           "description": "Total functions evaluated for Istanbul matching. Only present when coverage_model is 'istanbul'."
+        },
+        "severity_critical_count": {
+          "type": "integer",
+          "description": "Number of findings with critical severity (cognitive >= 40 or cyclomatic >= 50)."
+        },
+        "severity_high_count": {
+          "type": "integer",
+          "description": "Number of findings with high severity (cognitive 25-39 or cyclomatic 30-49)."
+        },
+        "severity_moderate_count": {
+          "type": "integer",
+          "description": "Number of findings with moderate severity (below high thresholds)."
         }
       }
     },
     "HealthFinding": {
       "type": "object",
-      "required": ["path", "name", "line", "col", "cyclomatic", "cognitive", "line_count", "param_count", "exceeded"],
+      "required": ["path", "name", "line", "col", "cyclomatic", "cognitive", "line_count", "param_count", "exceeded", "severity"],
       "properties": {
         "path": {
           "type": "string",
@@ -474,6 +486,11 @@
           "type": "string",
           "enum": ["cyclomatic", "cognitive", "both"],
           "description": "Which threshold(s) this function exceeds."
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["moderate", "high", "critical"],
+          "description": "How far above the threshold: moderate (just above), high (recommended for extraction), or critical (immediate extraction candidate). Defaults: cognitive 25/40, cyclomatic 30/50."
         },
         "actions": {
           "type": "array",

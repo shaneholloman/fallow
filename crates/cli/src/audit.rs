@@ -434,6 +434,7 @@ fn run_audit_health<'a>(
         coverage: None,
         coverage_root: None,
         performance: false,
+        min_severity: None,
     }) {
         Ok(r) => Ok(Some(r)),
         Err(code) => Err(code),
@@ -516,7 +517,7 @@ fn print_audit_human(result: &AuditResult, quiet: bool, explain: bool, output: O
                 eprintln!();
                 eprintln!("── Complexity ─────────────────────────────────────");
             }
-            crate::health::print_health_result(health, quiet, explain, None, false);
+            crate::health::print_health_result(health, quiet, explain, None, None, false);
         }
     }
 

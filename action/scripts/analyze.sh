@@ -83,6 +83,7 @@ build_command_args() {
       [ "${INPUT_COMPLEXITY:-}" = "true" ] && ARGS+=(--complexity)
       [ -n "${INPUT_SINCE:-}" ] && ARGS+=(--since "$INPUT_SINCE")
       [ -n "${INPUT_MIN_COMMITS:-}" ] && ARGS+=(--min-commits "$INPUT_MIN_COMMITS")
+      [ -n "${INPUT_MIN_SEVERITY:-}" ] && ARGS+=(--min-severity "$INPUT_MIN_SEVERITY")
       if [ -n "${INPUT_SAVE_SNAPSHOT:-}" ]; then
         if [ "$INPUT_SAVE_SNAPSHOT" = "true" ]; then
           ARGS+=(--save-snapshot)

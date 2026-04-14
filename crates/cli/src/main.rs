@@ -436,6 +436,11 @@ enum Command {
         #[arg(long, value_name = "N")]
         min_score: Option<f64>,
 
+        /// Only exit with error for findings at or above this severity.
+        /// Use --min-severity critical to ignore moderate/high findings in CI.
+        #[arg(long, value_name = "LEVEL", value_enum)]
+        min_severity: Option<crate::health_types::FindingSeverity>,
+
         /// Git history window for hotspot analysis (default: 6m).
         /// Accepts durations (6m, 90d, 1y, 2w) or ISO dates (2025-06-01).
         #[arg(long, value_name = "DURATION")]
@@ -1243,6 +1248,7 @@ fn dispatch_subcommand(
             effort,
             score,
             min_score,
+            min_severity,
             since,
             min_commits,
             save_snapshot,
@@ -1272,6 +1278,7 @@ fn dispatch_subcommand(
                 effort,
                 score,
                 min_score,
+                min_severity,
                 since.as_deref(),
                 min_commits,
                 save_snapshot.as_ref(),
@@ -1339,6 +1346,7 @@ fn dispatch_health(
     effort: Option<EffortFilter>,
     score: bool,
     min_score: Option<f64>,
+    min_severity: Option<health_types::FindingSeverity>,
     since: Option<&str>,
     min_commits: Option<u32>,
     save_snapshot: Option<&Option<String>>,
@@ -1394,6 +1402,7 @@ fn dispatch_health(
         effort: effort.map(EffortFilter::to_estimate),
         score: eff_score,
         min_score,
+        min_severity,
         since,
         min_commits,
         explain: cli.explain,

@@ -7,7 +7,8 @@
 ///     coupling concentration (`p95_fan_in`, `coupling_high_pct`).
 /// v5: Added duplication penalty to health score formula.
 /// v6: Added `total_loc` to vital signs (always computed from parsed modules).
-pub const SNAPSHOT_SCHEMA_VERSION: u32 = 6;
+/// v7: MI formula dampening for small files (values change for files < 50 lines).
+pub const SNAPSHOT_SCHEMA_VERSION: u32 = 7;
 
 /// Project-wide vital signs — a fixed set of metrics for trend tracking.
 ///
@@ -252,8 +253,8 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_schema_version_is_six() {
-        assert_eq!(SNAPSHOT_SCHEMA_VERSION, 6);
+    fn snapshot_schema_version_is_seven() {
+        assert_eq!(SNAPSHOT_SCHEMA_VERSION, 7);
     }
 
     #[test]

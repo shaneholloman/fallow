@@ -664,9 +664,14 @@ pub fn build_health_sarif(
             ),
         };
 
+        let level = match finding.severity {
+            crate::health_types::FindingSeverity::Critical => "error",
+            crate::health_types::FindingSeverity::High => "warning",
+            crate::health_types::FindingSeverity::Moderate => "note",
+        };
         sarif_results.push(sarif_result(
             rule_id,
-            "warning",
+            level,
             &message,
             &uri,
             Some((finding.line, finding.col + 1)),
@@ -735,17 +740,17 @@ pub fn build_health_sarif(
         sarif_rule(
             "fallow/high-cyclomatic-complexity",
             "Function has high cyclomatic complexity",
-            "warning",
+            "note",
         ),
         sarif_rule(
             "fallow/high-cognitive-complexity",
             "Function has high cognitive complexity",
-            "warning",
+            "note",
         ),
         sarif_rule(
             "fallow/high-complexity",
             "Function exceeds both complexity thresholds",
-            "warning",
+            "note",
         ),
         sarif_rule(
             "fallow/refactoring-target",
@@ -1128,6 +1133,7 @@ mod tests {
                 line_count: 80,
                 param_count: 0,
                 exceeded: crate::health_types::ExceededThreshold::Cyclomatic,
+                severity: crate::health_types::FindingSeverity::High,
             }],
             summary: crate::health_types::HealthSummary {
                 files_analyzed: 5,
@@ -1170,6 +1176,7 @@ mod tests {
                 line_count: 40,
                 param_count: 0,
                 exceeded: crate::health_types::ExceededThreshold::Cognitive,
+                severity: crate::health_types::FindingSeverity::High,
             }],
             summary: crate::health_types::HealthSummary {
                 files_analyzed: 3,
@@ -1206,6 +1213,7 @@ mod tests {
                 line_count: 100,
                 param_count: 0,
                 exceeded: crate::health_types::ExceededThreshold::Both,
+                severity: crate::health_types::FindingSeverity::High,
             }],
             summary: crate::health_types::HealthSummary {
                 files_analyzed: 1,

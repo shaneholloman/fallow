@@ -57,6 +57,9 @@ pub fn build_health_args(params: &HealthParams) -> Vec<String> {
     if let Some(min_score) = params.min_score {
         args.extend(["--min-score".to_string(), min_score.to_string()]);
     }
+    if let Some(ref min_severity) = params.min_severity {
+        args.extend(["--min-severity".to_string(), min_severity.clone()]);
+    }
     if let Some(ref since) = params.since {
         args.extend(["--since".to_string(), since.clone()]);
     }

@@ -996,6 +996,7 @@ mod tests {
             line_count: 80,
             param_count: 0,
             exceeded: crate::health_types::ExceededThreshold::Both,
+            severity: crate::health_types::FindingSeverity::High,
         }
     }
 
