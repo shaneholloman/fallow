@@ -465,16 +465,16 @@ impl<'a> Visit<'a> for ModuleInfoExtractor {
         // The callback parameter binds to the module namespace, and member accesses or
         // destructured parameters indicate which exports are consumed.
         if let Some(then_cb) = try_extract_import_then_callback(expr) {
+            if let Some(local) = &then_cb.local_name {
+                self.namespace_binding_names.push(local.clone());
+            }
+            self.handled_import_spans.insert(then_cb.import_span);
             self.dynamic_imports.push(DynamicImportInfo {
                 source: then_cb.source,
                 span: then_cb.import_span,
                 destructured_names: then_cb.destructured_names,
-                local_name: then_cb.local_name.clone(),
+                local_name: then_cb.local_name,
             });
-            if let Some(ref local) = then_cb.local_name {
-                self.namespace_binding_names.push(local.clone());
-            }
-            self.handled_import_spans.insert(then_cb.import_span);
         }
 
         // Detect arrow-wrapped dynamic imports in call arguments:
