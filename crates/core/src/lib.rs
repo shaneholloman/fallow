@@ -34,6 +34,11 @@ pub struct AnalysisOutput {
     pub results: AnalysisResults,
     pub timings: Option<PipelineTimings>,
     pub graph: Option<graph::ModuleGraph>,
+    /// Parsed modules from the pipeline, available when `retain_modules` is true.
+    /// Used by the combined command to share a single parse across dead-code and health.
+    pub modules: Option<Vec<extract::ModuleInfo>>,
+    /// Discovered files from the pipeline, available when `retain_modules` is true.
+    pub files: Option<Vec<discover::DiscoveredFile>>,
 }
 
 /// Update cache: write freshly parsed modules and refresh stale mtime/size entries.
@@ -80,7 +85,7 @@ fn file_mtime_and_size(path: &std::path::Path) -> (u64, u64) {
 ///
 /// Returns an error if file discovery, parsing, or analysis fails.
 pub fn analyze(config: &ResolvedConfig) -> Result<AnalysisResults, FallowError> {
-    let output = analyze_full(config, false, false)?;
+    let output = analyze_full(config, false, false, false, false)?;
     Ok(output.results)
 }
 
@@ -90,7 +95,7 @@ pub fn analyze(config: &ResolvedConfig) -> Result<AnalysisResults, FallowError> 
 ///
 /// Returns an error if file discovery, parsing, or analysis fails.
 pub fn analyze_with_usages(config: &ResolvedConfig) -> Result<AnalysisResults, FallowError> {
-    let output = analyze_full(config, false, true)?;
+    let output = analyze_full(config, false, true, false, false)?;
     Ok(output.results)
 }
 
@@ -100,7 +105,24 @@ pub fn analyze_with_usages(config: &ResolvedConfig) -> Result<AnalysisResults, F
 ///
 /// Returns an error if file discovery, parsing, or analysis fails.
 pub fn analyze_with_trace(config: &ResolvedConfig) -> Result<AnalysisOutput, FallowError> {
-    analyze_full(config, true, false)
+    analyze_full(config, true, false, false, false)
+}
+
+/// Run the full analysis pipeline, retaining parsed modules and discovered files.
+///
+/// Used by the combined command to share a single parse across dead-code and health.
+/// When `need_complexity` is true, the `ComplexityVisitor` runs during parsing so
+/// the returned modules contain per-function complexity data.
+///
+/// # Errors
+///
+/// Returns an error if file discovery, parsing, or analysis fails.
+pub fn analyze_retaining_modules(
+    config: &ResolvedConfig,
+    need_complexity: bool,
+    retain_graph: bool,
+) -> Result<AnalysisOutput, FallowError> {
+    analyze_full(config, retain_graph, false, need_complexity, true)
 }
 
 /// Run the analysis pipeline using pre-parsed modules, skipping the parsing stage.
@@ -285,6 +307,8 @@ pub fn analyze_with_parse_result(
         results: result,
         timings,
         graph: Some(graph),
+        modules: None,
+        files: None,
     })
 }
 
@@ -300,6 +324,8 @@ fn analyze_full(
     config: &ResolvedConfig,
     retain: bool,
     collect_usages: bool,
+    need_complexity: bool,
+    retain_modules: bool,
 ) -> Result<AnalysisOutput, FallowError> {
     let _span = tracing::info_span!("fallow_analyze").entered();
     let pipeline_start = Instant::now();
@@ -374,7 +400,7 @@ fn analyze_full(
         cache::CacheStore::load(&config.cache_dir)
     };
 
-    let parse_result = extract::parse_all_files(files, cache_store.as_ref(), false);
+    let parse_result = extract::parse_all_files(files, cache_store.as_ref(), need_complexity);
     let modules = parse_result.modules;
     let cache_hits = parse_result.cache_hits;
     let cache_misses = parse_result.cache_misses;
@@ -514,6 +540,12 @@ fn analyze_full(
         results: result,
         timings,
         graph: if retain { Some(graph) } else { None },
+        modules: if retain_modules { Some(modules) } else { None },
+        files: if retain_modules {
+            Some(files.to_vec())
+        } else {
+            None
+        },
     })
 }
 

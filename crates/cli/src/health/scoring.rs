@@ -1423,6 +1423,8 @@ mod tests {
             results: fallow_types::results::AnalysisResults::default(),
             timings: None,
             graph: Some(graph),
+            modules: None,
+            files: None,
         };
 
         let result = compute_file_scores(&modules, &file_paths, None, output, None).unwrap();
@@ -1443,6 +1445,8 @@ mod tests {
             results: fallow_types::results::AnalysisResults::default(),
             timings: None,
             graph: None,
+            modules: None,
+            files: None,
         };
 
         let result = compute_file_scores(&modules, &file_paths, None, output, None);
@@ -1503,6 +1507,8 @@ mod tests {
             results: fallow_types::results::AnalysisResults::default(),
             timings: None,
             graph: Some(graph),
+            modules: None,
+            files: None,
         };
 
         let result = compute_file_scores(&modules, &file_paths, None, output, None).unwrap();
@@ -1552,6 +1558,8 @@ mod tests {
             results: fallow_types::results::AnalysisResults::default(),
             timings: None,
             graph: Some(graph),
+            modules: None,
+            files: None,
         };
 
         let result = compute_file_scores(&modules, &file_paths, None, output, None).unwrap();
@@ -1636,6 +1644,8 @@ mod tests {
             results: fallow_types::results::AnalysisResults::default(),
             timings: None,
             graph: Some(graph),
+            modules: None,
+            files: None,
         };
 
         let result =
@@ -1718,6 +1728,8 @@ mod tests {
             results: fallow_types::results::AnalysisResults::default(),
             timings: None,
             graph: Some(graph),
+            modules: None,
+            files: None,
         };
 
         let result = compute_file_scores(&modules, &file_paths, None, output, None).unwrap();
@@ -1785,6 +1797,8 @@ mod tests {
             results,
             timings: None,
             graph: Some(graph),
+            modules: None,
+            files: None,
         };
 
         let result = compute_file_scores(&modules, &file_paths, None, output, None).unwrap();
@@ -1870,6 +1884,8 @@ mod tests {
             results: fallow_types::results::AnalysisResults::default(),
             timings: None,
             graph: Some(graph),
+            modules: None,
+            files: None,
         };
 
         let result = compute_file_scores(&modules, &file_paths, None, output, None).unwrap();
@@ -1968,6 +1984,8 @@ mod tests {
             results,
             timings: None,
             graph: Some(graph),
+            modules: None,
+            files: None,
         };
 
         let result = compute_file_scores(&modules, &file_paths, None, output, None).unwrap();
@@ -2098,6 +2116,8 @@ mod tests {
             results,
             timings: None,
             graph: Some(graph),
+            modules: None,
+            files: None,
         };
 
         let result = compute_file_scores(&modules, &file_paths, None, output, None).unwrap();
@@ -2223,6 +2243,8 @@ mod tests {
             results,
             timings: None,
             graph: Some(graph),
+            modules: None,
+            files: None,
         };
 
         let result = compute_file_scores(&modules, &file_paths, None, output, None).unwrap();
@@ -2272,6 +2294,8 @@ mod tests {
             results: fallow_types::results::AnalysisResults::default(),
             timings: None,
             graph: Some(graph),
+            modules: None,
+            files: None,
         };
 
         let result = compute_file_scores(&modules, &file_paths, None, output, None).unwrap();
@@ -2320,6 +2344,8 @@ mod tests {
             results: fallow_types::results::AnalysisResults::default(),
             timings: None,
             graph: Some(graph),
+            modules: None,
+            files: None,
         };
 
         let result = compute_file_scores(&modules, &file_paths, None, output, None).unwrap();
@@ -2400,6 +2426,8 @@ mod tests {
             results: fallow_types::results::AnalysisResults::default(),
             timings: None,
             graph: Some(graph),
+            modules: None,
+            files: None,
         };
 
         let result = compute_file_scores(&modules, &file_paths, None, output, None).unwrap();
@@ -2449,6 +2477,8 @@ mod tests {
             results: fallow_types::results::AnalysisResults::default(),
             timings: None,
             graph: Some(graph),
+            modules: None,
+            files: None,
         };
 
         let result = compute_file_scores(&modules, &file_paths, None, output, None).unwrap();

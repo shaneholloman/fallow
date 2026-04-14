@@ -18,6 +18,12 @@ use crate::vital_signs;
 
 use hotspots::compute_hotspots;
 use scoring::compute_file_scores;
+
+/// Pre-parsed data from the dead-code pipeline, shared with health to avoid re-parsing.
+pub struct SharedParseData {
+    pub files: Vec<fallow_types::discover::DiscoveredFile>,
+    pub modules: Vec<fallow_types::extract::ModuleInfo>,
+}
 use targets::{TargetAuxData, compute_refactoring_targets};
 
 /// Sort criteria for complexity output.
@@ -72,14 +78,26 @@ pub struct HealthOptions<'a> {
     pub performance: bool,
 }
 
-/// Run health analysis and return results without printing.
-#[expect(
-    clippy::too_many_lines,
-    reason = "health pipeline orchestration with many optional features"
-)]
-pub fn execute_health(opts: &HealthOptions<'_>) -> Result<HealthResult, ExitCode> {
-    let start = Instant::now();
+/// Run health analysis using pre-parsed modules from the dead-code pipeline.
+///
+/// Skips file discovery and parsing (saves ~1.9s on 21K-file projects).
+pub fn execute_health_with_shared_parse(
+    opts: &HealthOptions<'_>,
+    shared: SharedParseData,
+) -> Result<HealthResult, ExitCode> {
+    let config = load_config(
+        opts.root,
+        opts.config_path,
+        opts.output,
+        opts.no_cache,
+        opts.threads,
+        opts.production,
+        opts.quiet,
+    )?;
+    execute_health_inner(opts, config, shared.files, shared.modules, 0.0, 0.0, 0.0)
+}
 
+pub fn execute_health(opts: &HealthOptions<'_>) -> Result<HealthResult, ExitCode> {
     let t = Instant::now();
     let config = load_config(
         opts.root,
@@ -91,10 +109,6 @@ pub fn execute_health(opts: &HealthOptions<'_>) -> Result<HealthResult, ExitCode
         opts.quiet,
     )?;
     let config_ms = t.elapsed().as_secs_f64() * 1000.0;
-
-    // Resolve thresholds: CLI flags override config
-    let max_cyclomatic = opts.max_cyclomatic.unwrap_or(config.health.max_cyclomatic);
-    let max_cognitive = opts.max_cognitive.unwrap_or(config.health.max_cognitive);
 
     // Discover and parse files
     let t = Instant::now();
@@ -109,6 +123,40 @@ pub fn execute_health(opts: &HealthOptions<'_>) -> Result<HealthResult, ExitCode
     let t = Instant::now();
     let parse_result = fallow_core::extract::parse_all_files(&files, cache.as_ref(), true);
     let parse_ms = t.elapsed().as_secs_f64() * 1000.0;
+
+    execute_health_inner(
+        opts,
+        config,
+        files,
+        parse_result.modules,
+        config_ms,
+        discover_ms,
+        parse_ms,
+    )
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "health pipeline orchestration with many optional features"
+)]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "owned files/modules transferred from shared parse or local parse"
+)]
+fn execute_health_inner(
+    opts: &HealthOptions<'_>,
+    config: ResolvedConfig,
+    files: Vec<fallow_types::discover::DiscoveredFile>,
+    modules: Vec<fallow_types::extract::ModuleInfo>,
+    config_ms: f64,
+    discover_ms: f64,
+    parse_ms: f64,
+) -> Result<HealthResult, ExitCode> {
+    let start = Instant::now();
+
+    // Resolve thresholds: CLI flags override config
+    let max_cyclomatic = opts.max_cyclomatic.unwrap_or(config.health.max_cyclomatic);
+    let max_cognitive = opts.max_cognitive.unwrap_or(config.health.max_cognitive);
 
     let ignore_set = build_ignore_set(&config.health.ignore);
     let changed_files = opts
@@ -126,7 +174,7 @@ pub fn execute_health(opts: &HealthOptions<'_>) -> Result<HealthResult, ExitCode
     // Collect and filter complexity findings
     let t = Instant::now();
     let (mut findings, files_analyzed, total_functions) = collect_findings(
-        &parse_result.modules,
+        &modules,
         &file_paths,
         &config.root,
         &ignore_set,
@@ -198,7 +246,7 @@ pub fn execute_health(opts: &HealthOptions<'_>) -> Result<HealthResult, ExitCode
             let t = Instant::now();
             let score_result = compute_filtered_file_scores(
                 &config,
-                &parse_result.modules,
+                &modules,
                 &file_paths,
                 changed_files.as_ref(),
                 ws_root.as_deref(),
@@ -215,7 +263,7 @@ pub fn execute_health(opts: &HealthOptions<'_>) -> Result<HealthResult, ExitCode
         let score_result = if needs_file_scores {
             compute_filtered_file_scores(
                 &config,
-                &parse_result.modules,
+                &modules,
                 &file_paths,
                 changed_files.as_ref(),
                 ws_root.as_deref(),
@@ -302,7 +350,7 @@ pub fn execute_health(opts: &HealthOptions<'_>) -> Result<HealthResult, ExitCode
     // Compute vital signs (always needed for report summary)
     let (mut vital_signs, mut counts) = compute_vital_signs_and_counts(
         score_output.as_ref(),
-        &parse_result.modules,
+        &modules,
         needs_file_scores,
         file_scores_slice,
         opts.hotspots || opts.targets,
@@ -336,7 +384,7 @@ pub fn execute_health(opts: &HealthOptions<'_>) -> Result<HealthResult, ExitCode
     // Collect large functions (>60 LOC) when the risk profile warrants it
     let large_functions = collect_large_functions(
         &vital_signs,
-        &parse_result.modules,
+        &modules,
         &file_paths,
         &config.root,
         &ignore_set,

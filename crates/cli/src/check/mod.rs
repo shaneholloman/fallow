@@ -151,6 +151,8 @@ pub struct CheckOptions<'a> {
     )]
     pub summary: bool,
     pub regression_opts: RegressionOpts<'a>,
+    /// When true, retain parsed modules and discovered files for sharing with health.
+    pub retain_modules_for_health: bool,
 }
 
 /// Result of executing check analysis without printing.
@@ -163,6 +165,8 @@ pub struct CheckResult {
     pub baseline_deltas: Option<crate::baseline::BaselineDeltas>,
     /// When a baseline was loaded: (total entries in baseline, entries that matched current issues).
     pub baseline_matched: Option<(usize, usize)>,
+    /// Retained parse data for sharing with health (only populated when retain_modules_for_health=true).
+    pub shared_parse: Option<crate::health::SharedParseData>,
 }
 
 /// Run analysis, filtering, and baseline handling. Returns results without printing.
@@ -206,12 +210,21 @@ pub fn execute_check(opts: &CheckOptions<'_>) -> Result<CheckResult, ExitCode> {
 
     // Core analysis
     let use_trace = opts.trace_opts.any_active();
-    let (mut results, trace_graph, trace_timings) = if use_trace {
+    let (mut results, trace_graph, trace_timings, retained_modules, retained_files) = if use_trace {
         match fallow_core::analyze_with_trace(&config) {
-            Ok(trace_output) => (
-                trace_output.results,
-                trace_output.graph,
-                trace_output.timings,
+            Ok(output) => (output.results, output.graph, output.timings, None, None),
+            Err(e) => {
+                return Err(emit_error(&format!("Analysis error: {e}"), 2, opts.output));
+            }
+        }
+    } else if opts.retain_modules_for_health {
+        match fallow_core::analyze_retaining_modules(&config, true, false) {
+            Ok(output) => (
+                output.results,
+                output.graph,
+                output.timings,
+                output.modules,
+                output.files,
             ),
             Err(e) => {
                 return Err(emit_error(&format!("Analysis error: {e}"), 2, opts.output));
@@ -219,7 +232,7 @@ pub fn execute_check(opts: &CheckOptions<'_>) -> Result<CheckResult, ExitCode> {
         }
     } else {
         match fallow_core::analyze(&config) {
-            Ok(r) => (r, None, None),
+            Ok(r) => (r, None, None, None, None),
             Err(e) => {
                 return Err(emit_error(&format!("Analysis error: {e}"), 2, opts.output));
             }
@@ -358,6 +371,11 @@ pub fn execute_check(opts: &CheckOptions<'_>) -> Result<CheckResult, ExitCode> {
         output::write_sarif_file(&results, &config, sarif_path, opts.quiet);
     }
 
+    let shared_parse = match (retained_modules, retained_files) {
+        (Some(modules), Some(files)) => Some(crate::health::SharedParseData { files, modules }),
+        _ => None,
+    };
+
     Ok(CheckResult {
         results,
         config,
@@ -366,6 +384,7 @@ pub fn execute_check(opts: &CheckOptions<'_>) -> Result<CheckResult, ExitCode> {
         regression: regression_outcome,
         baseline_deltas: None,
         baseline_matched,
+        shared_parse,
     })
 }
 

@@ -338,6 +338,7 @@ fn run_audit_check<'a>(
             scoped: true,
             quiet: opts.quiet,
         },
+        retain_modules_for_health: false,
     }) {
         Ok(r) => Ok(Some(r)),
         Err(code) => Err(code),

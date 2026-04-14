@@ -1133,6 +1133,7 @@ fn dispatch_subcommand(
                     cli.changed_since.is_some() || cli.workspace.is_some() || !file.is_empty(),
                     quiet,
                 ),
+                retain_modules_for_health: false,
             })
         }
         Command::Watch { no_clear } => watch::run_watch(&watch::WatchOptions {

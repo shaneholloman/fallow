@@ -97,6 +97,7 @@ pub fn run_combined(opts: &CombinedOptions<'_>) -> ExitCode {
             include_entry_exports: false,
             summary: opts.summary,
             regression_opts: opts.regression_opts,
+            retain_modules_for_health: opts.run_health,
         };
         match crate::check::execute_check(&check_opts) {
             Ok(result) => {
@@ -153,9 +154,17 @@ pub fn run_combined(opts: &CombinedOptions<'_>) -> ExitCode {
     }
 
     // Run health (complexity analysis)
+    // When check already ran, reuse its parsed modules (with complexity data) to avoid
+    // re-parsing all files. Saves ~1.9s on 21K-file projects like next.js.
     if opts.run_health {
         let health_opts = build_health_opts(opts);
-        match crate::health::execute_health(&health_opts) {
+        let shared = check_result.as_mut().and_then(|r| r.shared_parse.take());
+        let health_run = if let Some(shared_data) = shared {
+            crate::health::execute_health_with_shared_parse(&health_opts, shared_data)
+        } else {
+            crate::health::execute_health(&health_opts)
+        };
+        match health_run {
             Ok(result) => {
                 health_result = Some(result);
             }
