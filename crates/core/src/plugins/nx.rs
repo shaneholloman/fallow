@@ -85,15 +85,24 @@ define_plugin!(
         // Angular executors invoked through Nx consume the same
         // stylePreprocessorOptions as the Angular CLI. Resolve paths relative
         // to the workspace root so bare SCSS `@import '...'` specifiers can
-        // find shared partials. See issue #103.
+        // find shared partials. See issues #103, #114.
         let include_paths = config_parser::extract_config_object_nested_string_or_array(
             source,
             config_path,
             &["targets"],
             &["options", "stylePreprocessorOptions", "includePaths"],
         );
+        // Compute project root relative to workspace root for Nx token expansion.
+        // `{projectRoot}` is the directory containing project.json relative to
+        // the workspace root. `{workspaceRoot}` is the workspace root itself.
+        let project_root_rel = config_path
+            .parent()
+            .and_then(|p| p.strip_prefix(_root).ok())
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_default();
         for entry in &include_paths {
-            let absolute = _root.join(entry.trim_start_matches("./"));
+            let expanded = expand_nx_tokens(entry, &project_root_rel);
+            let absolute = _root.join(expanded.trim_start_matches("./"));
             if absolute.is_dir() {
                 result.scss_include_paths.push(absolute);
             }
@@ -102,6 +111,29 @@ define_plugin!(
         result
     },
 );
+
+/// Expand Nx workspace tokens in a path string.
+///
+/// - `{projectRoot}` → the project's root directory relative to the workspace root
+/// - `{workspaceRoot}` → empty string (paths are already resolved from workspace root)
+///
+/// See: <https://nx.dev/concepts/how-caching-works#runtime-hash-inputs>
+fn expand_nx_tokens(path: &str, project_root_rel: &str) -> String {
+    if !path.contains('{') {
+        return path.to_string();
+    }
+    // Replace `{token}/rest` as a unit so that empty replacements don't leave
+    // a leading `/` (e.g., `{projectRoot}/src` with empty root → `src`).
+    let result = if project_root_rel.is_empty() {
+        path.replace("{projectRoot}/", "")
+            .replace("{projectRoot}", "")
+    } else {
+        path.replace("{projectRoot}", project_root_rel)
+    };
+    result
+        .replace("{workspaceRoot}/", "")
+        .replace("{workspaceRoot}", "")
+}
 
 #[cfg(test)]
 mod tests {
@@ -215,5 +247,115 @@ mod tests {
             plugin.resolve_config(Path::new("project.json"), source, Path::new("/project"));
         assert!(result.referenced_dependencies.is_empty());
         assert!(result.entry_patterns.is_empty());
+    }
+
+    #[test]
+    fn resolve_config_expands_project_root_token() {
+        // Issue #114: {projectRoot} placeholder in includePaths must be expanded.
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let root = tmp.path();
+        std::fs::create_dir_all(root.join("src/style-paths")).unwrap();
+
+        let source = r#"{
+            "targets": {
+                "build": {
+                    "executor": "@angular/build:application",
+                    "options": {
+                        "stylePreprocessorOptions": {
+                            "includePaths": ["{projectRoot}/src/style-paths"]
+                        }
+                    }
+                }
+            }
+        }"#;
+        let plugin = NxPlugin;
+        // project.json is at the workspace root, so {projectRoot} = ""
+        let result = plugin.resolve_config(root.join("project.json").as_path(), source, root);
+        assert_eq!(result.scss_include_paths.len(), 1);
+        assert_eq!(result.scss_include_paths[0], root.join("src/style-paths"));
+    }
+
+    #[test]
+    fn resolve_config_expands_project_root_token_in_subproject() {
+        // {projectRoot} for a project.json inside apps/myapp/ should expand
+        // to "apps/myapp" relative to the workspace root.
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let root = tmp.path();
+        std::fs::create_dir_all(root.join("apps/myapp/src/styles")).unwrap();
+
+        let source = r#"{
+            "targets": {
+                "build": {
+                    "executor": "@angular/build:application",
+                    "options": {
+                        "stylePreprocessorOptions": {
+                            "includePaths": ["{projectRoot}/src/styles"]
+                        }
+                    }
+                }
+            }
+        }"#;
+        let plugin = NxPlugin;
+        let config_path = root.join("apps/myapp/project.json");
+        let result = plugin.resolve_config(config_path.as_path(), source, root);
+        assert_eq!(result.scss_include_paths.len(), 1);
+        assert_eq!(
+            result.scss_include_paths[0],
+            root.join("apps/myapp/src/styles")
+        );
+    }
+
+    #[test]
+    fn resolve_config_expands_workspace_root_token() {
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let root = tmp.path();
+        std::fs::create_dir_all(root.join("shared/styles")).unwrap();
+
+        let source = r#"{
+            "targets": {
+                "build": {
+                    "executor": "@angular/build:application",
+                    "options": {
+                        "stylePreprocessorOptions": {
+                            "includePaths": ["{workspaceRoot}/shared/styles"]
+                        }
+                    }
+                }
+            }
+        }"#;
+        let plugin = NxPlugin;
+        let result = plugin.resolve_config(root.join("project.json").as_path(), source, root);
+        assert_eq!(result.scss_include_paths.len(), 1);
+        assert_eq!(result.scss_include_paths[0], root.join("shared/styles"));
+    }
+
+    #[test]
+    fn expand_nx_tokens_no_braces_unchanged() {
+        assert_eq!(expand_nx_tokens("src/styles", "apps/myapp"), "src/styles");
+    }
+
+    #[test]
+    fn expand_nx_tokens_project_root_replaced() {
+        assert_eq!(
+            expand_nx_tokens("{projectRoot}/src/styles", "apps/myapp"),
+            "apps/myapp/src/styles"
+        );
+    }
+
+    #[test]
+    fn expand_nx_tokens_workspace_root_replaced() {
+        assert_eq!(
+            expand_nx_tokens("{workspaceRoot}/shared/styles", ""),
+            "shared/styles"
+        );
+    }
+
+    #[test]
+    fn expand_nx_tokens_empty_project_root() {
+        // Standalone app: project.json at workspace root, {projectRoot} = ""
+        assert_eq!(
+            expand_nx_tokens("{projectRoot}/src/styles", ""),
+            "src/styles"
+        );
     }
 }
