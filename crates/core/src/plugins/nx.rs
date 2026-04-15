@@ -269,6 +269,35 @@ mod tests {
     }
 
     #[test]
+    fn resolve_config_extracts_styles_object_form() {
+        // Nx project.json inherits the Angular CLI schema under
+        // `@angular/build:application` — `styles` entries can be
+        // `{ input, bundleName, inject }` object form for vendor stylesheets.
+        // See #126.
+        let source = r#"{
+            "targets": {
+                "build": {
+                    "executor": "@angular/build:application",
+                    "options": {
+                        "styles": [
+                            "src/styles.scss",
+                            { "input": "src/theme.scss", "bundleName": "theme", "inject": false }
+                        ]
+                    }
+                }
+            }
+        }"#;
+        let plugin = NxPlugin;
+        let result =
+            plugin.resolve_config(Path::new("project.json"), source, Path::new("/project"));
+        assert!(has_entry_pattern(&result, "src/styles.scss"));
+        assert!(
+            has_entry_pattern(&result, "src/theme.scss"),
+            "object-form entry `input` must be extracted as entry pattern"
+        );
+    }
+
+    #[test]
     fn resolve_config_extracts_scripts_as_entry() {
         let source = r#"{
             "targets": {

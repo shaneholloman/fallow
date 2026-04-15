@@ -206,6 +206,37 @@ mod tests {
     }
 
     #[test]
+    fn resolve_config_extracts_styles_object_form() {
+        // Angular CLI schema: `styles` entries can be `{ input, bundleName, inject }`.
+        // Used for vendor stylesheets that must opt out of auto-injection.
+        // Previously silently dropped. See #126.
+        let source = r#"{
+            "projects": {
+                "my-app": {
+                    "architect": {
+                        "build": {
+                            "options": {
+                                "styles": [
+                                    "src/styles.scss",
+                                    { "input": "src/theme.scss", "bundleName": "theme", "inject": false }
+                                ]
+                            }
+                        }
+                    }
+                }
+            }
+        }"#;
+        let plugin = AngularPlugin;
+        let result =
+            plugin.resolve_config(Path::new("angular.json"), source, Path::new("/project"));
+        assert!(has_entry_pattern(&result, "src/styles.scss"));
+        assert!(
+            has_entry_pattern(&result, "src/theme.scss"),
+            "object-form entry `input` must be extracted as entry pattern"
+        );
+    }
+
+    #[test]
     fn resolve_config_extracts_main() {
         let source = r#"{
             "projects": {

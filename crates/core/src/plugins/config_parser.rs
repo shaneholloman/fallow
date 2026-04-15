@@ -1134,6 +1134,11 @@ fn get_nested_string_or_array(obj: &ObjectExpression, path: &[&str]) -> Option<V
 }
 
 /// Convert an expression to a `Vec<String>`, handling string, array, and object-with-string-values.
+///
+/// Array elements that are object literals are inspected for an `input` property
+/// (Angular CLI schema for `styles`/`scripts`/`polyfills`:
+/// `{ "input": "src/x.scss", "bundleName": "x", "inject": false }`). Extracting
+/// `input` prevents object-form entries from being silently dropped. See #126.
 fn expression_to_string_or_array(expr: &Expression) -> Vec<String> {
     match expr {
         Expression::StringLiteral(s) => vec![s.value.to_string()],
@@ -1145,7 +1150,13 @@ fn expression_to_string_or_array(expr: &Expression) -> Vec<String> {
         Expression::ArrayExpression(arr) => arr
             .elements
             .iter()
-            .filter_map(|el| el.as_expression().and_then(expression_to_string))
+            .filter_map(|el| el.as_expression())
+            .filter_map(|e| match e {
+                Expression::ObjectExpression(obj) => {
+                    find_property(obj, "input").and_then(|p| expression_to_string(&p.value))
+                }
+                _ => expression_to_string(e),
+            })
             .collect(),
         Expression::ObjectExpression(obj) => obj
             .properties
@@ -1938,6 +1949,56 @@ mod tests {
             &["architect", "build", "options", "styles"],
         );
         assert_eq!(results, vec!["src/styles.css"]);
+    }
+
+    #[test]
+    fn array_with_object_input_form_extracted() {
+        // Angular CLI schema allows both string and object forms in `styles`:
+        //   "styles": ["src/styles.scss", { "input": "src/theme.scss", "inject": false }]
+        // The object form declares bundle-name / inject options for vendor
+        // stylesheets. Previously the array branch silently dropped object
+        // elements. See #126.
+        let source = r#"{
+            "projects": {
+                "app": {
+                    "architect": {
+                        "build": {
+                            "options": {
+                                "styles": [
+                                    "src/styles.scss",
+                                    { "input": "src/theme.scss", "bundleName": "theme", "inject": false },
+                                    { "bundleName": "lazy-only" }
+                                ]
+                            }
+                        }
+                    }
+                }
+            }
+        }"#;
+        let results = extract_config_object_nested_string_or_array(
+            source,
+            &json_path(),
+            &["projects"],
+            &["architect", "build", "options", "styles"],
+        );
+        assert!(
+            results.contains(&"src/styles.scss".to_string()),
+            "string form must still work: {results:?}"
+        );
+        assert!(
+            results.contains(&"src/theme.scss".to_string()),
+            "object form with `input` must be extracted: {results:?}"
+        );
+        // Object without `input` has nothing to extract; must NOT leak
+        // unrelated property values (e.g., `bundleName`).
+        assert!(
+            !results.contains(&"lazy-only".to_string()),
+            "bundleName must not be misinterpreted as a path: {results:?}"
+        );
+        assert!(
+            !results.contains(&"theme".to_string()),
+            "bundleName from full object must not leak: {results:?}"
+        );
     }
 
     // ── extract_config_object_nested_strings ─────────────────────
