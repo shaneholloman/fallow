@@ -962,6 +962,8 @@ mod tests {
                 complexity_density: 0.5,
                 fan_in: 5,
                 trend: fallow_core::churn::ChurnTrend::Stable,
+                ownership: None,
+                is_test_path: false,
             },
             HotspotEntry {
                 path: PathBuf::from("b.ts"),
@@ -973,6 +975,8 @@ mod tests {
                 complexity_density: 0.2,
                 fan_in: 2,
                 trend: fallow_core::churn::ChurnTrend::Cooling,
+                ownership: None,
+                is_test_path: false,
             },
             HotspotEntry {
                 path: PathBuf::from("c.ts"),
@@ -984,6 +988,8 @@ mod tests {
                 complexity_density: 0.4,
                 fan_in: 3,
                 trend: fallow_core::churn::ChurnTrend::Accelerating,
+                ownership: None,
+                is_test_path: false,
             },
         ];
         let modules = Vec::new();

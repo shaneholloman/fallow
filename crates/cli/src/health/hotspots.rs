@@ -2,6 +2,20 @@ use crate::error::emit_error;
 use crate::health_types::{FileHealthScore, HotspotEntry, HotspotSummary};
 
 use super::HealthOptions;
+use super::ownership::{OwnershipContext, compile_bot_globs, compute_ownership};
+
+/// Detect test/mock path conventions. Kept as a simple substring scan
+/// against forward-slash normalized paths so it works uniformly on the
+/// relative paths we use for display.
+pub(super) fn is_test_path(relative: &std::path::Path) -> bool {
+    let s = relative.to_string_lossy().replace('\\', "/");
+    s.contains("/__tests__/")
+        || s.contains("/__mocks__/")
+        || s.contains("/test/")
+        || s.contains("/tests/")
+        || s.contains(".test.")
+        || s.contains(".spec.")
+}
 
 /// Result of fetching churn data, including cache hit/miss info and timing.
 pub(super) struct ChurnFetchResult {
@@ -130,18 +144,53 @@ pub(super) fn compute_hotspots(
     let churn_result = churn_fetch.result;
     let since = churn_fetch.since;
 
-    // Warn about shallow clones (read from churn result to avoid redundant git call)
+    // Warn about shallow clones (read from churn result to avoid redundant git call).
+    // Also surfaces an authorship-inflation warning when ownership is requested:
+    // squash merges and shallow clones distort author attribution.
     let shallow_clone = churn_result.shallow_clone;
     if shallow_clone && !opts.quiet {
         eprintln!(
             "Warning: shallow clone detected. Hotspot analysis may be incomplete. \
              Use `git fetch --unshallow` for full history."
         );
+        if opts.ownership {
+            eprintln!(
+                "Warning: shallow clones inflate single-author dominance — \
+                 ownership signals will be skewed."
+            );
+        }
     }
 
     let min_commits = opts.min_commits.unwrap_or(3);
     let (max_weighted, max_density) =
         compute_normalization_maxima(file_scores, &churn_result.files, min_commits);
+
+    // Compile ownership inputs once. When --ownership is off, skip discovery
+    // entirely so users without git authorship data pay no setup cost.
+    let ownership_cfg = &config.health.ownership;
+    let bot_globs_owned: Option<globset::GlobSet> = opts.ownership.then(|| {
+        compile_bot_globs(&ownership_cfg.bot_patterns).unwrap_or_else(|e| {
+            if !opts.quiet {
+                eprintln!("Warning: invalid bot pattern in health.ownership.botPatterns: {e}");
+            }
+            globset::GlobSet::empty()
+        })
+    });
+    let codeowners_owned: Option<crate::codeowners::CodeOwners> = opts
+        .ownership
+        .then(|| crate::codeowners::CodeOwners::load(&config.root, None).ok())
+        .flatten();
+    let now_secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let ownership_ctx = bot_globs_owned.as_ref().map(|bot_globs| OwnershipContext {
+        author_pool: &churn_result.author_pool,
+        bot_globs,
+        codeowners: codeowners_owned.as_ref(),
+        email_mode: opts.ownership_emails.unwrap_or(ownership_cfg.email_mode),
+        now_secs,
+    });
 
     // Build hotspot entries
     let mut hotspot_entries = Vec::new();
@@ -160,6 +209,11 @@ pub(super) fn compute_hotspots(
             continue;
         }
 
+        let relative = score.path.strip_prefix(&config.root).unwrap_or(&score.path);
+        let ownership = ownership_ctx
+            .as_ref()
+            .and_then(|ctx| compute_ownership(churn, relative, ctx));
+
         hotspot_entries.push(HotspotEntry {
             path: score.path.clone(),
             score: compute_hotspot_score(
@@ -175,6 +229,8 @@ pub(super) fn compute_hotspots(
             complexity_density: score.complexity_density,
             fan_in: score.fan_in,
             trend: churn.trend,
+            ownership,
+            is_test_path: is_test_path(relative),
         });
     }
 
@@ -345,6 +401,7 @@ mod tests {
                 lines_added: 100,
                 lines_deleted: 20,
                 trend: fallow_core::churn::ChurnTrend::Stable,
+                authors: rustc_hash::FxHashMap::default(),
             },
         );
 
@@ -382,6 +439,7 @@ mod tests {
                 lines_added: 100,
                 lines_deleted: 20,
                 trend: fallow_core::churn::ChurnTrend::Stable,
+                authors: rustc_hash::FxHashMap::default(),
             },
         );
 
@@ -420,6 +478,7 @@ mod tests {
                 lines_added: 0,
                 lines_deleted: 0,
                 trend: fallow_core::churn::ChurnTrend::Stable,
+                authors: rustc_hash::FxHashMap::default(),
             },
         );
 
@@ -529,6 +588,7 @@ mod tests {
                 lines_added: 50,
                 lines_deleted: 10,
                 trend: fallow_core::churn::ChurnTrend::Stable,
+                authors: rustc_hash::FxHashMap::default(),
             },
         );
         churn_files.insert(
@@ -540,6 +600,7 @@ mod tests {
                 lines_added: 200,
                 lines_deleted: 50,
                 trend: fallow_core::churn::ChurnTrend::Accelerating,
+                authors: rustc_hash::FxHashMap::default(),
             },
         );
         churn_files.insert(
@@ -551,6 +612,7 @@ mod tests {
                 lines_added: 100,
                 lines_deleted: 30,
                 trend: fallow_core::churn::ChurnTrend::Cooling,
+                authors: rustc_hash::FxHashMap::default(),
             },
         );
 
@@ -606,6 +668,7 @@ mod tests {
                 lines_added: 150,
                 lines_deleted: 40,
                 trend: fallow_core::churn::ChurnTrend::Stable,
+                authors: rustc_hash::FxHashMap::default(),
             },
         );
         churn_files.insert(
@@ -617,6 +680,7 @@ mod tests {
                 lines_added: 10,
                 lines_deleted: 2,
                 trend: fallow_core::churn::ChurnTrend::Cooling,
+                authors: rustc_hash::FxHashMap::default(),
             },
         );
 
@@ -681,6 +745,7 @@ mod tests {
                 lines_added: 0,
                 lines_deleted: 0,
                 trend: fallow_core::churn::ChurnTrend::Stable,
+                authors: rustc_hash::FxHashMap::default(),
             },
         );
 
@@ -720,6 +785,7 @@ mod tests {
                 lines_added: 60,
                 lines_deleted: 15,
                 trend: fallow_core::churn::ChurnTrend::Stable,
+                authors: rustc_hash::FxHashMap::default(),
             },
         );
 

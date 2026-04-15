@@ -16,7 +16,7 @@ pub use duplicates_config::{
 };
 pub use flags::{FlagsConfig, SdkPattern};
 pub use format::OutputFormat;
-pub use health::HealthConfig;
+pub use health::{EmailMode, HealthConfig, OwnershipConfig};
 pub use resolution::{ConfigOverride, IgnoreExportRule, ResolvedConfig, ResolvedOverride};
 pub use rules::{PartialRulesConfig, RulesConfig, Severity};
 

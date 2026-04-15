@@ -756,6 +756,41 @@ fn write_coverage_gaps_section(
 }
 
 /// Write the hotspots table to the output.
+/// Render the four ownership table cells (bus, top contributor, declared
+/// owner, notes) for the markdown hotspots table. Cells fall back to `—`
+/// (en-dash) when ownership data is missing for an entry.
+fn ownership_md_cells(
+    ownership: Option<&crate::health_types::OwnershipMetrics>,
+) -> (String, String, String, String) {
+    let Some(o) = ownership else {
+        let dash = "\u{2013}".to_string();
+        return (dash.clone(), dash.clone(), dash.clone(), dash);
+    };
+    let bus = o.bus_factor.to_string();
+    let top = format!(
+        "`{}` ({:.0}%)",
+        o.top_contributor.identifier,
+        o.top_contributor.share * 100.0,
+    );
+    let owner = o
+        .declared_owner
+        .as_deref()
+        .map_or_else(|| "\u{2013}".to_string(), str::to_string);
+    let mut notes: Vec<&str> = Vec::new();
+    if o.unowned == Some(true) {
+        notes.push("**unowned**");
+    }
+    if o.drift {
+        notes.push("drift");
+    }
+    let notes_str = if notes.is_empty() {
+        "\u{2013}".to_string()
+    } else {
+        notes.join(", ")
+    };
+    (bus, top, owner, notes_str)
+}
+
 fn write_hotspots_section(
     out: &mut String,
     report: &crate::health_types::HealthReport,
@@ -783,21 +818,46 @@ fn write_hotspots_section(
         },
     );
     let _ = writeln!(out, "{header}");
-    out.push_str("| File | Score | Commits | Churn | Density | Fan-in | Trend |\n");
-    out.push_str("|:-----|:------|:--------|:------|:--------|:-------|:------|\n");
+    // Add ownership columns when at least one entry has ownership data.
+    let any_ownership = report.hotspots.iter().any(|e| e.ownership.is_some());
+    if any_ownership {
+        out.push_str(
+            "| File | Score | Commits | Churn | Density | Fan-in | Trend | Bus | Top | Owner | Notes |\n"
+        );
+        out.push_str(
+            "|:-----|:------|:--------|:------|:--------|:-------|:------|:----|:----|:------|:------|\n"
+        );
+    } else {
+        out.push_str("| File | Score | Commits | Churn | Density | Fan-in | Trend |\n");
+        out.push_str("|:-----|:------|:--------|:------|:--------|:-------|:------|\n");
+    }
 
     for entry in &report.hotspots {
         let file_str = rel(&entry.path);
-        let _ = writeln!(
-            out,
-            "| `{file_str}` | {score:.1} | {commits} | {churn} | {density:.2} | {fi} | {trend} |",
-            score = entry.score,
-            commits = entry.commits,
-            churn = entry.lines_added + entry.lines_deleted,
-            density = entry.complexity_density,
-            fi = entry.fan_in,
-            trend = entry.trend,
-        );
+        if any_ownership {
+            let (bus, top, owner, notes) = ownership_md_cells(entry.ownership.as_ref());
+            let _ = writeln!(
+                out,
+                "| `{file_str}` | {score:.1} | {commits} | {churn} | {density:.2} | {fi} | {trend} | {bus} | {top} | {owner} | {notes} |",
+                score = entry.score,
+                commits = entry.commits,
+                churn = entry.lines_added + entry.lines_deleted,
+                density = entry.complexity_density,
+                fi = entry.fan_in,
+                trend = entry.trend,
+            );
+        } else {
+            let _ = writeln!(
+                out,
+                "| `{file_str}` | {score:.1} | {commits} | {churn} | {density:.2} | {fi} | {trend} |",
+                score = entry.score,
+                commits = entry.commits,
+                churn = entry.lines_added + entry.lines_deleted,
+                density = entry.complexity_density,
+                fi = entry.fan_in,
+                trend = entry.trend,
+            );
+        }
     }
 
     if let Some(ref summary) = report.hotspot_summary
@@ -1621,6 +1681,8 @@ mod tests {
                 complexity_density: 1.2,
                 fan_in: 10,
                 trend: fallow_core::churn::ChurnTrend::Accelerating,
+                ownership: None,
+                is_test_path: false,
             }],
             hotspot_summary: Some(crate::health_types::HotspotSummary {
                 since: "6 months".to_string(),
@@ -1798,6 +1860,8 @@ mod tests {
                 complexity_density: 0.5,
                 fan_in: 3,
                 trend: fallow_core::churn::ChurnTrend::Stable,
+                ownership: None,
+                is_test_path: false,
             }],
             hotspot_summary: Some(crate::health_types::HotspotSummary {
                 since: "6 months".to_string(),

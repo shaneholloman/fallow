@@ -9,6 +9,81 @@ const fn default_max_cognitive() -> u16 {
     15
 }
 
+/// Default bot/service-account author patterns filtered from ownership metrics.
+///
+/// Matches common CI bot signatures and service-account naming conventions.
+/// Users can extend via `health.ownership.botPatterns` in config.
+///
+/// Note on `[bot]` matching: globset treats `[abc]` as a character class.
+/// To match the literal `[bot]` substring (used by GitHub App bots), escape
+/// the brackets as `\[bot\]`.
+///
+/// `*noreply*` is intentionally NOT a default. Most human GitHub contributors
+/// commit from `<id>+<handle>@users.noreply.github.com` addresses (GitHub's
+/// privacy default). Filtering on `noreply` would silently exclude the
+/// majority of real authors. The actual bot accounts already match via the
+/// `\[bot\]` literal (e.g., `github-actions[bot]@users.noreply.github.com`).
+fn default_bot_patterns() -> Vec<String> {
+    vec![
+        r"*\[bot\]*".to_string(),
+        "dependabot*".to_string(),
+        "renovate*".to_string(),
+        "github-actions*".to_string(),
+        "svc-*".to_string(),
+        "*-service-account*".to_string(),
+    ]
+}
+
+const fn default_email_mode() -> EmailMode {
+    EmailMode::Handle
+}
+
+/// Privacy mode for author emails emitted in ownership output.
+///
+/// Defaults to `handle` (local-part only, no domain) so SARIF and JSON
+/// artifacts do not leak raw email addresses into CI pipelines.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum EmailMode {
+    /// Show the raw email address as it appears in git history.
+    /// Use for public repositories where history is already exposed.
+    Raw,
+    /// Show the local-part only (before the `@`). Mailmap-resolved where possible.
+    /// Default. Balances readability and privacy.
+    Handle,
+    /// Show a stable `xxh3:<16hex>` pseudonym derived from the raw email.
+    /// Non-cryptographic; suitable to keep raw emails out of CI artifacts
+    /// (SARIF, code-scanning uploads) but not as a security primitive --
+    /// a known list of org emails can be brute-forced into a rainbow table.
+    /// Use in regulated environments where even local-parts are sensitive.
+    Hash,
+}
+
+/// Configuration for ownership analysis (`fallow health --hotspots --ownership`).
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct OwnershipConfig {
+    /// Glob patterns (matched against the author email local-part) that
+    /// identify bot or service-account commits to exclude from ownership
+    /// signals. Overrides the defaults entirely when set.
+    #[serde(default = "default_bot_patterns")]
+    pub bot_patterns: Vec<String>,
+
+    /// Privacy mode for emitted author emails. Defaults to `handle`.
+    /// Override on the CLI via `--ownership-emails=raw|handle|hash`.
+    #[serde(default = "default_email_mode")]
+    pub email_mode: EmailMode,
+}
+
+impl Default for OwnershipConfig {
+    fn default() -> Self {
+        Self {
+            bot_patterns: default_bot_patterns(),
+            email_mode: default_email_mode(),
+        }
+    }
+}
+
 /// Configuration for complexity health metrics (`fallow health`).
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -26,6 +101,11 @@ pub struct HealthConfig {
     /// Glob patterns to exclude from complexity analysis.
     #[serde(default)]
     pub ignore: Vec<String>,
+
+    /// Ownership analysis configuration. Controls bot filtering and email
+    /// privacy mode for `--ownership` output.
+    #[serde(default)]
+    pub ownership: OwnershipConfig,
 }
 
 impl Default for HealthConfig {
@@ -34,6 +114,7 @@ impl Default for HealthConfig {
             max_cyclomatic: default_max_cyclomatic(),
             max_cognitive: default_max_cognitive(),
             ignore: vec![],
+            ownership: OwnershipConfig::default(),
         }
     }
 }
@@ -120,6 +201,7 @@ ignore = ["generated/**", "vendor/**"]
             max_cyclomatic: 50,
             max_cognitive: 40,
             ignore: vec!["test/**".to_string()],
+            ownership: OwnershipConfig::default(),
         };
         let json = serde_json::to_string(&config).unwrap();
         let restored: HealthConfig = serde_json::from_str(&json).unwrap();
@@ -146,5 +228,61 @@ ignore = ["generated/**", "vendor/**"]
         let config: HealthConfig = serde_json::from_str(json).unwrap();
         assert_eq!(config.max_cyclomatic, u16::MAX);
         assert_eq!(config.max_cognitive, u16::MAX);
+    }
+
+    // ── OwnershipConfig ─────────────────────────────────────────────
+
+    #[test]
+    fn ownership_config_default_has_bot_patterns() {
+        let cfg = OwnershipConfig::default();
+        // Brackets are escaped because globset treats `[abc]` as a class;
+        // the literal `[bot]` pattern requires escaping.
+        assert!(cfg.bot_patterns.iter().any(|p| p == r"*\[bot\]*"));
+        assert!(cfg.bot_patterns.iter().any(|p| p == "dependabot*"));
+        assert!(cfg.bot_patterns.iter().any(|p| p == "github-actions*"));
+        // `*noreply*` is intentionally NOT a default. See `default_bot_patterns`
+        // for why: it would filter out the majority of real GitHub contributors
+        // who commit from `<id>+<handle>@users.noreply.github.com`.
+        assert!(
+            !cfg.bot_patterns.iter().any(|p| p == "*noreply*"),
+            "*noreply* must not be a default bot pattern (filters real human \
+             contributors using GitHub's privacy default email)"
+        );
+        assert_eq!(cfg.email_mode, EmailMode::Handle);
+    }
+
+    #[test]
+    fn ownership_config_default_via_health() {
+        let cfg = HealthConfig::default();
+        assert_eq!(cfg.ownership.email_mode, EmailMode::Handle);
+        assert!(!cfg.ownership.bot_patterns.is_empty());
+    }
+
+    #[test]
+    fn ownership_config_json_overrides_defaults() {
+        let json = r#"{
+            "ownership": {
+                "botPatterns": ["custom-bot*"],
+                "emailMode": "raw"
+            }
+        }"#;
+        let config: HealthConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.ownership.bot_patterns, vec!["custom-bot*"]);
+        assert_eq!(config.ownership.email_mode, EmailMode::Raw);
+    }
+
+    #[test]
+    fn ownership_config_email_mode_kebab_case() {
+        // All three EmailMode variants round-trip through their kebab-case JSON form.
+        for (mode, repr) in [
+            (EmailMode::Raw, "\"raw\""),
+            (EmailMode::Handle, "\"handle\""),
+            (EmailMode::Hash, "\"hash\""),
+        ] {
+            let s = serde_json::to_string(&mode).unwrap();
+            assert_eq!(s, repr);
+            let back: EmailMode = serde_json::from_str(repr).unwrap();
+            assert_eq!(back, mode);
+        }
     }
 }

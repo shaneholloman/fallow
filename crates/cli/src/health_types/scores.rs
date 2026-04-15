@@ -379,6 +379,102 @@ pub struct HotspotEntry {
     pub fan_in: usize,
     /// Churn trend: accelerating, stable, or cooling.
     pub trend: fallow_core::churn::ChurnTrend,
+    /// Ownership signals (bus factor, contributors, declared owner, drift).
+    /// Populated only when `--ownership` is requested.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ownership: Option<OwnershipMetrics>,
+    /// True when the file path matches a test/mock convention (e.g.
+    /// `**/__tests__/**`, `**/*.test.*`, `**/*.spec.*`, `**/__mocks__/**`).
+    /// Test files are intentionally included in hotspot ranking (test
+    /// maintenance IS real work), but tagging them lets consumers decide
+    /// whether to weight or filter them downstream.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub is_test_path: bool,
+}
+
+/// Per-author summary emitted in [`OwnershipMetrics::top_contributor`] and
+/// [`OwnershipMetrics::recent_contributors`].
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ContributorEntry {
+    /// Display string per the configured email mode: raw email
+    /// (`alice@example.com`), local-part handle (`alice`), or stable hash
+    /// pseudonym (`xxh3:<16hex>`). The format depends on `format`.
+    ///
+    /// Renamed from `email` because in `handle` and `hash` modes the value
+    /// is no longer an email address; consumers tempted to use it as one
+    /// (e.g. `mailto:`) would be wrong.
+    pub identifier: String,
+    /// Format of [`identifier`](Self::identifier): `raw`, `handle`, or `hash`.
+    /// Lets type-aware consumers branch without re-parsing the string.
+    pub format: ContributorIdentifierFormat,
+    /// Recency-weighted share of total weighted commits (0..1, three decimals).
+    pub share: f64,
+    /// Days since this contributor last touched the file.
+    pub stale_days: u64,
+    /// Total commits by this contributor in the analysis window.
+    pub commits: u32,
+}
+
+/// Format discriminator for [`ContributorEntry::identifier`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ContributorIdentifierFormat {
+    /// Raw author email as recorded in git history.
+    Raw,
+    /// Local-part of the author email, with GitHub-style numeric noreply
+    /// prefixes unwrapped (`12345+alice@users.noreply.github.com` → `alice`).
+    Handle,
+    /// Non-cryptographic stable pseudonym (`xxh3:<16hex>`).
+    Hash,
+}
+
+/// Per-file ownership signals attached to hotspot entries when the user
+/// passes `--ownership`. All fields are derived from git history and the
+/// repository's CODEOWNERS file (if any).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct OwnershipMetrics {
+    /// Avelino truck factor: minimum number of contributors covering at
+    /// least 50% of recency-weighted commits.
+    pub bus_factor: u32,
+
+    /// Distinct authors in the analysis window after bot filtering.
+    pub contributor_count: u32,
+
+    /// The highest-share contributor.
+    pub top_contributor: ContributorEntry,
+
+    /// Up to three additional contributors by share, ordered desc.
+    /// Useful for "who else could review this file" routing.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub recent_contributors: Vec<ContributorEntry>,
+
+    /// Contributors whose last touch is within 90 days, ordered by share
+    /// descending. First-class field so AI agents do not have to
+    /// reconstruct it from [`recent_contributors`](Self::recent_contributors)
+    /// filtered by [`ContributorEntry::stale_days`]. Excludes the top
+    /// contributor (they are the sole author being flagged); consumers
+    /// wanting the full list can union with `top_contributor`.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub suggested_reviewers: Vec<ContributorEntry>,
+
+    /// CODEOWNERS-resolved owner for this file, if a rule matched.
+    /// Only the primary (first) owner of the matched rule is reported.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub declared_owner: Option<String>,
+
+    /// Tristate: `Some(true)` = CODEOWNERS file exists but no rule matches
+    /// this file; `Some(false)` = a CODEOWNERS rule matches; `None` = no
+    /// CODEOWNERS file was discovered for the repository (cannot determine).
+    pub unowned: Option<bool>,
+
+    /// True when ownership has drifted from the original author to a new
+    /// top contributor. Pairs with [`drift_reason`](Self::drift_reason).
+    pub drift: bool,
+
+    /// Human-readable explanation of the drift, populated only when
+    /// [`drift`](Self::drift) is true.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub drift_reason: Option<String>,
 }
 
 /// Summary statistics for hotspot analysis.

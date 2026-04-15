@@ -621,6 +621,84 @@
           "type": "array",
           "items": { "$ref": "#/definitions/HotspotAction" },
           "description": "Suggested actions to reduce hotspot risk."
+        },
+        "ownership": {
+          "$ref": "#/definitions/OwnershipMetrics",
+          "description": "Per-file ownership signals. Only present when --ownership is used."
+        }
+      }
+    },
+    "OwnershipMetrics": {
+      "type": "object",
+      "required": ["bus_factor", "contributor_count", "top_contributor", "unowned", "drift"],
+      "description": "Per-file ownership signals derived from git author history and CODEOWNERS. Only computed when --ownership is requested.",
+      "properties": {
+        "bus_factor": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Avelino truck factor: minimum contributors covering at least 50% of recency-weighted commits in the analysis window. Lower = higher knowledge-loss risk."
+        },
+        "contributor_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Distinct authors after bot filtering."
+        },
+        "top_contributor": {
+          "$ref": "#/definitions/ContributorEntry",
+          "description": "The single highest-share author."
+        },
+        "recent_contributors": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/ContributorEntry" },
+          "description": "Up to three additional contributors by share, ordered descending. Useful for review routing."
+        },
+        "declared_owner": {
+          "type": ["string", "null"],
+          "description": "CODEOWNERS-resolved primary owner for this file, when a rule matches."
+        },
+        "unowned": {
+          "type": ["boolean", "null"],
+          "description": "Tristate: true = CODEOWNERS file exists but no rule matches; false = a rule matches; null = no CODEOWNERS file discovered for the repository."
+        },
+        "drift": {
+          "type": "boolean",
+          "description": "True when ownership has drifted from the original author to a new top contributor (file age >= 30 days, original author share < 10%)."
+        },
+        "drift_reason": {
+          "type": "string",
+          "description": "Human-readable explanation of the drift. Field is omitted (not null) when drift is false."
+        }
+      }
+    },
+    "ContributorEntry": {
+      "type": "object",
+      "required": ["identifier", "format", "share", "stale_days", "commits"],
+      "description": "Per-author contribution summary. The identifier is rendered per the configured ownership.emailMode (handle, hash, or raw); the format field discriminates the three so type-aware consumers can branch without re-parsing.",
+      "properties": {
+        "identifier": {
+          "type": "string",
+          "description": "Display string for the contributor. Raw email when format=raw (e.g. alice@example.com), local-part handle when format=handle (e.g. alice), or non-cryptographic pseudonym when format=hash (e.g. xxh3:abcdef0123456789). Do not assume this is an email address."
+        },
+        "format": {
+          "type": "string",
+          "enum": ["raw", "handle", "hash"],
+          "description": "Discriminator for identifier shape. Set by ownership.emailMode at analysis time."
+        },
+        "share": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Recency-weighted share of total weighted commits, rounded to three decimals."
+        },
+        "stale_days": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Days since this contributor last touched the file."
+        },
+        "commits": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total commits by this contributor in the analysis window."
         }
       }
     },
@@ -1035,13 +1113,13 @@
       }
     },
     "HotspotAction": {
-      "description": "A suggested action for a hotspot file.",
+      "description": "A suggested action for a hotspot file. Ownership-derived action types (low-bus-factor, unowned-hotspot, ownership-drift) appear only when --ownership is enabled.",
       "type": "object",
       "required": ["type", "auto_fixable", "description"],
       "properties": {
         "type": {
           "type": "string",
-          "enum": ["refactor-file", "add-tests"],
+          "enum": ["refactor-file", "add-tests", "low-bus-factor", "unowned-hotspot", "ownership-drift"],
           "description": "Action type identifier."
         },
         "auto_fixable": {
@@ -1055,6 +1133,15 @@
         "note": {
           "type": "string",
           "description": "Additional context for the action."
+        },
+        "suggested_pattern": {
+          "type": "string",
+          "description": "Suggested CODEOWNERS pattern. Only present on unowned-hotspot actions. Derived per the heuristic field; consumers should branch on heuristic rather than assume a stable algorithm."
+        },
+        "heuristic": {
+          "type": "string",
+          "enum": ["directory-deepest"],
+          "description": "Strategy used to derive suggested_pattern. Reserved for future evolution (e.g., 'codeowners-cluster')."
         }
       }
     },

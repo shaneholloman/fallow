@@ -35,6 +35,7 @@ tempfile = { workspace = true }
 miette = { workspace = true, features = ["fancy"] }
 rustc-hash = { workspace = true }
 oxc_coverage_instrument = { workspace = true }
+xxhash-rust = { workspace = true }
 
 [lib]
 name = "fallow_cli"

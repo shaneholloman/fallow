@@ -890,6 +890,161 @@ fn render_coverage_gaps(
     lines.push(String::new());
 }
 
+/// Project-level ownership summary rendered above the hotspot list.
+///
+/// Answers the question "what is the organizational pattern across these
+/// hotspots" so readers do not have to scan 10 nearly-identical rows to
+/// notice the same two contributors own most of them. Returns `None` when
+/// ownership data is absent (no `--ownership` flag) or when the signal
+/// would be trivial (0 or 1 hotspot).
+fn render_ownership_summary(report: &crate::health_types::HealthReport) -> Option<String> {
+    if report.hotspots.len() < 2 {
+        return None;
+    }
+    let with_ownership: Vec<&crate::health_types::OwnershipMetrics> = report
+        .hotspots
+        .iter()
+        .filter_map(|h| h.ownership.as_ref())
+        .collect();
+    if with_ownership.is_empty() {
+        return None;
+    }
+
+    let total = with_ownership.len();
+    let bus1_count = with_ownership.iter().filter(|o| o.bus_factor == 1).count();
+
+    // Count top-contributor frequency across hotspots to surface the
+    // dominant authors organizationally. Top-3 only.
+    let mut tally: rustc_hash::FxHashMap<String, u32> = rustc_hash::FxHashMap::default();
+    for o in &with_ownership {
+        *tally
+            .entry(o.top_contributor.identifier.clone())
+            .or_insert(0) += 1;
+    }
+    let mut ranked: Vec<(String, u32)> = tally.into_iter().collect();
+    ranked.sort_by(|a, b| b.1.cmp(&a.1));
+    let top_authors: Vec<String> = ranked
+        .iter()
+        .take(3)
+        .map(|(id, n)| format!("{id} ({n})"))
+        .collect();
+
+    let mut segments: Vec<String> = Vec::new();
+    if bus1_count > 0 {
+        let label = if bus1_count == total {
+            format!("all {total} hotspots depend on a single recent contributor")
+        } else {
+            format!("{bus1_count}/{total} hotspots depend on a single recent contributor")
+        };
+        segments.push(label.red().bold().to_string());
+    }
+    if !top_authors.is_empty() {
+        segments.push(
+            format!("top authors: {}", top_authors.join(", "))
+                .dimmed()
+                .to_string(),
+        );
+    }
+
+    if segments.is_empty() {
+        None
+    } else {
+        Some(segments.join("  ·  "))
+    }
+}
+
+/// Heuristic: does the contributor's display identifier appear to match the
+/// declared CODEOWNERS owner? Collapses the human output when the same
+/// person is referenced two different ways. Conservative — false negatives
+/// are fine (we just render both labels), false positives would mislead.
+fn handle_matches_owner(identifier: &str, declared_owner: &str) -> bool {
+    let owner_handle = declared_owner.trim_start_matches('@');
+    if owner_handle.is_empty() || identifier.is_empty() {
+        return false;
+    }
+    // Email mode: compare local-part to owner handle.
+    let id_handle = identifier.split('@').next().unwrap_or(identifier);
+    let id_handle = id_handle.split('+').next_back().unwrap_or(id_handle);
+    id_handle.eq_ignore_ascii_case(owner_handle)
+}
+
+/// Render a single line of ownership signals for the human hotspot view.
+///
+/// Format: `bus=N · top=@handle (P%) · owner=@team [drift] [unowned]`
+/// where each segment is colored by severity. Designed to fit on one line
+/// and stay scannable; full structured data is in the JSON output.
+fn render_ownership_line(
+    ownership: &crate::health_types::OwnershipMetrics,
+    trend: fallow_core::churn::ChurnTrend,
+) -> String {
+    let mut parts: Vec<String> = Vec::new();
+
+    // Conditional severity: red is reserved for the strongest signal so it
+    // does not lose meaning when the majority of hotspots are bus=1. The
+    // single-author-100%-share case and the bus=1+accelerating case keep
+    // the red/bold marker; the common bus=1 case drops to dimmed, which is
+    // still present and readable under NO_COLOR but no longer shouts.
+    let top_share = ownership.top_contributor.share;
+    let is_accelerating = matches!(trend, fallow_core::churn::ChurnTrend::Accelerating);
+    let is_extreme = top_share >= 0.9 || (ownership.bus_factor == 1 && is_accelerating);
+    let bus_str = if top_share >= 0.9999 {
+        format!("bus={} (sole author)", ownership.bus_factor)
+    } else if ownership.bus_factor <= 1 && is_extreme {
+        format!("bus={} (at risk)", ownership.bus_factor)
+    } else {
+        format!("bus={}", ownership.bus_factor)
+    };
+    let bus_colored = if is_extreme {
+        bus_str.red().bold().to_string()
+    } else if ownership.bus_factor <= 1 {
+        bus_str.yellow().to_string()
+    } else {
+        bus_str.dimmed().to_string()
+    };
+    parts.push(bus_colored);
+
+    // Collapse `top=...` and `owner=...` into a single `owned by ...` segment
+    // when the declared CODEOWNERS owner agrees with the recorded top
+    // contributor (handle prefix or substring match). Avoids the "two names
+    // for the same person" visual confusion the panel flagged.
+    let top = &ownership.top_contributor;
+    let collapsed = ownership
+        .declared_owner
+        .as_deref()
+        .filter(|owner| handle_matches_owner(&top.identifier, owner));
+    if let Some(owner) = collapsed {
+        parts.push(
+            format!(
+                "owned by {} ({:.0}%, declared {})",
+                top.identifier,
+                top.share * 100.0,
+                owner,
+            )
+            .dimmed()
+            .to_string(),
+        );
+    } else {
+        parts.push(
+            format!("top={} ({:.0}%)", top.identifier, top.share * 100.0)
+                .dimmed()
+                .to_string(),
+        );
+        if let Some(owner) = &ownership.declared_owner {
+            parts.push(format!("owner={owner}").dimmed().to_string());
+        }
+    }
+
+    if ownership.unowned == Some(true) {
+        parts.push("unowned".red().to_string());
+    }
+
+    if ownership.drift {
+        parts.push("drift".yellow().to_string());
+    }
+
+    parts.join("  ")
+}
+
 fn render_hotspots(
     lines: &mut Vec<String>,
     report: &crate::health_types::HealthReport,
@@ -911,6 +1066,14 @@ fn render_hotspots(
     );
     lines.push(format!("{} {}", "\u{25cf}".red(), header.red().bold()));
     lines.push(String::new());
+
+    // Project-level ownership summary. Surfaces the organizational pattern
+    // ("9/10 hotspots have bus=1") above the per-file list so tech leads
+    // see the headline, not just the wall of red markers.
+    if let Some(summary_line) = render_ownership_summary(report) {
+        lines.push(format!("  {summary_line}"));
+        lines.push(String::new());
+    }
 
     for entry in &report.hotspots {
         let file_str = relative_path(&entry.path, root).display().to_string();
@@ -941,9 +1104,16 @@ fn render_hotspots(
         // Path: dim directory, normal filename
         let (dir, filename) = split_dir_filename(&file_str);
 
-        // Line 1: score + trend symbol + path
+        // Line 1: score + trend symbol + path + optional [test] tag.
+        // The tag signals "fallow saw this is a test file and kept it
+        // intentionally" so readers don't dismiss the tool as noisy.
+        let test_tag = if entry.is_test_path {
+            format!(" {}", "[test]".dimmed())
+        } else {
+            String::new()
+        };
         lines.push(format!(
-            "  {} {}  {}{}",
+            "  {} {}  {}{}{}",
             score_colored,
             match entry.trend {
                 fallow_core::churn::ChurnTrend::Accelerating => trend_symbol.red().to_string(),
@@ -952,6 +1122,7 @@ fn render_hotspots(
             },
             dir.dimmed(),
             filename,
+            test_tag,
         ));
 
         // Line 2: metrics (indented, dimmed) + trend label
@@ -963,6 +1134,15 @@ fn render_hotspots(
             format!("{:>2}", entry.fan_in).dimmed(),
             trend_colored,
         ));
+
+        // Line 3 (optional): one-line ownership summary. Kept short by
+        // intent, full structured detail is in the JSON output.
+        if let Some(ownership) = &entry.ownership {
+            lines.push(format!(
+                "         {}",
+                render_ownership_line(ownership, entry.trend)
+            ));
+        }
 
         // Blank line between entries
         lines.push(String::new());
@@ -982,6 +1162,21 @@ fn render_hotspots(
             .dimmed()
         ));
         lines.push(String::new());
+    }
+    // When ownership is on but no CODEOWNERS file was discovered (every
+    // hotspot has `unowned == None`), surface a one-line hint so users
+    // understand why `owner=` and the `unowned` marker are absent.
+    let any_ownership = report.hotspots.iter().any(|h| h.ownership.is_some());
+    let no_codeowners_anywhere = report
+        .hotspots
+        .iter()
+        .filter_map(|h| h.ownership.as_ref())
+        .all(|o| o.unowned.is_none());
+    if any_ownership && no_codeowners_anywhere {
+        lines.push(format!(
+            "  {}",
+            "No CODEOWNERS file discovered, ownership signals limited to git history.".dimmed()
+        ));
     }
     lines.push(format!(
         "  {}",
@@ -2093,6 +2288,8 @@ mod tests {
             complexity_density: 0.85,
             fan_in: 10,
             trend: fallow_core::churn::ChurnTrend::Accelerating,
+            ownership: None,
+            is_test_path: false,
         }];
         let lines = build_health_human_lines(&report, &root);
         let text = plain(&lines);
@@ -2120,6 +2317,8 @@ mod tests {
             complexity_density: 0.3,
             fan_in: 2,
             trend: fallow_core::churn::ChurnTrend::Cooling,
+            ownership: None,
+            is_test_path: false,
         }];
         let lines = build_health_human_lines(&report, &root);
         let text = plain(&lines);
@@ -2141,6 +2340,8 @@ mod tests {
             complexity_density: 0.5,
             fan_in: 5,
             trend: fallow_core::churn::ChurnTrend::Stable,
+            ownership: None,
+            is_test_path: false,
         }];
         let lines = build_health_human_lines(&report, &root);
         let text = plain(&lines);
@@ -2162,6 +2363,8 @@ mod tests {
             complexity_density: 0.4,
             fan_in: 3,
             trend: fallow_core::churn::ChurnTrend::Stable,
+            ownership: None,
+            is_test_path: false,
         }];
         report.hotspot_summary = Some(crate::health_types::HotspotSummary {
             since: "6 months".to_string(),
@@ -2190,6 +2393,8 @@ mod tests {
             complexity_density: 0.4,
             fan_in: 3,
             trend: fallow_core::churn::ChurnTrend::Stable,
+            ownership: None,
+            is_test_path: false,
         }];
         report.hotspot_summary = Some(crate::health_types::HotspotSummary {
             since: "3 months".to_string(),
@@ -2218,6 +2423,8 @@ mod tests {
             complexity_density: 0.4,
             fan_in: 3,
             trend: fallow_core::churn::ChurnTrend::Stable,
+            ownership: None,
+            is_test_path: false,
         }];
         let lines = build_health_human_lines(&report, &root);
         let text = plain(&lines);
@@ -2516,6 +2723,8 @@ mod tests {
             complexity_density: 0.5,
             fan_in: 5,
             trend: fallow_core::churn::ChurnTrend::Accelerating,
+            ownership: None,
+            is_test_path: false,
         }];
         report.targets = vec![crate::health_types::RefactoringTarget {
             path: root.join("src/complex.ts"),
@@ -2671,6 +2880,8 @@ mod tests {
                 complexity_density: 0.9,
                 fan_in: 8,
                 trend: fallow_core::churn::ChurnTrend::Accelerating,
+                ownership: None,
+                is_test_path: false,
             },
             crate::health_types::HotspotEntry {
                 path: root.join("src/medium.ts"),
@@ -2682,6 +2893,8 @@ mod tests {
                 complexity_density: 0.5,
                 fan_in: 4,
                 trend: fallow_core::churn::ChurnTrend::Stable,
+                ownership: None,
+                is_test_path: false,
             },
             crate::health_types::HotspotEntry {
                 path: root.join("src/low.ts"),
@@ -2693,6 +2906,8 @@ mod tests {
                 complexity_density: 0.2,
                 fan_in: 1,
                 trend: fallow_core::churn::ChurnTrend::Cooling,
+                ownership: None,
+                is_test_path: false,
             },
         ];
         let lines = build_health_human_lines(&report, &root);

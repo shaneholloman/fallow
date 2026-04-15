@@ -1030,6 +1030,8 @@ mod tests {
             complexity_density: 0.8,
             fan_in: 5,
             trend: fallow_core::churn::ChurnTrend::Accelerating,
+            ownership: None,
+            is_test_path: false,
         };
         let t = default_thresholds();
         let result = try_match_rules(&score, Some(&hotspot), false, false, None, 0, &t);
@@ -1259,6 +1261,8 @@ mod tests {
             complexity_density: 0.8,
             fan_in: 10,
             trend: fallow_core::churn::ChurnTrend::Accelerating,
+            ownership: None,
+            is_test_path: false,
         };
         let t = default_thresholds();
         let result = try_match_rules(&score, Some(&hotspot), true, false, None, 0, &t);
@@ -1311,6 +1315,8 @@ mod tests {
             complexity_density: 0.5,
             fan_in: 15,
             trend: fallow_core::churn::ChurnTrend::Stable,
+            ownership: None,
+            is_test_path: false,
         }];
         let value_exports: rustc_hash::FxHashMap<std::path::PathBuf, usize> =
             rustc_hash::FxHashMap::default();

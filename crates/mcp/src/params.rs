@@ -1,6 +1,33 @@
 use schemars::JsonSchema;
 use serde::Deserialize;
 
+/// Privacy mode for author emails emitted by the `--ownership` health flag.
+///
+/// Mirrors `fallow_config::EmailMode` but lives in the MCP crate so the JSON
+/// Schema published to agents lists the exact set of accepted values and
+/// rejects typos at the protocol layer instead of the CLI subprocess.
+#[derive(Clone, Copy, Debug, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum EmailModeParam {
+    /// Show full email addresses as recorded in git history.
+    Raw,
+    /// Show local-part only (default). Unwraps GitHub-style noreply prefixes.
+    Handle,
+    /// Show stable non-cryptographic pseudonyms (`xxh3:<hex>`).
+    Hash,
+}
+
+impl EmailModeParam {
+    /// Render as the corresponding CLI flag value (`raw`, `handle`, `hash`).
+    pub const fn as_cli(self) -> &'static str {
+        match self {
+            Self::Raw => "raw",
+            Self::Handle => "handle",
+            Self::Hash => "hash",
+        }
+    }
+}
+
 #[derive(Default, Deserialize, JsonSchema)]
 pub struct AnalyzeParams {
     /// Root directory of the project to analyze. Defaults to current working directory.
@@ -239,6 +266,14 @@ pub struct HealthParams {
 
     /// Show only hotspots: files that are both complex and frequently changing.
     pub hotspots: Option<bool>,
+
+    /// Attach ownership signals (bus factor, contributors, declared owner,
+    /// drift) to hotspot entries. Implies `hotspots`. Requires git.
+    pub ownership: Option<bool>,
+
+    /// Privacy mode for author emails when `ownership` is enabled.
+    /// Implies `ownership`. Defaults to `handle` server-side when omitted.
+    pub ownership_email_mode: Option<EmailModeParam>,
 
     /// Show only refactoring targets: ranked recommendations based on complexity, coupling, churn, and dead code.
     pub targets: Option<bool>,

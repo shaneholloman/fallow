@@ -341,6 +341,42 @@ pub fn health_meta() -> Value {
                 "description": "Change Risk Anti-Patterns score (Savoia & Evans, 2007). Formula: CC\u{00b2} \u{00d7} (1 - cov/100)\u{00b3} + CC. Default model (static_estimated): estimates per-function coverage from export references \u{2014} directly test-referenced exports get 85%, indirectly test-reachable functions get 40%, untested files get 0%. Provide --coverage <path> with Istanbul-format coverage-final.json (from Jest, Vitest, c8, nyc) for exact per-function CRAP scores.",
                 "range": "[1, \u{221e})",
                 "interpretation": "lower is better; >=30 is high-risk (CC >= 5 without test path)"
+            },
+            "bus_factor": {
+                "name": "Bus Factor",
+                "description": "Avelino truck factor: the minimum number of distinct contributors who together account for at least 50% of recency-weighted commits to this file in the analysis window. Bot authors are excluded.",
+                "range": "[1, \u{221e})",
+                "interpretation": "lower is higher knowledge-loss risk; 1 means a single contributor covers most of the recent history"
+            },
+            "contributor_count": {
+                "name": "Contributor Count",
+                "description": "Number of distinct authors who touched this file in the analysis window after bot-pattern filtering.",
+                "range": "[0, \u{221e})",
+                "interpretation": "higher generally indicates broader knowledge spread; pair with bus_factor for context"
+            },
+            "share": {
+                "name": "Contributor Share",
+                "description": "Recency-weighted share of total weighted commits attributed to a single contributor. Rounded to three decimals.",
+                "range": "[0, 1]",
+                "interpretation": "share close to 1.0 indicates dominance and pairs with low bus_factor"
+            },
+            "stale_days": {
+                "name": "Stale Days",
+                "description": "Days since this contributor last touched the file. Computed at analysis time.",
+                "range": "[0, \u{221e})",
+                "interpretation": "high stale_days on the top contributor often correlates with ownership drift"
+            },
+            "drift": {
+                "name": "Ownership Drift",
+                "description": "True when the file's original author (earliest first commit in the window) differs from the current top contributor, the file is at least 30 days old, and the original author's recency-weighted share is below 10%.",
+                "values": [true, false],
+                "interpretation": "true means the original author is no longer maintaining; route reviews to the current top contributor"
+            },
+            "unowned": {
+                "name": "Unowned (Tristate)",
+                "description": "true = a CODEOWNERS file exists but no rule matches this file; false = a rule matches; null = no CODEOWNERS file was discovered for the repository (cannot determine).",
+                "values": [true, false, null],
+                "interpretation": "true on a hotspot is a review-bottleneck risk; null means the signal is unavailable, not absent"
             }
         }
     })
@@ -689,6 +725,12 @@ mod tests {
             "efficiency",
             "effort",
             "confidence",
+            "bus_factor",
+            "contributor_count",
+            "share",
+            "stale_days",
+            "drift",
+            "unowned",
         ];
         for key in &expected {
             assert!(

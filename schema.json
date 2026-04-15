@@ -102,7 +102,19 @@
       "default": {
         "maxCyclomatic": 20,
         "maxCognitive": 15,
-        "ignore": []
+        "ignore": [],
+        "ownership": {
+          "botPatterns": [
+            "*\\[bot\\]*",
+            "dependabot*",
+            "renovate*",
+            "github-actions*",
+            "svc-*",
+            "*-service-account*",
+            "*noreply*"
+          ],
+          "emailMode": "handle"
+        }
       }
     },
     "rules": {
@@ -591,8 +603,71 @@
             "type": "string"
           },
           "default": []
+        },
+        "ownership": {
+          "description": "Ownership analysis configuration. Controls bot filtering and email\nprivacy mode for `--ownership` output.",
+          "$ref": "#/$defs/OwnershipConfig",
+          "default": {
+            "botPatterns": [
+              "*\\[bot\\]*",
+              "dependabot*",
+              "renovate*",
+              "github-actions*",
+              "svc-*",
+              "*-service-account*",
+              "*noreply*"
+            ],
+            "emailMode": "handle"
+          }
         }
       }
+    },
+    "OwnershipConfig": {
+      "description": "Configuration for ownership analysis (`fallow health --hotspots --ownership`).",
+      "type": "object",
+      "properties": {
+        "botPatterns": {
+          "description": "Glob patterns (matched against the author email local-part) that\nidentify bot or service-account commits to exclude from ownership\nsignals. Overrides the defaults entirely when set.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "*\\[bot\\]*",
+            "dependabot*",
+            "renovate*",
+            "github-actions*",
+            "svc-*",
+            "*-service-account*",
+            "*noreply*"
+          ]
+        },
+        "emailMode": {
+          "description": "Privacy mode for emitted author emails. Defaults to `handle`.\nOverride on the CLI via `--ownership-emails=raw|handle|hash`.",
+          "$ref": "#/$defs/EmailMode",
+          "default": "handle"
+        }
+      }
+    },
+    "EmailMode": {
+      "description": "Privacy mode for author emails emitted in ownership output.\n\nDefaults to `handle` (local-part only, no domain) so SARIF and JSON\nartifacts do not leak raw email addresses into CI pipelines.",
+      "oneOf": [
+        {
+          "description": "Show the raw email address as it appears in git history.\nUse for public repositories where history is already exposed.",
+          "type": "string",
+          "const": "raw"
+        },
+        {
+          "description": "Show the local-part only (before the `@`). Mailmap-resolved where possible.\nDefault. Balances readability and privacy.",
+          "type": "string",
+          "const": "handle"
+        },
+        {
+          "description": "Show a stable SHA-256 pseudonym (first 12 hex chars).\nUse in regulated environments where even local-parts are sensitive.",
+          "type": "string",
+          "const": "hash"
+        }
+      ]
     },
     "RulesConfig": {
       "description": "Per-issue-type severity configuration.\n\nControls which issue types cause CI failure, are reported as warnings,\nor are suppressed entirely. All fields default to `Severity::Error`.\n\nRule names use kebab-case in config files (e.g., `\"unused-files\": \"error\"`).",

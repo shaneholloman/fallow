@@ -646,6 +646,8 @@ fn build_health_opts<'a>(opts: &'a CombinedOptions<'a>) -> HealthOptions<'a> {
         file_scores: true,
         coverage_gaps: false,
         hotspots: true,
+        ownership: false,
+        ownership_emails: None,
         targets: true,
         effort: None,
         score: opts.score || opts.trend,

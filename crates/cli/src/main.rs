@@ -430,6 +430,19 @@ enum Command {
         #[arg(long)]
         hotspots: bool,
 
+        /// Attach ownership signals to hotspot entries: bus factor, contributor
+        /// count, declared CODEOWNERS owner, and ownership drift. Implies
+        /// `--hotspots`. Requires a git repository.
+        #[arg(long)]
+        ownership: bool,
+
+        /// Privacy mode for author emails emitted with `--ownership`.
+        /// Defaults to `handle` (local-part only). Use `raw` for OSS repos
+        /// where authors are public, or `hash` to emit non-reversible
+        /// pseudonyms in regulated environments. Implies `--ownership`.
+        #[arg(long, value_name = "MODE", value_enum)]
+        ownership_emails: Option<EmailModeArg>,
+
         /// Show only refactoring targets: ranked recommendations based on complexity,
         /// coupling, churn, and dead code signals. Requires full analysis pipeline.
         #[arg(long)]
@@ -600,6 +613,32 @@ impl EffortFilter {
             Self::Low => health_types::EffortEstimate::Low,
             Self::Medium => health_types::EffortEstimate::Medium,
             Self::High => health_types::EffortEstimate::High,
+        }
+    }
+}
+
+/// Privacy mode for author emails emitted by `--ownership`.
+///
+/// CLI mirror of [`fallow_config::EmailMode`]. Kept as a separate enum so
+/// the help text controls rendering and we don't leak config-internal
+/// schema details into clap.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub enum EmailModeArg {
+    /// Show full email addresses as recorded in git history.
+    Raw,
+    /// Show local-part only (default). Unwraps GitHub-style noreply prefixes.
+    Handle,
+    /// Show stable non-cryptographic pseudonyms (`xxh3:<hex>`).
+    Hash,
+}
+
+impl EmailModeArg {
+    /// Convert to the equivalent config-level mode.
+    const fn to_config(self) -> fallow_config::EmailMode {
+        match self {
+            Self::Raw => fallow_config::EmailMode::Raw,
+            Self::Handle => fallow_config::EmailMode::Handle,
+            Self::Hash => fallow_config::EmailMode::Hash,
         }
     }
 }
@@ -1278,6 +1317,8 @@ fn dispatch_subcommand(
             file_scores,
             coverage_gaps,
             hotspots,
+            ownership,
+            ownership_emails,
             targets,
             effort,
             score,
@@ -1293,6 +1334,9 @@ fn dispatch_subcommand(
             // Resolve coverage: CLI flag > FALLOW_COVERAGE env var
             let coverage =
                 coverage.or_else(|| std::env::var("FALLOW_COVERAGE").ok().map(PathBuf::from));
+            // --ownership-emails implies --ownership; --ownership implies --hotspots
+            let ownership = ownership || ownership_emails.is_some();
+            let hotspots = hotspots || ownership;
             dispatch_health(
                 cli,
                 root,
@@ -1308,6 +1352,8 @@ fn dispatch_subcommand(
                 file_scores,
                 coverage_gaps,
                 hotspots,
+                ownership,
+                ownership_emails.map(EmailModeArg::to_config),
                 targets,
                 effort,
                 score,
@@ -1376,6 +1422,8 @@ fn dispatch_health(
     file_scores: bool,
     coverage_gaps: bool,
     hotspots: bool,
+    ownership: bool,
+    ownership_emails: Option<fallow_config::EmailMode>,
     targets: bool,
     effort: Option<EffortFilter>,
     score: bool,
@@ -1432,6 +1480,8 @@ fn dispatch_health(
         file_scores: eff_file_scores,
         coverage_gaps: eff_coverage_gaps,
         hotspots: eff_hotspots,
+        ownership: ownership && eff_hotspots,
+        ownership_emails,
         targets: eff_targets,
         effort: effort.map(EffortFilter::to_estimate),
         score: eff_score,

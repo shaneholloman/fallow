@@ -420,6 +420,8 @@ fn run_audit_health<'a>(
         file_scores: false,
         coverage_gaps: false,
         hotspots: false,
+        ownership: false,
+        ownership_emails: None,
         targets: false,
         effort: None,
         score: false,

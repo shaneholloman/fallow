@@ -631,11 +631,11 @@ fn build_hotspot_actions(item: &serde_json::Value) -> serde_json::Value {
         .and_then(serde_json::Value::as_str)
         .unwrap_or("file");
 
-    let actions = vec![
+    let mut actions = vec![
         serde_json::json!({
             "type": "refactor-file",
             "auto_fixable": false,
-            "description": format!("Refactor `{path}` — high complexity combined with frequent changes makes this a maintenance risk"),
+            "description": format!("Refactor `{path}`, high complexity combined with frequent changes makes this a maintenance risk"),
             "note": "Prioritize extracting complex functions, adding tests, or splitting the module",
         }),
         serde_json::json!({
@@ -646,7 +646,126 @@ fn build_hotspot_actions(item: &serde_json::Value) -> serde_json::Value {
         }),
     ];
 
+    if let Some(ownership) = item.get("ownership") {
+        // Bus factor of 1 is the canonical "single point of failure" signal.
+        if ownership
+            .get("bus_factor")
+            .and_then(serde_json::Value::as_u64)
+            == Some(1)
+        {
+            let top = ownership.get("top_contributor");
+            let owner = top
+                .and_then(|t| t.get("identifier"))
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("the sole contributor");
+            // Soften the note for files with very few commits — calling a
+            // 3-commit file a "knowledge loss risk" reads as catastrophizing
+            // for solo maintainers and small teams. Keep the action so
+            // agents still see the signal, but soften the framing.
+            let commits = top
+                .and_then(|t| t.get("commits"))
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0);
+            // File-specific note: name the candidate reviewers from the
+            // `suggested_reviewers` array when any exist, fall back to
+            // softened framing for low-commit files, and otherwise omit
+            // the note entirely (the description already carries the
+            // actionable ask; adding generic boilerplate wastes tokens).
+            let suggested: Vec<String> = ownership
+                .get("suggested_reviewers")
+                .and_then(serde_json::Value::as_array)
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|r| {
+                            r.get("identifier")
+                                .and_then(serde_json::Value::as_str)
+                                .map(String::from)
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let mut low_bus_action = serde_json::json!({
+                "type": "low-bus-factor",
+                "auto_fixable": false,
+                "description": format!(
+                    "{owner} is the sole recent contributor to `{path}`; adding a second reviewer reduces knowledge-loss risk"
+                ),
+            });
+            if !suggested.is_empty() {
+                let list = suggested
+                    .iter()
+                    .map(|s| format!("@{s}"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                low_bus_action["note"] =
+                    serde_json::Value::String(format!("Candidate reviewers: {list}"));
+            } else if commits < 5 {
+                low_bus_action["note"] = serde_json::Value::String(
+                    "Single recent contributor on a low-commit file. Consider a pair review for major changes."
+                        .to_string(),
+                );
+            }
+            // else: omit `note` entirely — description already carries the ask.
+            actions.push(low_bus_action);
+        }
+
+        // Unowned-hotspot: file matches no CODEOWNERS rule. Skip when null
+        // (no CODEOWNERS file discovered).
+        if ownership
+            .get("unowned")
+            .and_then(serde_json::Value::as_bool)
+            == Some(true)
+        {
+            actions.push(serde_json::json!({
+                "type": "unowned-hotspot",
+                "auto_fixable": false,
+                "description": format!("Add a CODEOWNERS entry for `{path}`"),
+                "note": "Frequently-changed files without declared owners create review bottlenecks",
+                "suggested_pattern": suggest_codeowners_pattern(path),
+                "heuristic": "directory-deepest",
+            }));
+        }
+
+        // Drift: original author no longer maintains; add a notice action so
+        // agents can route the next change to the new top contributor.
+        if ownership.get("drift").and_then(serde_json::Value::as_bool) == Some(true) {
+            let reason = ownership
+                .get("drift_reason")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("ownership has shifted from the original author");
+            actions.push(serde_json::json!({
+                "type": "ownership-drift",
+                "auto_fixable": false,
+                "description": format!("Update CODEOWNERS for `{path}`: {reason}"),
+                "note": "Drift suggests the declared or original owner is no longer the right reviewer",
+            }));
+        }
+    }
+
     serde_json::Value::Array(actions)
+}
+
+/// Suggest a CODEOWNERS pattern for an unowned hotspot.
+///
+/// Picks the deepest directory containing the file
+/// (e.g. `src/api/users/handlers.ts` -> `/src/api/users/`) so agents can
+/// paste a tightly-scoped default. Earlier versions used the first two
+/// directory levels but that catches too many siblings in monorepos
+/// (`/src/api/` could span 200 files across 8 sub-domains). The deepest
+/// directory keeps the suggestion reviewable while still being a directory
+/// pattern rather than a per-file rule.
+///
+/// The action emits this alongside `"heuristic": "directory-deepest"` so
+/// consumers can branch on the strategy if it evolves.
+fn suggest_codeowners_pattern(path: &str) -> String {
+    let normalized = path.replace('\\', "/");
+    let trimmed = normalized.trim_start_matches('/');
+    let mut components: Vec<&str> = trimmed.split('/').collect();
+    components.pop(); // drop the file itself
+    if components.is_empty() {
+        return format!("/{trimmed}");
+    }
+    format!("/{}/", components.join("/"))
 }
 
 /// Build the `actions` array for a single refactoring target.
@@ -2098,6 +2217,146 @@ mod tests {
                 .contains("src/utils.ts")
         );
         assert_eq!(actions[1]["type"], "add-tests");
+    }
+
+    #[test]
+    fn hotspot_low_bus_factor_emits_action() {
+        let mut output = serde_json::json!({
+            "hotspots": [{
+                "path": "src/api.ts",
+                "ownership": {
+                    "bus_factor": 1,
+                    "contributor_count": 1,
+                    "top_contributor": {"identifier": "alice@x", "share": 1.0, "stale_days": 5, "commits": 30},
+                    "unowned": null,
+                    "drift": false,
+                }
+            }]
+        });
+
+        inject_health_actions(&mut output);
+
+        let actions = output["hotspots"][0]["actions"].as_array().unwrap();
+        assert!(
+            actions
+                .iter()
+                .filter_map(|a| a["type"].as_str())
+                .any(|t| t == "low-bus-factor"),
+            "low-bus-factor action should be present",
+        );
+        let bus = actions
+            .iter()
+            .find(|a| a["type"] == "low-bus-factor")
+            .unwrap();
+        assert!(bus["description"].as_str().unwrap().contains("alice@x"));
+    }
+
+    #[test]
+    fn hotspot_unowned_emits_action_with_pattern() {
+        let mut output = serde_json::json!({
+            "hotspots": [{
+                "path": "src/api/users.ts",
+                "ownership": {
+                    "bus_factor": 2,
+                    "contributor_count": 4,
+                    "top_contributor": {"identifier": "alice@x", "share": 0.5, "stale_days": 5, "commits": 10},
+                    "unowned": true,
+                    "drift": false,
+                }
+            }]
+        });
+
+        inject_health_actions(&mut output);
+
+        let actions = output["hotspots"][0]["actions"].as_array().unwrap();
+        let unowned = actions
+            .iter()
+            .find(|a| a["type"] == "unowned-hotspot")
+            .expect("unowned-hotspot action should be present");
+        // Deepest directory containing the file -> /src/api/
+        // (file `users.ts` is at depth 2, so the deepest dir is `/src/api/`).
+        assert_eq!(unowned["suggested_pattern"], "/src/api/");
+        assert_eq!(unowned["heuristic"], "directory-deepest");
+    }
+
+    #[test]
+    fn hotspot_unowned_skipped_when_codeowners_missing() {
+        let mut output = serde_json::json!({
+            "hotspots": [{
+                "path": "src/api.ts",
+                "ownership": {
+                    "bus_factor": 2,
+                    "contributor_count": 4,
+                    "top_contributor": {"identifier": "alice@x", "share": 0.5, "stale_days": 5, "commits": 10},
+                    "unowned": null,
+                    "drift": false,
+                }
+            }]
+        });
+
+        inject_health_actions(&mut output);
+
+        let actions = output["hotspots"][0]["actions"].as_array().unwrap();
+        assert!(
+            !actions.iter().any(|a| a["type"] == "unowned-hotspot"),
+            "unowned action must not fire when CODEOWNERS file is absent"
+        );
+    }
+
+    #[test]
+    fn hotspot_drift_emits_action() {
+        let mut output = serde_json::json!({
+            "hotspots": [{
+                "path": "src/old.ts",
+                "ownership": {
+                    "bus_factor": 1,
+                    "contributor_count": 2,
+                    "top_contributor": {"identifier": "bob@x", "share": 0.9, "stale_days": 1, "commits": 18},
+                    "unowned": null,
+                    "drift": true,
+                    "drift_reason": "original author alice@x has 5% share",
+                }
+            }]
+        });
+
+        inject_health_actions(&mut output);
+
+        let actions = output["hotspots"][0]["actions"].as_array().unwrap();
+        let drift = actions
+            .iter()
+            .find(|a| a["type"] == "ownership-drift")
+            .expect("ownership-drift action should be present");
+        assert!(drift["description"].as_str().unwrap().contains("alice@x"));
+    }
+
+    // ── suggest_codeowners_pattern ─────────────────────────────────
+
+    #[test]
+    fn codeowners_pattern_uses_deepest_directory() {
+        // Deepest dir keeps the suggestion tightly-scoped; the prior
+        // "first two levels" heuristic over-generalized in monorepos.
+        assert_eq!(
+            suggest_codeowners_pattern("src/api/users/handlers.ts"),
+            "/src/api/users/"
+        );
+    }
+
+    #[test]
+    fn codeowners_pattern_for_root_file() {
+        assert_eq!(suggest_codeowners_pattern("README.md"), "/README.md");
+    }
+
+    #[test]
+    fn codeowners_pattern_normalizes_backslashes() {
+        assert_eq!(
+            suggest_codeowners_pattern("src\\api\\users.ts"),
+            "/src/api/"
+        );
+    }
+
+    #[test]
+    fn codeowners_pattern_two_level_path() {
+        assert_eq!(suggest_codeowners_pattern("src/foo.ts"), "/src/");
     }
 
     #[test]

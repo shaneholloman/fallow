@@ -226,8 +226,30 @@ pub(super) fn print_health_compact(report: &crate::health_types::HealthReport, r
     }
     for entry in &report.hotspots {
         let relative = normalize_uri(&relative_path(&entry.path, root).display().to_string());
+        let ownership_suffix = entry
+            .ownership
+            .as_ref()
+            .map(|o| {
+                let mut parts = vec![
+                    format!("bus={}", o.bus_factor),
+                    format!("contributors={}", o.contributor_count),
+                    format!("top={}", o.top_contributor.identifier),
+                    format!("top_share={:.3}", o.top_contributor.share),
+                ];
+                if let Some(owner) = &o.declared_owner {
+                    parts.push(format!("owner={owner}"));
+                }
+                if let Some(unowned) = o.unowned {
+                    parts.push(format!("unowned={unowned}"));
+                }
+                if o.drift {
+                    parts.push("drift=true".to_string());
+                }
+                format!(",{}", parts.join(","))
+            })
+            .unwrap_or_default();
         println!(
-            "hotspot:{}:score={:.1},commits={},churn={},density={:.2},fan_in={},trend={}",
+            "hotspot:{}:score={:.1},commits={},churn={},density={:.2},fan_in={},trend={}{}",
             relative,
             entry.score,
             entry.commits,
@@ -235,6 +257,7 @@ pub(super) fn print_health_compact(report: &crate::health_types::HealthReport, r
             entry.complexity_density,
             entry.fan_in,
             entry.trend,
+            ownership_suffix,
         );
     }
     if let Some(ref trend) = report.health_trend {

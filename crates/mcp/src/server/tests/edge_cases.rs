@@ -670,9 +670,17 @@ fn health_args_with_all_options_including_targets_and_snapshot() {
         coverage: Some("coverage/coverage-final.json".to_string()),
         coverage_root: Some("/home/runner/work/myapp".to_string()),
         min_severity: Some("critical".to_string()),
+        ownership: Some(true),
+        ownership_email_mode: Some(crate::params::EmailModeParam::Hash),
     };
     let args = build_health_args(&params);
     // Every single flag should be present
+    assert!(args.contains(&"--ownership".to_string()));
+    assert!(args.contains(&"--ownership-emails".to_string()));
+    assert!(args.contains(&"hash".to_string()));
+    // --hotspots must appear exactly once even when both `hotspots: true`
+    // and `ownership: true` are set; the implied flag is deduplicated.
+    assert_eq!(args.iter().filter(|a| *a == "--hotspots").count(), 1);
     assert!(args.contains(&"--targets".to_string()));
     assert!(args.contains(&"--coverage-gaps".to_string()));
     assert!(args.contains(&"--score".to_string()));

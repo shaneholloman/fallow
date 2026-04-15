@@ -47,6 +47,22 @@ impl std::fmt::Display for ChurnTrend {
     }
 }
 
+/// Per-author commit aggregation for a single file.
+///
+/// Authors are interned via [`ChurnResult::author_pool`] indices to keep
+/// per-file maps small and the bitcode cache compact.
+#[derive(Debug, Clone, Copy)]
+pub struct AuthorContribution {
+    /// Total commits by this author touching this file in the analysis window.
+    pub commits: u32,
+    /// Recency-weighted commit sum (exponential decay, half-life 90 days).
+    pub weighted_commits: f64,
+    /// Earliest commit timestamp by this author (epoch seconds).
+    pub first_commit_ts: u64,
+    /// Latest commit timestamp by this author (epoch seconds).
+    pub last_commit_ts: u64,
+}
+
 /// Per-file churn data collected from git history.
 #[derive(Debug, Clone)]
 pub struct FileChurn {
@@ -62,6 +78,9 @@ pub struct FileChurn {
     pub lines_deleted: u32,
     /// Churn trend: accelerating, stable, or cooling.
     pub trend: ChurnTrend,
+    /// Per-author contributions keyed by interned author index.
+    /// Indices reference [`ChurnResult::author_pool`].
+    pub authors: FxHashMap<u32, AuthorContribution>,
 }
 
 /// Result of churn analysis.
@@ -70,6 +89,9 @@ pub struct ChurnResult {
     pub files: FxHashMap<PathBuf, FileChurn>,
     /// Whether the repository is a shallow clone.
     pub shallow_clone: bool,
+    /// Author email pool. Per-file [`AuthorContribution`] entries reference
+    /// authors by their index into this vector.
+    pub author_pool: Vec<String>,
 }
 
 /// Parse a `--since` value into a git-compatible duration.
@@ -148,7 +170,8 @@ pub fn analyze_churn(root: &Path, since: &SinceDuration) -> Option<ChurnResult> 
             "--numstat",
             "--no-merges",
             "--no-renames",
-            "--format=format:%at",
+            "--use-mailmap",
+            "--format=format:%at|%ae",
             &format!("--after={}", since.git_after),
         ])
         .current_dir(root)
@@ -169,11 +192,12 @@ pub fn analyze_churn(root: &Path, since: &SinceDuration) -> Option<ChurnResult> 
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let files = parse_git_log(&stdout, root);
+    let (files, author_pool) = parse_git_log(&stdout, root);
 
     Some(ChurnResult {
         files,
         shallow_clone: shallow,
+        author_pool,
     })
 }
 
@@ -210,6 +234,21 @@ pub fn is_git_repo(root: &Path) -> bool {
 /// Maximum size of a churn cache file (16 MB).
 const MAX_CHURN_CACHE_SIZE: usize = 16 * 1024 * 1024;
 
+/// Cache schema version. Bump when the on-disk shape of [`ChurnCache`]
+/// changes so older payloads are rejected on load. Bumped to 2 in v2.37.0
+/// when per-author contributions and the author pool were added.
+const CHURN_CACHE_VERSION: u8 = 2;
+
+/// Serializable per-author contribution entry for the disk cache.
+#[derive(bitcode::Encode, bitcode::Decode)]
+struct CachedAuthorContribution {
+    author_idx: u32,
+    commits: u32,
+    weighted_commits: f64,
+    first_commit_ts: u64,
+    last_commit_ts: u64,
+}
+
 /// Serializable per-file churn entry for the disk cache.
 #[derive(bitcode::Encode, bitcode::Decode)]
 struct CachedFileChurn {
@@ -219,15 +258,20 @@ struct CachedFileChurn {
     lines_added: u32,
     lines_deleted: u32,
     trend: ChurnTrend,
+    authors: Vec<CachedAuthorContribution>,
 }
 
 /// Cached churn data keyed by HEAD SHA and since string.
 #[derive(bitcode::Encode, bitcode::Decode)]
 struct ChurnCache {
+    /// Schema version; must equal [`CHURN_CACHE_VERSION`] to be accepted.
+    version: u8,
     head_sha: String,
     git_after: String,
     files: Vec<CachedFileChurn>,
     shallow_clone: bool,
+    /// Author email pool referenced by [`CachedAuthorContribution::author_idx`].
+    author_pool: Vec<String>,
 }
 
 /// Get the full HEAD SHA for cache keying.
@@ -241,7 +285,8 @@ fn get_head_sha(root: &Path) -> Option<String> {
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
 }
 
-/// Try to load churn data from disk cache. Returns `None` on cache miss.
+/// Try to load churn data from disk cache. Returns `None` on cache miss
+/// or version mismatch.
 fn load_churn_cache(cache_dir: &Path, head_sha: &str, git_after: &str) -> Option<ChurnResult> {
     let cache_file = cache_dir.join("churn.bin");
     let data = std::fs::read(&cache_file).ok()?;
@@ -249,12 +294,30 @@ fn load_churn_cache(cache_dir: &Path, head_sha: &str, git_after: &str) -> Option
         return None;
     }
     let cache: ChurnCache = bitcode::decode(&data).ok()?;
-    if cache.head_sha != head_sha || cache.git_after != git_after {
+    if cache.version != CHURN_CACHE_VERSION
+        || cache.head_sha != head_sha
+        || cache.git_after != git_after
+    {
         return None;
     }
     let mut files = FxHashMap::default();
     for entry in cache.files {
         let path = PathBuf::from(&entry.path);
+        let authors = entry
+            .authors
+            .into_iter()
+            .map(|a| {
+                (
+                    a.author_idx,
+                    AuthorContribution {
+                        commits: a.commits,
+                        weighted_commits: a.weighted_commits,
+                        first_commit_ts: a.first_commit_ts,
+                        last_commit_ts: a.last_commit_ts,
+                    },
+                )
+            })
+            .collect();
         files.insert(
             path.clone(),
             FileChurn {
@@ -264,12 +327,14 @@ fn load_churn_cache(cache_dir: &Path, head_sha: &str, git_after: &str) -> Option
                 lines_added: entry.lines_added,
                 lines_deleted: entry.lines_deleted,
                 trend: entry.trend,
+                authors,
             },
         );
     }
     Some(ChurnResult {
         files,
         shallow_clone: cache.shallow_clone,
+        author_pool: cache.author_pool,
     })
 }
 
@@ -285,13 +350,26 @@ fn save_churn_cache(cache_dir: &Path, head_sha: &str, git_after: &str, result: &
             lines_added: f.lines_added,
             lines_deleted: f.lines_deleted,
             trend: f.trend,
+            authors: f
+                .authors
+                .iter()
+                .map(|(&idx, c)| CachedAuthorContribution {
+                    author_idx: idx,
+                    commits: c.commits,
+                    weighted_commits: c.weighted_commits,
+                    first_commit_ts: c.first_commit_ts,
+                    last_commit_ts: c.last_commit_ts,
+                })
+                .collect(),
         })
         .collect();
     let cache = ChurnCache {
+        version: CHURN_CACHE_VERSION,
         head_sha: head_sha.to_string(),
         git_after: git_after.to_string(),
         files,
         shallow_clone: result.shallow_clone,
+        author_pool: result.author_pool.clone(),
     };
     let _ = std::fs::create_dir_all(cache_dir);
     let data = bitcode::encode(&cache);
@@ -338,21 +416,29 @@ struct FileAccum {
     weighted_commits: f64,
     lines_added: u32,
     lines_deleted: u32,
+    /// Per-author contributions keyed by interned author index.
+    authors: FxHashMap<u32, AuthorContribution>,
 }
 
-/// Parse `git log --numstat --format=format:%at` output.
+/// Parse `git log --numstat --format=format:%at|%ae` output.
+///
+/// Returns a per-file churn map plus the author email pool referenced by
+/// interned indices in [`FileChurn::authors`].
 #[expect(
     clippy::cast_possible_truncation,
     reason = "commit count per file is bounded by git history depth"
 )]
-fn parse_git_log(stdout: &str, root: &Path) -> FxHashMap<PathBuf, FileChurn> {
+fn parse_git_log(stdout: &str, root: &Path) -> (FxHashMap<PathBuf, FileChurn>, Vec<String>) {
     let now_secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
 
     let mut accum: FxHashMap<PathBuf, FileAccum> = FxHashMap::default();
+    let mut author_pool: Vec<String> = Vec::new();
+    let mut author_index: FxHashMap<String, u32> = FxHashMap::default();
     let mut current_timestamp: Option<u64> = None;
+    let mut current_author_idx: Option<u32> = None;
 
     for line in stdout.lines() {
         let line = line.trim();
@@ -360,13 +446,23 @@ fn parse_git_log(stdout: &str, root: &Path) -> FxHashMap<PathBuf, FileChurn> {
             continue;
         }
 
-        // Try to parse as epoch timestamp (from %at format)
-        if let Ok(ts) = line.parse::<u64>() {
+        // Header lines have shape: "<ts>|<email>"
+        if let Some((ts_str, email)) = line.split_once('|')
+            && let Ok(ts) = ts_str.parse::<u64>()
+        {
             current_timestamp = Some(ts);
+            current_author_idx = Some(intern_author(email, &mut author_pool, &mut author_index));
             continue;
         }
 
-        // Try to parse as numstat line: "10\t5\tpath/to/file"
+        // Backwards-compat: bare timestamp (legacy format or test fixtures).
+        if let Ok(ts) = line.parse::<u64>() {
+            current_timestamp = Some(ts);
+            current_author_idx = None;
+            continue;
+        }
+
+        // Numstat line: "10\t5\tpath/to/file"
         if let Some((added, deleted, path)) = parse_numstat_line(line) {
             let abs_path = root.join(path);
             let ts = current_timestamp.unwrap_or(now_secs);
@@ -378,20 +474,43 @@ fn parse_git_log(stdout: &str, root: &Path) -> FxHashMap<PathBuf, FileChurn> {
                 weighted_commits: 0.0,
                 lines_added: 0,
                 lines_deleted: 0,
+                authors: FxHashMap::default(),
             });
             entry.commit_timestamps.push(ts);
             entry.weighted_commits += weight;
             entry.lines_added += added;
             entry.lines_deleted += deleted;
+
+            if let Some(idx) = current_author_idx {
+                entry
+                    .authors
+                    .entry(idx)
+                    .and_modify(|c| {
+                        c.commits += 1;
+                        c.weighted_commits += weight;
+                        c.first_commit_ts = c.first_commit_ts.min(ts);
+                        c.last_commit_ts = c.last_commit_ts.max(ts);
+                    })
+                    .or_insert(AuthorContribution {
+                        commits: 1,
+                        weighted_commits: weight,
+                        first_commit_ts: ts,
+                        last_commit_ts: ts,
+                    });
+            }
         }
     }
 
-    // Convert accumulators to FileChurn with trend computation
-    accum
+    let files = accum
         .into_iter()
         .map(|(path, acc)| {
             let commits = acc.commit_timestamps.len() as u32;
             let trend = compute_trend(&acc.commit_timestamps);
+            let mut authors = acc.authors;
+            // Round per-author weighted sums for cache stability.
+            for c in authors.values_mut() {
+                c.weighted_commits = (c.weighted_commits * 100.0).round() / 100.0;
+            }
             let churn = FileChurn {
                 path: path.clone(),
                 commits,
@@ -399,10 +518,29 @@ fn parse_git_log(stdout: &str, root: &Path) -> FxHashMap<PathBuf, FileChurn> {
                 lines_added: acc.lines_added,
                 lines_deleted: acc.lines_deleted,
                 trend,
+                authors,
             };
             (path, churn)
         })
-        .collect()
+        .collect();
+
+    (files, author_pool)
+}
+
+/// Intern an author email into the pool, returning its stable index.
+fn intern_author(email: &str, pool: &mut Vec<String>, index: &mut FxHashMap<String, u32>) -> u32 {
+    if let Some(&idx) = index.get(email) {
+        return idx;
+    }
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "author count is bounded by git history; u32 is far above any realistic ceiling"
+    )]
+    let idx = pool.len() as u32;
+    let owned = email.to_string();
+    index.insert(owned.clone(), idx);
+    pool.push(owned);
+    idx
 }
 
 /// Parse a single numstat line: `"10\t5\tpath/to/file.ts"`.
@@ -664,7 +802,7 @@ mod tests {
     fn parse_git_log_single_commit() {
         let root = Path::new("/project");
         let output = "1700000000\n10\t5\tsrc/index.ts\n";
-        let result = parse_git_log(output, root);
+        let (result, _) = parse_git_log(output, root);
         assert_eq!(result.len(), 1);
         let churn = &result[&PathBuf::from("/project/src/index.ts")];
         assert_eq!(churn.commits, 1);
@@ -676,7 +814,7 @@ mod tests {
     fn parse_git_log_multiple_commits_same_file() {
         let root = Path::new("/project");
         let output = "1700000000\n10\t5\tsrc/index.ts\n\n1700100000\n3\t2\tsrc/index.ts\n";
-        let result = parse_git_log(output, root);
+        let (result, _) = parse_git_log(output, root);
         assert_eq!(result.len(), 1);
         let churn = &result[&PathBuf::from("/project/src/index.ts")];
         assert_eq!(churn.commits, 2);
@@ -688,7 +826,7 @@ mod tests {
     fn parse_git_log_multiple_files() {
         let root = Path::new("/project");
         let output = "1700000000\n10\t5\tsrc/a.ts\n3\t1\tsrc/b.ts\n";
-        let result = parse_git_log(output, root);
+        let (result, _) = parse_git_log(output, root);
         assert_eq!(result.len(), 2);
         assert!(result.contains_key(&PathBuf::from("/project/src/a.ts")));
         assert!(result.contains_key(&PathBuf::from("/project/src/b.ts")));
@@ -697,7 +835,7 @@ mod tests {
     #[test]
     fn parse_git_log_empty_output() {
         let root = Path::new("/project");
-        let result = parse_git_log("", root);
+        let (result, _) = parse_git_log("", root);
         assert!(result.is_empty());
     }
 
@@ -705,7 +843,7 @@ mod tests {
     fn parse_git_log_skips_binary_files() {
         let root = Path::new("/project");
         let output = "1700000000\n-\t-\timage.png\n10\t5\tsrc/a.ts\n";
-        let result = parse_git_log(output, root);
+        let (result, _) = parse_git_log(output, root);
         assert_eq!(result.len(), 1);
         assert!(!result.contains_key(&PathBuf::from("/project/image.png")));
     }
@@ -719,7 +857,7 @@ mod tests {
             .unwrap()
             .as_secs();
         let output = format!("{now_secs}\n10\t5\tsrc/a.ts\n");
-        let result = parse_git_log(&output, root);
+        let (result, _) = parse_git_log(&output, root);
         let churn = &result[&PathBuf::from("/project/src/a.ts")];
         assert!(
             churn.weighted_commits > 0.0,
@@ -930,7 +1068,7 @@ mod tests {
         let root = Path::new("/project");
         // No timestamp line before the numstat line
         let output = "10\t5\tsrc/no_ts.ts\n";
-        let result = parse_git_log(output, root);
+        let (result, _) = parse_git_log(output, root);
         assert_eq!(result.len(), 1);
         let churn = &result[&PathBuf::from("/project/src/no_ts.ts")];
         assert_eq!(churn.commits, 1);
@@ -947,7 +1085,7 @@ mod tests {
     fn parse_git_log_whitespace_lines_ignored() {
         let root = Path::new("/project");
         let output = "  \n1700000000\n  \n10\t5\tsrc/a.ts\n  \n";
-        let result = parse_git_log(output, root);
+        let (result, _) = parse_git_log(output, root);
         assert_eq!(result.len(), 1);
     }
 
@@ -963,7 +1101,7 @@ mod tests {
 1900\n1\t0\tsrc/hot.ts\n\
 1950\n1\t0\tsrc/hot.ts\n\
 2000\n1\t0\tsrc/hot.ts\n";
-        let result = parse_git_log(output, root);
+        let (result, _) = parse_git_log(output, root);
         let old = &result[&PathBuf::from("/project/src/old.ts")];
         let hot = &result[&PathBuf::from("/project/src/hot.ts")];
         assert_eq!(old.commits, 2);
@@ -982,7 +1120,7 @@ mod tests {
         // One commit from 180 days ago (two half-lives) should weigh ~0.25
         let old_ts = now - (180 * 86_400);
         let output = format!("{old_ts}\n10\t5\tsrc/old.ts\n");
-        let result = parse_git_log(&output, root);
+        let (result, _) = parse_git_log(&output, root);
         let churn = &result[&PathBuf::from("/project/src/old.ts")];
         assert!(
             churn.weighted_commits < 0.5,
@@ -1000,7 +1138,7 @@ mod tests {
     fn parse_git_log_path_stored_as_absolute() {
         let root = Path::new("/my/project");
         let output = "1700000000\n1\t0\tlib/utils.ts\n";
-        let result = parse_git_log(output, root);
+        let (result, _) = parse_git_log(output, root);
         let key = PathBuf::from("/my/project/lib/utils.ts");
         assert!(result.contains_key(&key));
         assert_eq!(result[&key].path, key);
@@ -1015,7 +1153,7 @@ mod tests {
             .as_secs();
         // A commit right now should weigh exactly 1.00
         let output = format!("{now}\n1\t0\tsrc/a.ts\n");
-        let result = parse_git_log(&output, root);
+        let (result, _) = parse_git_log(&output, root);
         let churn = &result[&PathBuf::from("/project/src/a.ts")];
         // Weighted commits are rounded to 2 decimal places
         let decimals = format!("{:.2}", churn.weighted_commits);
@@ -1042,5 +1180,97 @@ mod tests {
             serde_json::to_string(&ChurnTrend::Cooling).unwrap(),
             "\"cooling\""
         );
+    }
+
+    // ── parse_git_log: author tracking ──────────────────────────
+
+    #[test]
+    fn parse_git_log_extracts_author_email() {
+        let root = Path::new("/project");
+        let output = "1700000000|alice@example.com\n10\t5\tsrc/index.ts\n";
+        let (result, pool) = parse_git_log(output, root);
+        assert_eq!(pool, vec!["alice@example.com".to_string()]);
+        let churn = &result[&PathBuf::from("/project/src/index.ts")];
+        assert_eq!(churn.authors.len(), 1);
+        let alice = &churn.authors[&0];
+        assert_eq!(alice.commits, 1);
+        assert_eq!(alice.first_commit_ts, 1_700_000_000);
+        assert_eq!(alice.last_commit_ts, 1_700_000_000);
+    }
+
+    #[test]
+    fn parse_git_log_intern_dedupes_authors() {
+        let root = Path::new("/project");
+        let output = "\
+1700000000|alice@example.com
+1\t0\ta.ts
+1700100000|bob@example.com
+2\t1\tb.ts
+1700200000|alice@example.com
+3\t2\tc.ts
+";
+        let (_result, pool) = parse_git_log(output, root);
+        assert_eq!(pool.len(), 2);
+        assert!(pool.contains(&"alice@example.com".to_string()));
+        assert!(pool.contains(&"bob@example.com".to_string()));
+    }
+
+    #[test]
+    fn parse_git_log_aggregates_per_author() {
+        let root = Path::new("/project");
+        // alice touches index.ts twice, bob once.
+        let output = "\
+1700000000|alice@example.com
+1\t0\tsrc/index.ts
+1700100000|bob@example.com
+2\t0\tsrc/index.ts
+1700200000|alice@example.com
+1\t1\tsrc/index.ts
+";
+        let (result, pool) = parse_git_log(output, root);
+        let churn = &result[&PathBuf::from("/project/src/index.ts")];
+        assert_eq!(churn.commits, 3);
+        assert_eq!(churn.authors.len(), 2);
+
+        let alice_idx =
+            u32::try_from(pool.iter().position(|a| a == "alice@example.com").unwrap()).unwrap();
+        let alice = &churn.authors[&alice_idx];
+        assert_eq!(alice.commits, 2);
+        assert_eq!(alice.first_commit_ts, 1_700_000_000);
+        assert_eq!(alice.last_commit_ts, 1_700_200_000);
+    }
+
+    #[test]
+    fn parse_git_log_legacy_bare_timestamp_still_parses() {
+        // Backwards-compat path: header has no `|email` suffix.
+        let root = Path::new("/project");
+        let output = "1700000000\n10\t5\tsrc/index.ts\n";
+        let (result, pool) = parse_git_log(output, root);
+        assert!(pool.is_empty());
+        let churn = &result[&PathBuf::from("/project/src/index.ts")];
+        assert_eq!(churn.commits, 1);
+        assert!(churn.authors.is_empty());
+    }
+
+    // ── intern_author ──────────────────────────────────────────
+
+    #[test]
+    fn intern_author_returns_existing_index() {
+        let mut pool = Vec::new();
+        let mut index = FxHashMap::default();
+        let i1 = intern_author("alice@x", &mut pool, &mut index);
+        let i2 = intern_author("alice@x", &mut pool, &mut index);
+        assert_eq!(i1, i2);
+        assert_eq!(pool.len(), 1);
+    }
+
+    #[test]
+    fn intern_author_assigns_sequential_indices() {
+        let mut pool = Vec::new();
+        let mut index = FxHashMap::default();
+        assert_eq!(intern_author("alice@x", &mut pool, &mut index), 0);
+        assert_eq!(intern_author("bob@x", &mut pool, &mut index), 1);
+        assert_eq!(intern_author("carol@x", &mut pool, &mut index), 2);
+        assert_eq!(intern_author("alice@x", &mut pool, &mut index), 0);
     }
 }

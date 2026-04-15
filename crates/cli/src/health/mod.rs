@@ -1,4 +1,5 @@
 mod hotspots;
+pub mod ownership;
 mod scoring;
 mod targets;
 
@@ -56,6 +57,8 @@ pub struct HealthOptions<'a> {
     pub file_scores: bool,
     pub coverage_gaps: bool,
     pub hotspots: bool,
+    pub ownership: bool,
+    pub ownership_emails: Option<fallow_config::EmailMode>,
     pub targets: bool,
     pub effort: Option<EffortEstimate>,
     pub score: bool,

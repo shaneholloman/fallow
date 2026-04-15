@@ -98,6 +98,7 @@ fallow health --min-score 70              # CI gate: fail if score drops below 7
 fallow health --top 20                    # 20 most complex functions
 fallow health --file-scores               # Per-file maintainability index (0-100)
 fallow health --hotspots                  # Riskiest files (git churn x complexity)
+fallow health --hotspots --ownership      # Add bus factor, owner, drift signals
 fallow health --targets                   # Ranked refactoring recommendations
 fallow health --targets --effort low      # Only quick-win refactoring targets
 fallow health --coverage-gaps             # Static test coverage gaps
