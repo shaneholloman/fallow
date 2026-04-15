@@ -1801,6 +1801,61 @@ fn sample_health_report(root: &Path) -> HealthReport {
     }
 }
 
+fn health_report_with_production_coverage(root: &Path) -> HealthReport {
+    let mut report = sample_health_report(root);
+    report.production_coverage = Some(ProductionCoverageReport {
+        verdict: ProductionCoverageVerdict::ColdCodeDetected,
+        summary: ProductionCoverageSummary {
+            functions_total: 6,
+            functions_called: 3,
+            functions_never_called: 2,
+            functions_coverage_unavailable: 1,
+            percent_dead_in_production: 33.3,
+        },
+        findings: vec![
+            ProductionCoverageFinding {
+                path: root.join("src/cold.ts"),
+                function: "coldPath".to_string(),
+                line: Some(14),
+                state: ProductionCoverageState::NeverCalled,
+                invocations: 0,
+                confidence: ProductionCoverageConfidence::High,
+                actions: vec![ProductionCoverageAction {
+                    kind: "review-deletion".to_string(),
+                    description: "Tracked in production coverage with zero invocations."
+                        .to_string(),
+                    auto_fixable: false,
+                }],
+            },
+            ProductionCoverageFinding {
+                path: root.join("src/unknown.ts"),
+                function: "lateBound".to_string(),
+                line: Some(8),
+                state: ProductionCoverageState::CoverageUnavailable,
+                invocations: 0,
+                confidence: ProductionCoverageConfidence::Low,
+                actions: vec![ProductionCoverageAction {
+                    kind: "collect-production-coverage".to_string(),
+                    description: "Collect a broader production dump.".to_string(),
+                    auto_fixable: false,
+                }],
+            },
+        ],
+        hot_paths: vec![ProductionCoverageHotPath {
+            path: root.join("src/hot.ts"),
+            function: "hotPath".to_string(),
+            line: Some(3),
+            invocations: 250,
+        }],
+        watermark: Some(ProductionCoverageWatermark::LicenseExpiredGrace),
+        warnings: vec![ProductionCoverageMessage {
+            code: "partial-input".to_string(),
+            message: "One dump was incomplete.".to_string(),
+        }],
+    });
+    report
+}
+
 /// Build an empty health report (no findings).
 const fn empty_health_report() -> HealthReport {
     HealthReport {
@@ -1922,6 +1977,35 @@ fn codeclimate_health_empty_snapshot() {
     let cc = build_health_codeclimate(&report, &root);
     let json_str = serde_json::to_string_pretty(&cc).expect("should serialize");
     insta::assert_snapshot!("codeclimate_health_empty", json_str);
+}
+
+#[test]
+fn markdown_health_with_production_coverage_snapshot() {
+    let root = PathBuf::from("/project");
+    let report = health_report_with_production_coverage(&root);
+    let output = build_health_markdown(&report, &root);
+    insta::assert_snapshot!("markdown_health_with_production_coverage", output);
+}
+
+#[test]
+fn sarif_health_with_production_coverage_snapshot() {
+    let root = PathBuf::from("/project");
+    let report = health_report_with_production_coverage(&root);
+    let sarif = build_health_sarif(&report, &root);
+    let json_str = serde_json::to_string_pretty(&sarif).expect("should serialize");
+    insta::assert_snapshot!(
+        "sarif_health_with_production_coverage",
+        redact_health_sarif_version(&json_str)
+    );
+}
+
+#[test]
+fn codeclimate_health_with_production_coverage_snapshot() {
+    let root = PathBuf::from("/project");
+    let report = health_report_with_production_coverage(&root);
+    let cc = build_health_codeclimate(&report, &root);
+    let json_str = serde_json::to_string_pretty(&cc).expect("should serialize");
+    insta::assert_snapshot!("codeclimate_health_with_production_coverage", json_str);
 }
 
 // ── Health score snapshots ──────────────────────────────────────

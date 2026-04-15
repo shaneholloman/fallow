@@ -424,33 +424,8 @@ fn execute_health_inner(
     } else {
         None
     };
-    if let (Some(report), Some(baseline)) = (production_coverage.as_mut(), loaded_baseline.as_ref())
-    {
-        report.findings = filter_new_production_coverage_findings(
-            std::mem::take(&mut report.findings),
-            baseline,
-            &config.root,
-        );
-        report.summary.functions_never_called = report
-            .findings
-            .iter()
-            .filter(|finding| {
-                matches!(
-                    finding.state,
-                    crate::health_types::ProductionCoverageState::NeverCalled
-                )
-            })
-            .count();
-        report.summary.functions_coverage_unavailable = report
-            .findings
-            .iter()
-            .filter(|finding| {
-                matches!(
-                    finding.state,
-                    crate::health_types::ProductionCoverageState::CoverageUnavailable
-                )
-            })
-            .count();
+    if let Some(report) = production_coverage.as_mut() {
+        apply_production_coverage_filters(report, loaded_baseline.as_ref(), &config.root, opts.top);
     }
 
     if let Some(save_path) = opts.save_baseline {
@@ -591,6 +566,50 @@ fn execute_health_inner(
         coverage_gaps_has_findings,
         should_fail_on_coverage_gaps: enforce_coverage_gaps,
     })
+}
+
+fn apply_production_coverage_filters(
+    report: &mut crate::health_types::ProductionCoverageReport,
+    baseline: Option<&HealthBaselineData>,
+    root: &std::path::Path,
+    top: Option<usize>,
+) {
+    if let Some(baseline) = baseline {
+        report.findings = filter_new_production_coverage_findings(
+            std::mem::take(&mut report.findings),
+            baseline,
+            root,
+        );
+        refresh_production_coverage_summary(report);
+    }
+
+    if let Some(top) = top {
+        report.findings.truncate(top);
+        report.hot_paths.truncate(top);
+    }
+}
+
+fn refresh_production_coverage_summary(report: &mut crate::health_types::ProductionCoverageReport) {
+    report.summary.functions_never_called = report
+        .findings
+        .iter()
+        .filter(|finding| {
+            matches!(
+                finding.state,
+                crate::health_types::ProductionCoverageState::NeverCalled
+            )
+        })
+        .count();
+    report.summary.functions_coverage_unavailable = report
+        .findings
+        .iter()
+        .filter(|finding| {
+            matches!(
+                finding.state,
+                crate::health_types::ProductionCoverageState::CoverageUnavailable
+            )
+        })
+        .count();
 }
 
 /// Sort findings by the specified criteria.
@@ -1685,5 +1704,82 @@ mod tests {
         assert_eq!(f.cognitive, 18);
         assert_eq!(f.line_count, 75);
         assert_eq!(f.path, PathBuf::from("/project/src/a.ts"));
+    }
+
+    #[test]
+    fn production_coverage_top_applies_after_baseline_filtering() {
+        let root = Path::new("/project");
+        let baseline = HealthBaselineData {
+            findings: vec![],
+            production_coverage_findings: vec![
+                "src/a.ts:alpha:10:\"never-called\"".to_owned(),
+                "src/b.ts:beta:20:\"coverage-unavailable\"".to_owned(),
+            ],
+            target_keys: vec![],
+        };
+        let mut report = crate::health_types::ProductionCoverageReport {
+            verdict: crate::health_types::ProductionCoverageVerdict::ColdCodeDetected,
+            summary: crate::health_types::ProductionCoverageSummary {
+                functions_total: 3,
+                functions_called: 0,
+                functions_never_called: 2,
+                functions_coverage_unavailable: 1,
+                percent_dead_in_production: 66.7,
+            },
+            findings: vec![
+                crate::health_types::ProductionCoverageFinding {
+                    path: PathBuf::from("/project/src/a.ts"),
+                    function: "alpha".to_owned(),
+                    line: Some(10),
+                    state: crate::health_types::ProductionCoverageState::NeverCalled,
+                    invocations: 0,
+                    confidence: crate::health_types::ProductionCoverageConfidence::High,
+                    actions: vec![],
+                },
+                crate::health_types::ProductionCoverageFinding {
+                    path: PathBuf::from("/project/src/b.ts"),
+                    function: "beta".to_owned(),
+                    line: Some(20),
+                    state: crate::health_types::ProductionCoverageState::CoverageUnavailable,
+                    invocations: 0,
+                    confidence: crate::health_types::ProductionCoverageConfidence::Low,
+                    actions: vec![],
+                },
+                crate::health_types::ProductionCoverageFinding {
+                    path: PathBuf::from("/project/src/c.ts"),
+                    function: "gamma".to_owned(),
+                    line: Some(30),
+                    state: crate::health_types::ProductionCoverageState::NeverCalled,
+                    invocations: 0,
+                    confidence: crate::health_types::ProductionCoverageConfidence::High,
+                    actions: vec![],
+                },
+            ],
+            hot_paths: vec![
+                crate::health_types::ProductionCoverageHotPath {
+                    path: PathBuf::from("/project/src/hot-a.ts"),
+                    function: "hotAlpha".to_owned(),
+                    line: Some(1),
+                    invocations: 500,
+                },
+                crate::health_types::ProductionCoverageHotPath {
+                    path: PathBuf::from("/project/src/hot-b.ts"),
+                    function: "hotBeta".to_owned(),
+                    line: Some(2),
+                    invocations: 250,
+                },
+            ],
+            watermark: None,
+            warnings: vec![],
+        };
+
+        apply_production_coverage_filters(&mut report, Some(&baseline), root, Some(1));
+
+        assert_eq!(report.findings.len(), 1);
+        assert_eq!(report.findings[0].function, "gamma");
+        assert_eq!(report.summary.functions_never_called, 1);
+        assert_eq!(report.summary.functions_coverage_unavailable, 0);
+        assert_eq!(report.hot_paths.len(), 1);
+        assert_eq!(report.hot_paths[0].function, "hotAlpha");
     }
 }

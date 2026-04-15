@@ -1623,6 +1623,46 @@ mod tests {
     }
 
     #[test]
+    fn health_production_coverage_renders_section() {
+        let root = PathBuf::from("/project");
+        let mut report = empty_report();
+        report.production_coverage = Some(crate::health_types::ProductionCoverageReport {
+            verdict: crate::health_types::ProductionCoverageVerdict::ColdCodeDetected,
+            summary: crate::health_types::ProductionCoverageSummary {
+                functions_total: 4,
+                functions_called: 2,
+                functions_never_called: 1,
+                functions_coverage_unavailable: 1,
+                percent_dead_in_production: 25.0,
+            },
+            findings: vec![crate::health_types::ProductionCoverageFinding {
+                path: root.join("src/cold.ts"),
+                function: "coldPath".to_owned(),
+                line: Some(14),
+                state: crate::health_types::ProductionCoverageState::NeverCalled,
+                invocations: 0,
+                confidence: crate::health_types::ProductionCoverageConfidence::High,
+                actions: vec![],
+            }],
+            hot_paths: vec![crate::health_types::ProductionCoverageHotPath {
+                path: root.join("src/hot.ts"),
+                function: "hotPath".to_owned(),
+                line: Some(3),
+                invocations: 250,
+            }],
+            watermark: Some(crate::health_types::ProductionCoverageWatermark::LicenseExpiredGrace),
+            warnings: vec![],
+        });
+
+        let text = plain(&build_health_human_lines(&report, &root));
+        assert!(text.contains("Production coverage: cold code detected"));
+        assert!(text.contains("src/cold.ts:14 coldPath [0 invocations, never-called]"));
+        assert!(text.contains("license expired grace active"));
+        assert!(text.contains("hot paths:"));
+        assert!(text.contains("src/hot.ts:3 hotPath (250)"));
+    }
+
+    #[test]
     fn health_coverage_gaps_render_section() {
         use crate::health_types::*;
 

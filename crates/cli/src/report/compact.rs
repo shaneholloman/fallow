@@ -229,7 +229,9 @@ pub(super) fn print_health_compact(report: &crate::health_types::HealthReport, r
         }
     }
     if let Some(ref production) = report.production_coverage {
-        print_production_coverage_compact(production, root);
+        for line in build_production_coverage_compact_lines(production, root) {
+            println!("{line}");
+        }
     }
     for entry in &report.hotspots {
         let relative = normalize_uri(&relative_path(&entry.path, root).display().to_string());
@@ -301,21 +303,21 @@ pub(super) fn print_health_compact(report: &crate::health_types::HealthReport, r
     }
 }
 
-fn print_production_coverage_compact(
+fn build_production_coverage_compact_lines(
     production: &crate::health_types::ProductionCoverageReport,
     root: &Path,
-) {
-    println!(
+) -> Vec<String> {
+    let mut lines = vec![format!(
         "production-coverage-summary:functions_total={},functions_called={},functions_never_called={},functions_coverage_unavailable={},percent_dead_in_production={:.1}",
         production.summary.functions_total,
         production.summary.functions_called,
         production.summary.functions_never_called,
         production.summary.functions_coverage_unavailable,
         production.summary.percent_dead_in_production,
-    );
+    )];
     for finding in &production.findings {
         let relative = normalize_uri(&relative_path(&finding.path, root).display().to_string());
-        println!(
+        lines.push(format!(
             "production-coverage:{}:{}:{}:state={:?},invocations={},confidence={:?}",
             relative,
             finding.line.unwrap_or(0),
@@ -323,18 +325,19 @@ fn print_production_coverage_compact(
             finding.state,
             finding.invocations,
             finding.confidence,
-        );
+        ));
     }
     for entry in &production.hot_paths {
         let relative = normalize_uri(&relative_path(&entry.path, root).display().to_string());
-        println!(
+        lines.push(format!(
             "production-hot-path:{}:{}:{}:invocations={}",
             relative,
             entry.line.unwrap_or(0),
             entry.function,
             entry.invocations,
-        );
+        ));
     }
+    lines
 }
 
 pub(super) fn print_duplication_compact(report: &DuplicationReport, root: &Path) {
@@ -357,6 +360,11 @@ pub(super) fn print_duplication_compact(report: &DuplicationReport, root: &Path)
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::health_types::{
+        ProductionCoverageConfidence, ProductionCoverageFinding, ProductionCoverageHotPath,
+        ProductionCoverageReport, ProductionCoverageState, ProductionCoverageSummary,
+        ProductionCoverageVerdict,
+    };
     use crate::report::test_helpers::sample_results;
     use fallow_core::extract::MemberKind;
     use fallow_core::results::*;
@@ -399,6 +407,61 @@ mod tests {
 
         let lines = build_compact_lines(&results, &root);
         assert_eq!(lines[0], "unused-export:src/utils.ts:10:helperFn");
+    }
+
+    #[test]
+    fn compact_health_includes_production_coverage_lines() {
+        let root = PathBuf::from("/project");
+        let report = crate::health_types::HealthReport {
+            production_coverage: Some(ProductionCoverageReport {
+                verdict: ProductionCoverageVerdict::ColdCodeDetected,
+                summary: ProductionCoverageSummary {
+                    functions_total: 4,
+                    functions_called: 2,
+                    functions_never_called: 1,
+                    functions_coverage_unavailable: 1,
+                    percent_dead_in_production: 25.0,
+                },
+                findings: vec![ProductionCoverageFinding {
+                    path: root.join("src/cold.ts"),
+                    function: "coldPath".to_owned(),
+                    line: Some(14),
+                    state: ProductionCoverageState::NeverCalled,
+                    invocations: 0,
+                    confidence: ProductionCoverageConfidence::High,
+                    actions: vec![],
+                }],
+                hot_paths: vec![ProductionCoverageHotPath {
+                    path: root.join("src/hot.ts"),
+                    function: "hotPath".to_owned(),
+                    line: Some(3),
+                    invocations: 250,
+                }],
+                watermark: None,
+                warnings: vec![],
+            }),
+            ..Default::default()
+        };
+
+        let lines = build_production_coverage_compact_lines(
+            report
+                .production_coverage
+                .as_ref()
+                .expect("production coverage should be set"),
+            &root,
+        );
+        assert_eq!(
+            lines[0],
+            "production-coverage-summary:functions_total=4,functions_called=2,functions_never_called=1,functions_coverage_unavailable=1,percent_dead_in_production=25.0"
+        );
+        assert_eq!(
+            lines[1],
+            "production-coverage:src/cold.ts:14:coldPath:state=NeverCalled,invocations=0,confidence=High"
+        );
+        assert_eq!(
+            lines[2],
+            "production-hot-path:src/hot.ts:3:hotPath:invocations=250"
+        );
     }
 
     #[test]

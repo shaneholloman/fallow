@@ -597,6 +597,42 @@ pub(crate) fn inject_health_actions(output: &mut serde_json::Value) {
             }
         }
     }
+
+    if let Some(production_coverage) = map
+        .get_mut("production_coverage")
+        .and_then(|v| v.as_object_mut())
+        && let Some(findings) = production_coverage
+            .get_mut("findings")
+            .and_then(|v| v.as_array_mut())
+    {
+        for item in findings {
+            normalize_embedded_actions(item);
+        }
+    }
+}
+
+fn normalize_embedded_actions(item: &mut serde_json::Value) {
+    let Some(obj) = item.as_object_mut() else {
+        return;
+    };
+    let Some(actions) = obj
+        .get_mut("actions")
+        .and_then(|value| value.as_array_mut())
+    else {
+        return;
+    };
+
+    for action in actions {
+        let Some(action_map) = action.as_object_mut() else {
+            continue;
+        };
+        if action_map.contains_key("type") {
+            continue;
+        }
+        if let Some(kind) = action_map.remove("kind") {
+            action_map.insert("type".to_string(), kind);
+        }
+    }
 }
 
 /// Build the `actions` array for a single complexity finding.
@@ -1042,6 +1078,11 @@ pub(super) fn print_trace_json<T: serde::Serialize>(value: &T) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::health_types::{
+        ProductionCoverageAction, ProductionCoverageConfidence, ProductionCoverageFinding,
+        ProductionCoverageReport, ProductionCoverageState, ProductionCoverageSummary,
+        ProductionCoverageVerdict,
+    };
     use crate::report::test_helpers::sample_results;
     use fallow_core::extract::MemberKind;
     use fallow_core::results::*;
@@ -1086,6 +1127,51 @@ mod tests {
             1
         );
         assert_eq!(output["circular_dependencies"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn health_json_includes_production_coverage_with_relative_paths_and_actions() {
+        let root = PathBuf::from("/project");
+        let report = crate::health_types::HealthReport {
+            production_coverage: Some(ProductionCoverageReport {
+                verdict: ProductionCoverageVerdict::ColdCodeDetected,
+                summary: ProductionCoverageSummary {
+                    functions_total: 3,
+                    functions_called: 1,
+                    functions_never_called: 1,
+                    functions_coverage_unavailable: 1,
+                    percent_dead_in_production: 33.3,
+                },
+                findings: vec![ProductionCoverageFinding {
+                    path: root.join("src/cold.ts"),
+                    function: "coldPath".to_owned(),
+                    line: Some(12),
+                    state: ProductionCoverageState::NeverCalled,
+                    invocations: 0,
+                    confidence: ProductionCoverageConfidence::High,
+                    actions: vec![ProductionCoverageAction {
+                        kind: "review-deletion".to_owned(),
+                        description: "Tracked in production coverage with zero invocations."
+                            .to_owned(),
+                        auto_fixable: false,
+                    }],
+                }],
+                hot_paths: vec![],
+                watermark: None,
+                warnings: vec![],
+            }),
+            ..Default::default()
+        };
+
+        let report_value = serde_json::to_value(&report).expect("should serialize health report");
+        let mut output = build_json_envelope(report_value, Duration::from_millis(7));
+        strip_root_prefix(&mut output, "/project/");
+        inject_health_actions(&mut output);
+
+        let finding = &output["production_coverage"]["findings"][0];
+        assert_eq!(finding["path"], "src/cold.ts");
+        assert_eq!(finding["state"], "never-called");
+        assert_eq!(finding["actions"][0]["type"], "review-deletion");
     }
 
     #[test]

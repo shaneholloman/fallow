@@ -26,6 +26,8 @@ use crate::health_types::{
 };
 use crate::license::verifying_key;
 
+type FunctionLocations = FxHashMap<(String, String), u32>;
+
 pub fn prepare_options(
     path: &Path,
     min_invocations_hot: u64,
@@ -90,13 +92,11 @@ pub fn analyze(
         ignore_set,
         changed_files,
         ws_root,
-    );
+    )
+    .map_err(|message| emit_error(&message, 5, output))?;
     let response = run_sidecar(&sidecar, &request, quiet, output)?;
-    let mut report = convert_response(response, &locations, options.watermark);
-    if let Some(limit) = top {
-        report.findings.truncate(limit);
-        report.hot_paths.truncate(limit);
-    }
+    let report = convert_response(response, &locations, options.watermark);
+    let _ = top;
     Ok(report)
 }
 
@@ -187,7 +187,7 @@ fn build_request(
     ignore_set: &GlobSet,
     changed_files: Option<&FxHashSet<PathBuf>>,
     ws_root: Option<&Path>,
-) -> (Request, FxHashMap<(String, String), u32>) {
+) -> Result<(Request, FunctionLocations), String> {
     let mut files = Vec::new();
     let mut locations = FxHashMap::default();
     for module in modules {
@@ -233,28 +233,16 @@ fn build_request(
         });
     }
 
-    let coverage_source = if options.path.is_dir() {
-        CoverageSource::V8Dir {
-            path: options.path.to_string_lossy().into_owned(),
-        }
-    } else if looks_like_istanbul(&options.path) {
-        CoverageSource::Istanbul {
-            path: options.path.to_string_lossy().into_owned(),
-        }
-    } else {
-        CoverageSource::V8 {
-            path: options.path.to_string_lossy().into_owned(),
-        }
-    };
+    let coverage_sources = collect_coverage_sources(&options.path)?;
 
-    (
+    Ok((
         Request {
             protocol_version: PROTOCOL_VERSION.to_owned(),
             license: fallow_cov_protocol::License {
                 jwt: options.license_jwt.clone(),
             },
             project_root: root.to_string_lossy().into_owned(),
-            coverage_sources: vec![coverage_source],
+            coverage_sources,
             static_findings: StaticFindings { files },
             options: fallow_cov_protocol::Options {
                 include_hot_paths: true,
@@ -262,7 +250,54 @@ fn build_request(
             },
         },
         locations,
-    )
+    ))
+}
+
+fn collect_coverage_sources(path: &Path) -> Result<Vec<CoverageSource>, String> {
+    if !path.is_dir() {
+        return Ok(vec![if looks_like_istanbul(path) {
+            CoverageSource::Istanbul {
+                path: path.to_string_lossy().into_owned(),
+            }
+        } else {
+            CoverageSource::V8 {
+                path: path.to_string_lossy().into_owned(),
+            }
+        }]);
+    }
+
+    let entries = std::fs::read_dir(path).map_err(|err| {
+        format!(
+            "failed to read coverage directory {}: {err}",
+            path.display()
+        )
+    })?;
+    let mut json_files = entries
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|entry| entry.is_file() && entry.extension() == Some(OsStr::new("json")))
+        .collect::<Vec<_>>();
+    json_files.sort();
+
+    if json_files.is_empty() {
+        return Ok(vec![CoverageSource::V8Dir {
+            path: path.to_string_lossy().into_owned(),
+        }]);
+    }
+
+    let mut sources = Vec::with_capacity(json_files.len());
+    for file in json_files {
+        if looks_like_istanbul(&file) {
+            sources.push(CoverageSource::Istanbul {
+                path: file.to_string_lossy().into_owned(),
+            });
+        } else {
+            sources.push(CoverageSource::V8 {
+                path: file.to_string_lossy().into_owned(),
+            });
+        }
+    }
+    Ok(sources)
 }
 
 fn looks_like_istanbul(path: &Path) -> bool {
@@ -393,7 +428,7 @@ fn stderr_message(stderr: &[u8], fallback: &str) -> String {
 
 fn convert_response(
     response: Response,
-    locations: &FxHashMap<(String, String), u32>,
+    locations: &FunctionLocations,
     watermark: Option<ProductionCoverageWatermark>,
 ) -> ProductionCoverageReport {
     let mut findings = response
@@ -520,5 +555,58 @@ fn state_rank(state: ProductionCoverageState) -> u8 {
         ProductionCoverageState::CoverageUnavailable => 1,
         ProductionCoverageState::Called => 2,
         ProductionCoverageState::Unknown => 3,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{collect_coverage_sources, looks_like_istanbul};
+    use fallow_cov_protocol::CoverageSource;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn detects_istanbul_file_by_name() {
+        assert!(looks_like_istanbul(
+            PathBuf::from("coverage-final.json").as_path()
+        ));
+        assert!(!looks_like_istanbul(
+            PathBuf::from("coverage.json").as_path()
+        ));
+    }
+
+    #[test]
+    fn directory_with_istanbul_and_v8_files_expands_to_per_file_sources() {
+        let root = make_temp_dir("coverage-sources");
+        std::fs::create_dir_all(&root)
+            .unwrap_or_else(|err| panic!("failed to create temp dir: {err}"));
+        std::fs::write(root.join("coverage-final.json"), "{}")
+            .unwrap_or_else(|err| panic!("failed to write istanbul file: {err}"));
+        std::fs::write(root.join("chunk-1.json"), "{\"result\":[]}")
+            .unwrap_or_else(|err| panic!("failed to write v8 file: {err}"));
+
+        let sources = collect_coverage_sources(&root)
+            .unwrap_or_else(|err| panic!("failed to collect coverage sources: {err}"));
+
+        assert_eq!(sources.len(), 2);
+        assert!(matches!(
+            &sources[0],
+            CoverageSource::V8 { path } if path.ends_with("chunk-1.json")
+        ));
+        assert!(matches!(
+            &sources[1],
+            CoverageSource::Istanbul { path } if path.ends_with("coverage-final.json")
+        ));
+
+        std::fs::remove_dir_all(&root)
+            .unwrap_or_else(|err| panic!("failed to clean temp dir {}: {err}", root.display()));
+    }
+
+    fn make_temp_dir(name: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_else(|err| panic!("clock went backwards: {err}"))
+            .as_nanos();
+        std::env::temp_dir().join(format!("fallow-cli-{name}-{}-{nanos}", std::process::id()))
     }
 }

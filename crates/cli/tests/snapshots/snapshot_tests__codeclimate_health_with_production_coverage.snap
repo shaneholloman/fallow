@@ -1,0 +1,54 @@
+---
+source: crates/cli/tests/snapshot_tests.rs
+expression: json_str
+---
+[
+  {
+    "type": "issue",
+    "check_name": "fallow/high-complexity",
+    "description": "'processData' has cyclomatic complexity 25 (threshold: 20) and cognitive complexity 30 (threshold: 15)",
+    "categories": [
+      "Complexity"
+    ],
+    "severity": "major",
+    "fingerprint": "d4ee093a5fdb5d49",
+    "location": {
+      "path": "src/complex.ts",
+      "lines": {
+        "begin": 42
+      }
+    }
+  },
+  {
+    "type": "issue",
+    "check_name": "fallow/production-never-called",
+    "description": "'coldPath' production coverage state: NeverCalled (0 invocations)",
+    "categories": [
+      "ProductionCoverage"
+    ],
+    "severity": "major",
+    "fingerprint": "9a5e2f85e94477dd",
+    "location": {
+      "path": "src/cold.ts",
+      "lines": {
+        "begin": 14
+      }
+    }
+  },
+  {
+    "type": "issue",
+    "check_name": "fallow/production-coverage-unavailable",
+    "description": "'lateBound' production coverage state: CoverageUnavailable (0 invocations)",
+    "categories": [
+      "ProductionCoverage"
+    ],
+    "severity": "info",
+    "fingerprint": "25b3f5df2071893a",
+    "location": {
+      "path": "src/unknown.ts",
+      "lines": {
+        "begin": 8
+      }
+    }
+  }
+]
