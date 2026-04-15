@@ -8,13 +8,15 @@ Fallow is the counterbalance: fast, framework-aware dead code detection that wor
 
 ---
 
-## Where we are (v2.38.0)
+## Where we are (main branch, post-v2.38.0)
 
 **Dead code analysis** -- 14 issue types: unused files, exports, types, dependencies, enum/class members, unresolved imports, unlisted deps, duplicate exports, circular dependencies, type-only dependencies, and test-only production dependencies. 90 framework plugins with auto-detection. Auto-fix for safe removals. Inline suppression. Severity rules (`error` / `warn` / `off`).
 
 **Code duplication** -- 4 detection modes (strict, mild, weak, semantic) with cross-language TS/JS matching and cross-directory filtering.
 
-**Health analysis** -- function complexity (cyclomatic + cognitive), per-file maintainability scores, git-churn hotspot analysis, ranked refactoring targets with effort estimation and adaptive thresholds. Vital signs snapshots with trend reporting (`--trend` compares against saved snapshots with directional indicators).
+**Health analysis** -- function complexity (cyclomatic + cognitive), per-file maintainability scores, git-churn hotspot analysis, ranked refactoring targets with effort estimation and adaptive thresholds. Vital signs snapshots with trend reporting (`--trend` compares against saved snapshots with directional indicators). Static test coverage gaps are shipped, and paid production-coverage analysis can merge V8 / Istanbul runtime data into the health report.
+
+**Production coverage workflow** -- `fallow license {activate, status, refresh, deactivate}` is live with signed JWT verification and networked trial / refresh flows. `fallow coverage setup` is now a resumable state machine: license bootstrap, sidecar install, framework-specific coverage recipe generation, and automatic handoff back into `fallow health --production-coverage`.
 
 **CI/CD integration** -- GitHub Action with SARIF upload, inline PR annotations, review comments with suggestion blocks, and auto-changed-since for PR scoping. GitLab CI template with Code Quality reports, MR comments, and inline discussions. Baseline support for incremental adoption.
 
@@ -48,9 +50,9 @@ Cross-reference unused dependencies with vulnerability data. "These 3 unused dep
 
 Define import rules between directory-based layers (`src/ui/` cannot import from `src/db/`). Validated against the module graph -- like dependency-cruiser but faster and integrated with dead code analysis.
 
-### Static test coverage gaps
+### Production coverage refinements
 
-Identify exports and files with no test file dependency -- without running tests. Uses the module graph to find untested code. The CI use case: "your PR adds 3 untested exports."
+The core production-coverage path is live. Next up: better hot-path change review (`HotPathChangesNeeded` once fallow can correlate modified code with hot functions), deeper framework heuristics, and smoother packaging for the companion sidecar install experience.
 
 ### Pre-commit hooks
 
@@ -62,7 +64,7 @@ Catch unused exports and unresolved imports before they reach CI. Scoped to chan
 
 - **Incremental analysis** -- finer-grained caching for faster watch mode and CI on large monorepos
 - **Plugin ecosystem** -- more framework coverage, better external plugin authoring, community-contributed plugins
-- **Health intelligence** -- trend reporting and regression detection are shipped; next up: structured fix suggestions, audit command, HTML report cards
+- **Health intelligence** -- trend reporting, regression detection, audit, static coverage gaps, and production coverage are shipped; next up: structured fix suggestions and HTML report cards
 - **Agent integration** -- richer MCP tool responses, Claude Code hooks, Cursor integration, agent skill packages
 
 ---

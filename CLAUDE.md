@@ -18,8 +18,8 @@ crates/
     duplicates/ — Clone detection (families, normalize, tokenize)
   cli/      — CLI binary, split into per-command modules
     audit.rs, check.rs, dupes.rs, health/, watch.rs, fix/, init.rs, list.rs, schema.rs, validate.rs, regression/
-    license/    — `fallow license {activate, status, refresh, deactivate}` (offline JWT verify; refresh/trial network calls TODO)
-    coverage/   — `fallow coverage setup` first-run state inspector (full state machine deferred)
+    license/    — `fallow license {activate, status, refresh, deactivate}` with offline JWT verify plus live trial / refresh flows
+    coverage/   — `fallow coverage setup` resumable first-run state machine for production coverage
     report/     — Output formatting (mod.rs dispatch, human/, json.rs, sarif.rs, compact.rs, markdown.rs)
     migrate/    — Config migration (mod.rs, knip.rs, jscpd.rs)
   lsp/      — LSP server, split into modules

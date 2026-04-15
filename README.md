@@ -50,6 +50,9 @@ fallow                      # Run all three analyses
 fallow dead-code            # Dead code only
 fallow dupes                # Duplication only
 fallow health               # Complexity only
+fallow health --production-coverage ./coverage   # Merge runtime coverage into health
+fallow license activate --trial --email you@company.com
+fallow coverage setup       # Guided first-run setup for production coverage
 fallow audit                # Audit changed files (verdict: pass/warn/fail)
 fallow fix --dry-run        # Preview auto-removal of dead exports and deps
 fallow watch                # Re-analyze on file changes
@@ -102,9 +105,28 @@ fallow health --hotspots --ownership      # Add bus factor, owner, drift signals
 fallow health --targets                   # Ranked refactoring recommendations
 fallow health --targets --effort low      # Only quick-win refactoring targets
 fallow health --coverage-gaps             # Static test coverage gaps
+fallow health --production-coverage ./coverage
+fallow health --production-coverage ./coverage --min-invocations-hot 250
 fallow health --trend                     # Compare against saved snapshot
 fallow health --changed-since main        # Only changed files
 ```
+
+### Paid production coverage
+
+Production coverage answers a different question than static reachability: which functions actually execute in production. Fallow can merge V8 coverage dumps (`NODE_V8_COVERAGE=...`) and Istanbul `coverage-final.json` files into the `health` report, classify cold functions, and surface hot paths.
+
+```bash
+fallow license activate --trial --email you@company.com
+fallow coverage setup
+fallow health --production-coverage ./coverage
+```
+
+- `fallow license activate --trial --email ...` starts a trial and stores the signed license locally
+- `fallow license refresh` refreshes the stored license before the hard-fail window
+- `fallow coverage setup` detects your framework, installs the sidecar if needed, writes a collection recipe, and resumes from the current setup state on re-run
+- `fallow health --production-coverage <path>` accepts a V8 directory, a single V8 JSON file, or an Istanbul `coverage-final.json`
+
+Production coverage is merged into the same human, JSON, SARIF, compact, markdown, and CodeClimate outputs as the rest of the health report.
 
 ## Audit
 

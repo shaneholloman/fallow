@@ -580,7 +580,7 @@ fn apply_production_coverage_filters(
             baseline,
             root,
         );
-        refresh_production_coverage_summary(report);
+        refresh_production_coverage_verdict(report);
     }
 
     if let Some(top) = top {
@@ -589,27 +589,27 @@ fn apply_production_coverage_filters(
     }
 }
 
-fn refresh_production_coverage_summary(report: &mut crate::health_types::ProductionCoverageReport) {
-    report.summary.functions_never_called = report
-        .findings
-        .iter()
-        .filter(|finding| {
-            matches!(
-                finding.state,
-                crate::health_types::ProductionCoverageState::NeverCalled
-            )
-        })
-        .count();
-    report.summary.functions_coverage_unavailable = report
-        .findings
-        .iter()
-        .filter(|finding| {
-            matches!(
-                finding.state,
-                crate::health_types::ProductionCoverageState::CoverageUnavailable
-            )
-        })
-        .count();
+fn refresh_production_coverage_verdict(report: &mut crate::health_types::ProductionCoverageReport) {
+    let has_never_called = report.findings.iter().any(|finding| {
+        matches!(
+            finding.state,
+            crate::health_types::ProductionCoverageState::NeverCalled
+        )
+    });
+
+    report.verdict = if matches!(
+        report.verdict,
+        crate::health_types::ProductionCoverageVerdict::LicenseExpiredGrace
+    ) || matches!(
+        report.watermark,
+        Some(crate::health_types::ProductionCoverageWatermark::LicenseExpiredGrace)
+    ) {
+        crate::health_types::ProductionCoverageVerdict::LicenseExpiredGrace
+    } else if has_never_called {
+        crate::health_types::ProductionCoverageVerdict::ColdCodeDetected
+    } else {
+        crate::health_types::ProductionCoverageVerdict::Clean
+    };
 }
 
 /// Sort findings by the specified criteria.
@@ -1777,9 +1777,61 @@ mod tests {
 
         assert_eq!(report.findings.len(), 1);
         assert_eq!(report.findings[0].function, "gamma");
-        assert_eq!(report.summary.functions_never_called, 1);
-        assert_eq!(report.summary.functions_coverage_unavailable, 0);
+        assert_eq!(
+            report.verdict,
+            crate::health_types::ProductionCoverageVerdict::ColdCodeDetected
+        );
+        assert_eq!(report.summary.functions_total, 3);
+        assert_eq!(report.summary.functions_called, 0);
+        assert_eq!(report.summary.functions_never_called, 2);
+        assert_eq!(report.summary.functions_coverage_unavailable, 1);
+        assert!((report.summary.percent_dead_in_production - 66.7).abs() < 0.05);
         assert_eq!(report.hot_paths.len(), 1);
         assert_eq!(report.hot_paths[0].function, "hotAlpha");
+    }
+
+    #[test]
+    fn production_coverage_baseline_refreshes_to_clean_when_only_baselined_findings_remain() {
+        let root = Path::new("/project");
+        let baseline = HealthBaselineData {
+            findings: vec![],
+            production_coverage_findings: vec!["src/a.ts:alpha:10:\"never-called\"".to_owned()],
+            target_keys: vec![],
+        };
+        let mut report = crate::health_types::ProductionCoverageReport {
+            verdict: crate::health_types::ProductionCoverageVerdict::ColdCodeDetected,
+            summary: crate::health_types::ProductionCoverageSummary {
+                functions_total: 2,
+                functions_called: 1,
+                functions_never_called: 1,
+                functions_coverage_unavailable: 0,
+                percent_dead_in_production: 50.0,
+            },
+            findings: vec![crate::health_types::ProductionCoverageFinding {
+                path: PathBuf::from("/project/src/a.ts"),
+                function: "alpha".to_owned(),
+                line: Some(10),
+                state: crate::health_types::ProductionCoverageState::NeverCalled,
+                invocations: 0,
+                confidence: crate::health_types::ProductionCoverageConfidence::High,
+                actions: vec![],
+            }],
+            hot_paths: vec![],
+            watermark: None,
+            warnings: vec![],
+        };
+
+        apply_production_coverage_filters(&mut report, Some(&baseline), root, None);
+
+        assert!(report.findings.is_empty());
+        assert_eq!(
+            report.verdict,
+            crate::health_types::ProductionCoverageVerdict::Clean
+        );
+        assert_eq!(report.summary.functions_total, 2);
+        assert_eq!(report.summary.functions_called, 1);
+        assert_eq!(report.summary.functions_never_called, 1);
+        assert_eq!(report.summary.functions_coverage_unavailable, 0);
+        assert!((report.summary.percent_dead_in_production - 50.0).abs() < 0.05);
     }
 }

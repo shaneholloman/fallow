@@ -1080,8 +1080,9 @@ mod tests {
     use super::*;
     use crate::health_types::{
         ProductionCoverageAction, ProductionCoverageConfidence, ProductionCoverageFinding,
-        ProductionCoverageReport, ProductionCoverageState, ProductionCoverageSummary,
-        ProductionCoverageVerdict,
+        ProductionCoverageHotPath, ProductionCoverageMessage, ProductionCoverageReport,
+        ProductionCoverageState, ProductionCoverageSummary, ProductionCoverageVerdict,
+        ProductionCoverageWatermark,
     };
     use crate::report::test_helpers::sample_results;
     use fallow_core::extract::MemberKind;
@@ -1156,9 +1157,17 @@ mod tests {
                         auto_fixable: false,
                     }],
                 }],
-                hot_paths: vec![],
-                watermark: None,
-                warnings: vec![],
+                hot_paths: vec![ProductionCoverageHotPath {
+                    path: root.join("src/hot.ts"),
+                    function: "hotPath".to_owned(),
+                    line: Some(3),
+                    invocations: 250,
+                }],
+                watermark: Some(ProductionCoverageWatermark::LicenseExpiredGrace),
+                warnings: vec![ProductionCoverageMessage {
+                    code: "partial-merge".to_owned(),
+                    message: "Merged coverage omitted one chunk.".to_owned(),
+                }],
             }),
             ..Default::default()
         };
@@ -1168,10 +1177,33 @@ mod tests {
         strip_root_prefix(&mut output, "/project/");
         inject_health_actions(&mut output);
 
+        assert_eq!(
+            output["production_coverage"]["verdict"],
+            serde_json::Value::String("cold-code-detected".to_owned())
+        );
+        assert_eq!(
+            output["production_coverage"]["summary"]["functions_total"],
+            serde_json::Value::from(3)
+        );
+        assert_eq!(
+            output["production_coverage"]["summary"]["percent_dead_in_production"],
+            serde_json::Value::from(33.3)
+        );
         let finding = &output["production_coverage"]["findings"][0];
         assert_eq!(finding["path"], "src/cold.ts");
         assert_eq!(finding["state"], "never-called");
         assert_eq!(finding["actions"][0]["type"], "review-deletion");
+        let hot_path = &output["production_coverage"]["hot_paths"][0];
+        assert_eq!(hot_path["path"], "src/hot.ts");
+        assert_eq!(hot_path["function"], "hotPath");
+        assert_eq!(
+            output["production_coverage"]["watermark"],
+            serde_json::Value::String("license-expired-grace".to_owned())
+        );
+        assert_eq!(
+            output["production_coverage"]["warnings"][0]["code"],
+            serde_json::Value::String("partial-merge".to_owned())
+        );
     }
 
     #[test]
