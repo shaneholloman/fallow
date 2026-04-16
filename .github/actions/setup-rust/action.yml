@@ -18,9 +18,28 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Resolve toolchain
+      id: resolve
+      shell: bash
+      env:
+        INPUT_TOOLCHAIN: ${{ inputs.toolchain }}
+      run: |
+        if [ -n "$INPUT_TOOLCHAIN" ]; then
+          echo "toolchain=$INPUT_TOOLCHAIN" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        if [ -f rust-toolchain.toml ]; then
+          channel=$(awk -F '"' '/^[[:space:]]*channel[[:space:]]*=/ {print $2; exit}' rust-toolchain.toml)
+          if [ -n "$channel" ]; then
+            echo "toolchain=$channel" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+        fi
+        echo "toolchain=stable" >> "$GITHUB_OUTPUT"
+
     - uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7
       with:
-        toolchain: ${{ inputs.toolchain }}
+        toolchain: ${{ steps.resolve.outputs.toolchain }}
         components: ${{ inputs.components }}
         targets: ${{ inputs.targets }}
 
