@@ -232,10 +232,8 @@ fn extract_exports_subdirectories(exports: &serde_json::Value) -> Vec<String> {
 /// Recursively extract file paths from package.json exports field.
 fn extract_exports_entries(value: &serde_json::Value, entries: &mut Vec<String>) {
     match value {
-        serde_json::Value::String(s) => {
-            if s.starts_with("./") || s.starts_with("../") {
-                entries.push(s.clone());
-            }
+        serde_json::Value::String(s) if s.starts_with("./") || s.starts_with("../") => {
+            entries.push(s.clone());
         }
         serde_json::Value::Object(map) => {
             for v in map.values() {

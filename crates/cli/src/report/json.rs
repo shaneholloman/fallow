@@ -5,7 +5,7 @@ use std::time::Duration;
 use fallow_core::duplicates::DuplicationReport;
 use fallow_core::results::AnalysisResults;
 
-use super::emit_json;
+use super::{emit_json, normalize_uri};
 use crate::explain;
 use crate::report::grouping::{OwnershipResolver, ResultGroup};
 
@@ -234,6 +234,12 @@ pub fn strip_root_prefix(value: &mut serde_json::Value, prefix: &str) {
         serde_json::Value::String(s) => {
             if let Some(rest) = s.strip_prefix(prefix) {
                 *s = rest.to_string();
+            } else {
+                let normalized = normalize_uri(s);
+                let normalized_prefix = normalize_uri(prefix);
+                if let Some(rest) = normalized.strip_prefix(&normalized_prefix) {
+                    *s = rest.to_string();
+                }
             }
         }
         serde_json::Value::Array(arr) => {
@@ -1820,6 +1826,13 @@ mod tests {
         assert_eq!(value["line"], 42);
         assert_eq!(value["is_type_only"], false);
         assert_eq!(value["path"], "src/file.ts");
+    }
+
+    #[test]
+    fn strip_root_prefix_normalizes_windows_separators() {
+        let mut value = serde_json::json!(r"/project\src\file.ts");
+        strip_root_prefix(&mut value, "/project/");
+        assert_eq!(value, "src/file.ts");
     }
 
     #[test]
