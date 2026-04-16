@@ -337,7 +337,199 @@
           "$ref": "#/definitions/CoverageGaps",
           "description": "Static test coverage gaps. Only present when --coverage-gaps is used."
         },
+        "production_coverage": {
+          "$ref": "#/definitions/ProductionCoverageReport",
+          "description": "Merged production coverage findings from V8 or Istanbul input. Only present when --production-coverage is used."
+        },
         "_meta": { "$ref": "#/definitions/Meta" }
+      }
+    },
+
+    "ProductionCoverageReport": {
+      "type": "object",
+      "required": ["verdict", "summary"],
+      "description": "Production coverage findings merged into the health report. Present only when --production-coverage is used.",
+      "properties": {
+        "verdict": {
+          "$ref": "#/definitions/ProductionCoverageVerdict",
+          "description": "Overall production coverage verdict after baseline filtering and changed-review adjustments."
+        },
+        "summary": {
+          "$ref": "#/definitions/ProductionCoverageSummary",
+          "description": "Aggregate tracked/called/cold counts for the analyzed production coverage input."
+        },
+        "findings": {
+          "type": "array",
+          "description": "Cold or unavailable production coverage findings. Omitted when empty.",
+          "items": { "$ref": "#/definitions/ProductionCoverageFinding" }
+        },
+        "hot_paths": {
+          "type": "array",
+          "description": "Top runtime functions by invocation count. Omitted when empty.",
+          "items": { "$ref": "#/definitions/ProductionCoverageHotPath" }
+        },
+        "watermark": {
+          "$ref": "#/definitions/ProductionCoverageWatermark",
+          "description": "License/trial watermark for grace-mode output. Omitted when not applicable."
+        },
+        "warnings": {
+          "type": "array",
+          "description": "Non-fatal merge or coverage diagnostics. Omitted when empty.",
+          "items": { "$ref": "#/definitions/ProductionCoverageMessage" }
+        }
+      }
+    },
+
+    "ProductionCoverageSummary": {
+      "type": "object",
+      "required": ["functions_total", "functions_called", "functions_never_called", "functions_coverage_unavailable", "percent_dead_in_production"],
+      "properties": {
+        "functions_total": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of tracked static functions included in the sidecar request."
+        },
+        "functions_called": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Tracked functions observed with at least one invocation."
+        },
+        "functions_never_called": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Tracked functions observed with zero invocations."
+        },
+        "functions_coverage_unavailable": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Tracked functions for which production coverage could not be resolved."
+        },
+        "percent_dead_in_production": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Percentage of tracked functions classified as never called."
+        }
+      }
+    },
+
+    "ProductionCoverageVerdict": {
+      "type": "string",
+      "enum": ["clean", "hot-path-changes-needed", "cold-code-detected", "license-expired-grace", "unknown"],
+      "description": "Overall production coverage verdict."
+    },
+
+    "ProductionCoverageState": {
+      "type": "string",
+      "enum": ["called", "never-called", "coverage-unavailable", "unknown"],
+      "description": "Per-function production coverage state."
+    },
+
+    "ProductionCoverageConfidence": {
+      "type": "string",
+      "enum": ["high", "medium", "low", "unknown"],
+      "description": "Confidence level for a production coverage finding."
+    },
+
+    "ProductionCoverageWatermark": {
+      "type": "string",
+      "enum": ["trial-expired", "license-expired-grace", "unknown"],
+      "description": "License or trial watermark applied to production coverage output."
+    },
+
+    "ProductionCoverageAction": {
+      "type": "object",
+      "required": ["type", "description", "auto_fixable"],
+      "description": "Suggested follow-up action for a production coverage finding.",
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "Action identifier, normalized to `type` in JSON output."
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable recommendation."
+        },
+        "auto_fixable": {
+          "type": "boolean",
+          "description": "Whether fallow can apply this action automatically."
+        }
+      }
+    },
+
+    "ProductionCoverageMessage": {
+      "type": "object",
+      "required": ["code", "message"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "description": "Stable warning code."
+        },
+        "message": {
+          "type": "string",
+          "description": "Human-readable warning message."
+        }
+      }
+    },
+
+    "ProductionCoverageFinding": {
+      "type": "object",
+      "required": ["path", "function", "state", "invocations", "confidence"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "File path relative to the project root."
+        },
+        "function": {
+          "type": "string",
+          "description": "Static function name as reported in the merged coverage result."
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "1-indexed line number when uniquely attributable. Omitted when ambiguous or unavailable."
+        },
+        "state": {
+          "$ref": "#/definitions/ProductionCoverageState"
+        },
+        "invocations": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Observed invocation count for the function."
+        },
+        "confidence": {
+          "$ref": "#/definitions/ProductionCoverageConfidence"
+        },
+        "actions": {
+          "type": "array",
+          "description": "Suggested actions for this finding. Omitted when empty.",
+          "items": { "$ref": "#/definitions/ProductionCoverageAction" }
+        }
+      }
+    },
+
+    "ProductionCoverageHotPath": {
+      "type": "object",
+      "required": ["path", "function", "invocations"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "File path relative to the project root."
+        },
+        "function": {
+          "type": "string",
+          "description": "Function name for the hot path."
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "1-indexed line number when uniquely attributable. Omitted when ambiguous or unavailable."
+        },
+        "invocations": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Observed invocation count for the hot path."
+        }
       }
     },
 

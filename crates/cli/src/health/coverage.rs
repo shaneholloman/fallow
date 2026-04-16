@@ -246,18 +246,23 @@ pub fn canonical_sidecar_path() -> PathBuf {
 fn find_on_path(binary: &str) -> Option<PathBuf> {
     let path_var = std::env::var_os("PATH")?;
     std::env::split_paths(&path_var).find_map(|dir| {
-        let candidate = dir.join(binary);
-        if candidate.is_file() {
-            return Some(candidate);
-        }
-        if cfg!(windows) {
-            let exe = dir.join(format!("{binary}.exe"));
-            if exe.is_file() {
-                return Some(exe);
+        for candidate_name in path_binary_candidates(binary) {
+            let candidate = dir.join(candidate_name);
+            if candidate.is_file() {
+                return Some(candidate);
             }
         }
         None
     })
+}
+
+fn path_binary_candidates(binary: &str) -> Vec<String> {
+    let mut candidates = vec![binary.to_owned()];
+    if cfg!(windows) {
+        candidates.push(format!("{binary}.exe"));
+        candidates.push(format!("{binary}.cmd"));
+    }
+    candidates
 }
 
 fn find_project_local_sidecar(root: &Path) -> Option<PathBuf> {
@@ -462,6 +467,7 @@ fn build_request(
     ws_root: Option<&Path>,
     coverage_sources: Vec<CoverageSource>,
 ) -> (Request, FunctionLocations) {
+    let project_root = ws_root.unwrap_or(root);
     let mut files = Vec::new();
     let mut locations = FxHashMap::default();
     for module in modules {
@@ -509,7 +515,7 @@ fn build_request(
             license: fallow_cov_protocol::License {
                 jwt: options.license_jwt.clone(),
             },
-            project_root: root.to_string_lossy().into_owned(),
+            project_root: project_root.to_string_lossy().into_owned(),
             coverage_sources,
             static_findings: StaticFindings { files },
             options: fallow_cov_protocol::Options {
@@ -861,11 +867,12 @@ fn resolve_original_source_path(
         return Some(path);
     }
     let source_path = PathBuf::from(raw_source);
-    if source_path.is_absolute() {
+    if source_path.is_absolute() || looks_like_windows_absolute_path(raw_source) {
         return Some(source_path);
     }
-    if has_unsupported_source_scheme(raw_source) {
-        return None;
+    if Url::parse(raw_source).is_ok() {
+        let base_dir = resolve_source_map_base(generated_url, source_map_url)?;
+        return resolve_virtual_source_path(raw_source, &base_dir);
     }
     let base_dir = resolve_source_map_base(generated_url, source_map_url)?;
     Some(base_dir.join(source_path))
@@ -884,7 +891,7 @@ fn resolve_source_map_base(generated_url: &str, source_map_url: Option<&str>) ->
     if candidate.is_absolute() {
         return candidate.parent().map(Path::to_path_buf);
     }
-    if has_unsupported_source_scheme(source_map_url) {
+    if Url::parse(source_map_url).is_ok() {
         return None;
     }
     generated_dir
@@ -902,23 +909,61 @@ fn file_url_to_path(value: &str) -> Option<PathBuf> {
         };
     }
     let path = PathBuf::from(value);
-    path.is_absolute().then_some(path)
+    (path.is_absolute() || looks_like_windows_absolute_path(value)).then_some(path)
 }
 
-fn has_unsupported_source_scheme(value: &str) -> bool {
-    if value.is_empty() {
-        return false;
+fn looks_like_windows_absolute_path(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && matches!(bytes[2], b'/' | b'\\')
+}
+
+fn resolve_virtual_source_path(value: &str, base_dir: &Path) -> Option<PathBuf> {
+    let url = Url::parse(value).ok()?;
+    match url.scheme() {
+        "webpack" | "vite" => {
+            let candidates = virtual_source_candidates(&url);
+            resolve_virtual_candidate(&candidates, base_dir)
+        }
+        _ => None,
     }
-    let path = PathBuf::from(value);
-    if path.is_absolute() {
-        return false;
+}
+
+fn virtual_source_candidates(url: &Url) -> Vec<PathBuf> {
+    let path = url.path().trim_start_matches('/');
+    let mut candidates = Vec::new();
+
+    if let Some(host) = url.host_str() {
+        let host = host.trim_matches('/');
+        if !host.is_empty() && !matches!(host, "." | "_N_E") {
+            let combined = PathBuf::from(host).join(path);
+            if !combined.as_os_str().is_empty() {
+                candidates.push(combined);
+            }
+        }
     }
-    if value.starts_with("node:") {
-        return true;
+
+    if !path.is_empty() {
+        candidates.push(PathBuf::from(path));
     }
-    Url::parse(value)
-        .map(|url| url.scheme() != "file")
-        .unwrap_or(false)
+
+    candidates.retain(|candidate| !candidate.as_os_str().is_empty());
+    candidates.dedup();
+    candidates
+}
+
+fn resolve_virtual_candidate(candidates: &[PathBuf], base_dir: &Path) -> Option<PathBuf> {
+    for base in base_dir.ancestors() {
+        for candidate in candidates {
+            let resolved = base.join(candidate);
+            if resolved.is_file() {
+                return Some(resolved);
+            }
+        }
+    }
+    None
 }
 
 fn merge_remapped_functions(
@@ -1257,13 +1302,16 @@ fn state_rank(state: ProductionCoverageState) -> u8 {
 mod tests {
     use super::{
         AccumulatedFunction, FunctionIdentity, PackageManagerOutput, RemappedFunction,
-        convert_response, discover_sidecar, looks_like_istanbul, merge_remapped_functions,
-        prepare_coverage_sources, resolve_sidecar_via_command, write_istanbul_coverage_file,
+        build_request, convert_response, discover_sidecar, looks_like_istanbul,
+        merge_remapped_functions, path_binary_candidates, prepare_coverage_sources,
+        resolve_original_source_path, resolve_sidecar_via_command, write_istanbul_coverage_file,
     };
+    use crate::health::ProductionCoverageOptions;
     use fallow_cov_protocol::{
         CallState, Confidence, CoverageSource, DiagnosticMessage, Finding, HotPath, Response,
         Summary, Verdict,
     };
+    use globset::GlobSetBuilder;
     use oxc_coverage_instrument::{Location, Position};
     use rustc_hash::FxHashMap;
     use std::collections::BTreeMap;
@@ -1331,6 +1379,20 @@ mod tests {
 
         std::fs::remove_dir_all(&root)
             .unwrap_or_else(|err| panic!("failed to clean temp dir {}: {err}", root.display()));
+    }
+
+    #[test]
+    fn path_binary_candidates_include_windows_cmd_shims() {
+        let candidates = path_binary_candidates("fallow-cov");
+
+        if cfg!(windows) {
+            assert_eq!(
+                candidates,
+                vec!["fallow-cov", "fallow-cov.exe", "fallow-cov.cmd"]
+            );
+        } else {
+            assert_eq!(candidates, vec!["fallow-cov"]);
+        }
     }
 
     #[test]
@@ -1468,6 +1530,34 @@ mod tests {
     }
 
     #[test]
+    fn build_request_uses_workspace_root_for_sidecar_project_root() {
+        let root = PathBuf::from("/repo");
+        let ws_root = root.join("packages/app");
+        let options = ProductionCoverageOptions {
+            path: root.join("coverage"),
+            min_invocations_hot: 100,
+            license_jwt: "test-jwt".to_owned(),
+            watermark: None,
+        };
+        let ignore_set = GlobSetBuilder::new()
+            .build()
+            .unwrap_or_else(|err| panic!("failed to build empty globset: {err}"));
+
+        let (request, _locations) = build_request(
+            &options,
+            &root,
+            &[],
+            &FxHashMap::default(),
+            &ignore_set,
+            None,
+            Some(ws_root.as_path()),
+            vec![],
+        );
+
+        assert_eq!(request.project_root, ws_root.to_string_lossy());
+    }
+
+    #[test]
     fn remaps_v8_source_map_cache_into_istanbul_sources() {
         let root = make_temp_dir("coverage-remap");
         let src_dir = root.join("src");
@@ -1599,8 +1689,161 @@ mod tests {
     }
 
     #[test]
-    fn falls_back_to_raw_v8_for_virtual_source_map_sources() {
-        let root = make_temp_dir("coverage-remap-virtual");
+    fn remaps_webpack_virtual_source_map_sources() {
+        let root = make_temp_dir("coverage-remap-webpack");
+        let src_dir = root.join("src");
+        let dist_dir = root.join("dist");
+        std::fs::create_dir_all(&src_dir)
+            .unwrap_or_else(|err| panic!("failed to create {}: {err}", src_dir.display()));
+        std::fs::create_dir_all(&dist_dir)
+            .unwrap_or_else(|err| panic!("failed to create {}: {err}", dist_dir.display()));
+
+        let original = src_dir.join("app.ts");
+        std::fs::write(&original, "export function alpha() {}\n")
+            .unwrap_or_else(|err| panic!("failed to write {}: {err}", original.display()));
+
+        let v8_file = root.join("coverage-v8.json");
+        let v8_json = serde_json::json!({
+            "result": [{
+                "scriptId": "1",
+                "url": file_url(&dist_dir.join("bundle.js")),
+                "functions": [{
+                    "functionName": "alpha",
+                    "ranges": [{"startOffset": 0, "endOffset": 18, "count": 3}],
+                    "isBlockCoverage": false
+                }]
+            }],
+            "source-map-cache": {
+                file_url(&dist_dir.join("bundle.js")): {
+                    "url": "bundle.js.map",
+                    "data": {
+                        "version": 3,
+                        "sources": ["webpack://src/app.ts"],
+                        "names": [],
+                        "mappings": "AAAA"
+                    },
+                    "lineLengths": [18]
+                }
+            }
+        });
+        std::fs::write(&v8_file, serde_json::to_vec(&v8_json).unwrap())
+            .unwrap_or_else(|err| panic!("failed to write {}: {err}", v8_file.display()));
+
+        let prepared = prepare_coverage_sources(&v8_file)
+            .unwrap_or_else(|err| panic!("failed to preprocess coverage: {err}"));
+
+        assert_eq!(prepared.sources.len(), 1);
+        let CoverageSource::Istanbul { path } = &prepared.sources[0] else {
+            panic!("expected remapped istanbul coverage source");
+        };
+        let output = std::fs::read_to_string(path)
+            .unwrap_or_else(|err| panic!("failed to read remapped coverage {path}: {err}"));
+        let parsed: serde_json::Value = serde_json::from_str(&output)
+            .unwrap_or_else(|err| panic!("failed to parse remapped coverage: {err}"));
+        let key = dunce::canonicalize(&original)
+            .unwrap_or_else(|err| panic!("failed to canonicalize {}: {err}", original.display()))
+            .to_string_lossy()
+            .into_owned();
+
+        assert!(
+            parsed.get(&key).is_some(),
+            "expected remapped file key {key}"
+        );
+
+        std::fs::remove_dir_all(&root)
+            .unwrap_or_else(|err| panic!("failed to clean temp dir {}: {err}", root.display()));
+    }
+
+    #[test]
+    fn remaps_vite_virtual_source_map_sources() {
+        let root = make_temp_dir("coverage-remap-vite");
+        let src_dir = root.join("src");
+        let dist_dir = root.join("dist");
+        std::fs::create_dir_all(&src_dir)
+            .unwrap_or_else(|err| panic!("failed to create {}: {err}", src_dir.display()));
+        std::fs::create_dir_all(&dist_dir)
+            .unwrap_or_else(|err| panic!("failed to create {}: {err}", dist_dir.display()));
+
+        let original = src_dir.join("app.ts");
+        std::fs::write(&original, "export function alpha() {}\n")
+            .unwrap_or_else(|err| panic!("failed to write {}: {err}", original.display()));
+
+        let v8_file = root.join("coverage-v8.json");
+        let v8_json = serde_json::json!({
+            "result": [{
+                "scriptId": "1",
+                "url": file_url(&dist_dir.join("bundle.js")),
+                "functions": [{
+                    "functionName": "alpha",
+                    "ranges": [{"startOffset": 0, "endOffset": 18, "count": 3}],
+                    "isBlockCoverage": false
+                }]
+            }],
+            "source-map-cache": {
+                file_url(&dist_dir.join("bundle.js")): {
+                    "url": "bundle.js.map",
+                    "data": {
+                        "version": 3,
+                        "sources": ["vite://src/app.ts"],
+                        "names": [],
+                        "mappings": "AAAA"
+                    },
+                    "lineLengths": [18]
+                }
+            }
+        });
+        std::fs::write(&v8_file, serde_json::to_vec(&v8_json).unwrap())
+            .unwrap_or_else(|err| panic!("failed to write {}: {err}", v8_file.display()));
+
+        let prepared = prepare_coverage_sources(&v8_file)
+            .unwrap_or_else(|err| panic!("failed to preprocess coverage: {err}"));
+
+        assert_eq!(prepared.sources.len(), 1);
+        let CoverageSource::Istanbul { path } = &prepared.sources[0] else {
+            panic!("expected remapped istanbul coverage source");
+        };
+        let output = std::fs::read_to_string(path)
+            .unwrap_or_else(|err| panic!("failed to read remapped coverage {path}: {err}"));
+        let parsed: serde_json::Value = serde_json::from_str(&output)
+            .unwrap_or_else(|err| panic!("failed to parse remapped coverage: {err}"));
+        let key = dunce::canonicalize(&original)
+            .unwrap_or_else(|err| panic!("failed to canonicalize {}: {err}", original.display()))
+            .to_string_lossy()
+            .into_owned();
+
+        assert!(
+            parsed.get(&key).is_some(),
+            "expected remapped file key {key}"
+        );
+
+        std::fs::remove_dir_all(&root)
+            .unwrap_or_else(|err| panic!("failed to clean temp dir {}: {err}", root.display()));
+    }
+
+    #[test]
+    fn preserves_windows_absolute_source_map_sources() {
+        let resolved = resolve_original_source_path(
+            "C:/repo/src/app.ts",
+            "file:///C:/repo/dist/bundle.js",
+            Some("bundle.js.map"),
+        )
+        .unwrap_or_else(|| panic!("failed to resolve windows absolute source path"));
+
+        assert_eq!(resolved, PathBuf::from("C:/repo/src/app.ts"));
+
+        let resolved_backslashes = resolve_original_source_path(
+            r"C:\repo\src\app.ts",
+            "file:///C:/repo/dist/bundle.js",
+            Some("bundle.js.map"),
+        )
+        .unwrap_or_else(|| panic!("failed to resolve windows backslash source path"));
+
+        assert_eq!(resolved_backslashes, PathBuf::from(r"C:\repo\src\app.ts"));
+    }
+
+    #[test]
+    fn falls_back_to_raw_v8_for_unsupported_source_map_schemes() {
+        let root = make_temp_dir("coverage-remap-unsupported");
         let dist_dir = root.join("dist");
         std::fs::create_dir_all(&dist_dir)
             .unwrap_or_else(|err| panic!("failed to create {}: {err}", dist_dir.display()));
@@ -1621,7 +1864,7 @@ mod tests {
                     "url": "bundle.js.map",
                     "data": {
                         "version": 3,
-                        "sources": ["webpack://src/app.ts"],
+                        "sources": ["parcel://src/app.ts"],
                         "names": [],
                         "mappings": "AAAA"
                     },

@@ -14,7 +14,7 @@
 
 #![forbid(unsafe_code)]
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 // -- V8 input types ---------------------------------------------------------
 
@@ -118,7 +118,19 @@ pub struct IstanbulPosition {
     /// 1-indexed line number.
     pub line: u32,
     /// 0-indexed column within the line.
+    ///
+    /// Some real Istanbul producers (including Vitest in certain transforms)
+    /// emit `null` for end columns. We normalize those to `0` at parse time
+    /// so downstream CRAP/prod-coverage consumers can still ingest the file.
+    #[serde(deserialize_with = "deserialize_nullable_u32")]
     pub column: u32,
+}
+
+fn deserialize_nullable_u32<'de, D>(deserializer: D) -> Result<u32, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Ok(Option::<u32>::deserialize(deserializer)?.unwrap_or(0))
 }
 
 // -- Byte-offset to line/column mapper -------------------------------------
@@ -364,5 +376,36 @@ mod tests {
         let dump: V8CoverageDump = serde_json::from_value(raw).unwrap();
         assert_eq!(dump.result.len(), 1);
         assert_eq!(dump.result[0].functions[0].function_name, "a");
+    }
+
+    #[test]
+    fn parse_istanbul_coverage_with_null_columns() {
+        let raw = serde_json::json!({
+            "/t/linkUtils.ts": {
+                "path": "/t/linkUtils.ts",
+                "fnMap": {
+                    "0": {
+                        "name": "normalizeInternalLink",
+                        "decl": {
+                            "start": { "line": 66, "column": 0 },
+                            "end": { "line": 66, "column": null }
+                        },
+                        "loc": {
+                            "start": { "line": 66, "column": 0 },
+                            "end": { "line": 76, "column": null }
+                        },
+                        "line": 66
+                    }
+                },
+                "f": { "0": 9 }
+            }
+        });
+
+        let dump: std::collections::BTreeMap<String, IstanbulFileCoverage> =
+            serde_json::from_value(raw).unwrap();
+        let file = &dump["/t/linkUtils.ts"];
+        assert_eq!(file.fn_map["0"].decl.end.column, 0);
+        assert_eq!(file.fn_map["0"].loc.end.column, 0);
+        assert_eq!(file.f["0"], 9);
     }
 }

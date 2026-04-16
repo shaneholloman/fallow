@@ -4,11 +4,13 @@ pub mod ownership;
 mod scoring;
 mod targets;
 
+use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use colored::Colorize;
 use fallow_config::{OutputFormat, ResolvedConfig};
+use rustc_hash::FxHashSet;
 
 use crate::baseline::{
     HealthBaselineData, filter_new_health_findings, filter_new_health_targets,
@@ -430,7 +432,7 @@ fn execute_health_inner(
             loaded_baseline.as_ref(),
             &config.root,
             opts.top,
-            changed_files.is_some(),
+            changed_files.as_ref(),
         );
     }
 
@@ -579,7 +581,7 @@ fn apply_production_coverage_filters(
     baseline: Option<&HealthBaselineData>,
     root: &std::path::Path,
     top: Option<usize>,
-    changed_review: bool,
+    changed_files: Option<&FxHashSet<PathBuf>>,
 ) {
     if let Some(baseline) = baseline {
         report.findings = filter_new_production_coverage_findings(
@@ -589,7 +591,13 @@ fn apply_production_coverage_filters(
         );
     }
 
-    refresh_production_coverage_verdict(report, changed_review);
+    if let Some(changed_files) = changed_files {
+        report
+            .hot_paths
+            .retain(|hot_path| changed_files.contains(&hot_path.path));
+    }
+
+    refresh_production_coverage_verdict(report, changed_files.is_some());
 
     if let Some(top) = top {
         report.findings.truncate(top);
@@ -1787,7 +1795,7 @@ mod tests {
             warnings: vec![],
         };
 
-        apply_production_coverage_filters(&mut report, Some(&baseline), root, Some(1), false);
+        apply_production_coverage_filters(&mut report, Some(&baseline), root, Some(1), None);
 
         assert_eq!(report.findings.len(), 1);
         assert_eq!(report.findings[0].function, "gamma");
@@ -1835,7 +1843,7 @@ mod tests {
             warnings: vec![],
         };
 
-        apply_production_coverage_filters(&mut report, Some(&baseline), root, None, false);
+        apply_production_coverage_filters(&mut report, Some(&baseline), root, None, None);
 
         assert!(report.findings.is_empty());
         assert_eq!(
@@ -1852,6 +1860,8 @@ mod tests {
     #[test]
     fn production_coverage_changed_review_uses_hot_path_verdict() {
         let root = Path::new("/project");
+        let mut changed_files = FxHashSet::default();
+        changed_files.insert(PathBuf::from("/project/src/hot.ts"));
         let mut report = crate::health_types::ProductionCoverageReport {
             verdict: crate::health_types::ProductionCoverageVerdict::Clean,
             summary: crate::health_types::ProductionCoverageSummary {
@@ -1872,11 +1882,45 @@ mod tests {
             warnings: vec![],
         };
 
-        apply_production_coverage_filters(&mut report, None, root, None, true);
+        apply_production_coverage_filters(&mut report, None, root, None, Some(&changed_files));
 
         assert_eq!(
             report.verdict,
             crate::health_types::ProductionCoverageVerdict::HotPathChangesNeeded
+        );
+    }
+
+    #[test]
+    fn production_coverage_changed_review_ignores_unmodified_hot_paths() {
+        let root = Path::new("/project");
+        let mut changed_files = FxHashSet::default();
+        changed_files.insert(PathBuf::from("/project/src/other.ts"));
+        let mut report = crate::health_types::ProductionCoverageReport {
+            verdict: crate::health_types::ProductionCoverageVerdict::Clean,
+            summary: crate::health_types::ProductionCoverageSummary {
+                functions_total: 2,
+                functions_called: 2,
+                functions_never_called: 0,
+                functions_coverage_unavailable: 0,
+                percent_dead_in_production: 0.0,
+            },
+            findings: vec![],
+            hot_paths: vec![crate::health_types::ProductionCoverageHotPath {
+                path: PathBuf::from("/project/src/hot.ts"),
+                function: "renderHotPath".to_owned(),
+                line: Some(7),
+                invocations: 9_500,
+            }],
+            watermark: None,
+            warnings: vec![],
+        };
+
+        apply_production_coverage_filters(&mut report, None, root, None, Some(&changed_files));
+
+        assert!(report.hot_paths.is_empty());
+        assert_eq!(
+            report.verdict,
+            crate::health_types::ProductionCoverageVerdict::Clean
         );
     }
 }
