@@ -1039,9 +1039,41 @@ fn write_istanbul_coverage_file(
 }
 
 fn looks_like_istanbul(path: &Path) -> bool {
+    if let Ok(json) = fs::read_to_string(path)
+        && let Ok(value) = serde_json::from_str::<serde_json::Value>(&json)
+    {
+        return is_istanbul_coverage_json(&value);
+    }
+
     path.file_name()
         .and_then(OsStr::to_str)
         .is_some_and(|name| name == "coverage-final.json")
+}
+
+fn is_istanbul_coverage_json(value: &serde_json::Value) -> bool {
+    let Some(object) = value.as_object() else {
+        return false;
+    };
+
+    if object
+        .get("result")
+        .is_some_and(serde_json::Value::is_array)
+    {
+        return false;
+    }
+
+    if object.is_empty() {
+        return true;
+    }
+
+    object.values().any(|entry| {
+        let Some(entry) = entry.as_object() else {
+            return false;
+        };
+        ["path", "statementMap", "fnMap", "branchMap", "s", "f", "b"]
+            .into_iter()
+            .all(|key| entry.contains_key(key))
+    })
 }
 
 fn run_sidecar(
@@ -1328,6 +1360,64 @@ mod tests {
         assert!(!looks_like_istanbul(
             PathBuf::from("coverage.json").as_path()
         ));
+    }
+
+    #[test]
+    fn detects_istanbul_file_by_shape_without_canonical_filename() {
+        let root = make_temp_dir("coverage-istanbul-shape");
+        std::fs::create_dir_all(&root)
+            .unwrap_or_else(|err| panic!("failed to create temp dir: {err}"));
+        let coverage = root.join("prod-coverage.json");
+        std::fs::write(
+            &coverage,
+            serde_json::json!({
+                "src/app.ts": {
+                    "path": "src/app.ts",
+                    "statementMap": {},
+                    "fnMap": {},
+                    "branchMap": {},
+                    "s": {},
+                    "f": {},
+                    "b": {}
+                }
+            })
+            .to_string(),
+        )
+        .unwrap_or_else(|err| panic!("failed to write {}: {err}", coverage.display()));
+
+        assert!(looks_like_istanbul(&coverage));
+
+        let prepared = prepare_coverage_sources(&coverage)
+            .unwrap_or_else(|err| panic!("failed to collect coverage sources: {err}"));
+        assert!(matches!(
+            &prepared.sources[..],
+            [CoverageSource::Istanbul { path }] if path.ends_with("prod-coverage.json")
+        ));
+
+        std::fs::remove_dir_all(&root)
+            .unwrap_or_else(|err| panic!("failed to clean temp dir {}: {err}", root.display()));
+    }
+
+    #[test]
+    fn coverage_final_filename_with_v8_shape_still_uses_v8_classification() {
+        let root = make_temp_dir("coverage-v8-shape");
+        std::fs::create_dir_all(&root)
+            .unwrap_or_else(|err| panic!("failed to create temp dir: {err}"));
+        let coverage = root.join("coverage-final.json");
+        std::fs::write(&coverage, serde_json::json!({ "result": [] }).to_string())
+            .unwrap_or_else(|err| panic!("failed to write {}: {err}", coverage.display()));
+
+        assert!(!looks_like_istanbul(&coverage));
+
+        let prepared = prepare_coverage_sources(&coverage)
+            .unwrap_or_else(|err| panic!("failed to collect coverage sources: {err}"));
+        assert!(matches!(
+            &prepared.sources[..],
+            [CoverageSource::V8 { path }] if path.ends_with("coverage-final.json")
+        ));
+
+        std::fs::remove_dir_all(&root)
+            .unwrap_or_else(|err| panic!("failed to clean temp dir {}: {err}", root.display()));
     }
 
     #[test]

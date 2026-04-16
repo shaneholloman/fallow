@@ -335,7 +335,7 @@
         },
         "coverage_gaps": {
           "$ref": "#/definitions/CoverageGaps",
-          "description": "Static test coverage gaps. Only present when --coverage-gaps is used."
+          "description": "Static test coverage gaps. Present when --coverage-gaps is used, or when top-level health reporting enables coverage gaps via config severity."
         },
         "production_coverage": {
           "$ref": "#/definitions/ProductionCoverageReport",

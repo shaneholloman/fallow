@@ -105,6 +105,8 @@ fallow health --hotspots --ownership      # Add bus factor, owner, drift signals
 fallow health --targets                   # Ranked refactoring recommendations
 fallow health --targets --effort low      # Only quick-win refactoring targets
 fallow health --coverage-gaps             # Static test coverage gaps
+fallow health --coverage coverage/coverage-final.json
+fallow health --coverage artifacts/coverage.json --coverage-root /home/runner/work/myapp
 fallow health --production-coverage ./coverage
 fallow health --production-coverage ./coverage --min-invocations-hot 250
 fallow health --trend                     # Compare against saved snapshot
@@ -114,6 +116,17 @@ fallow health --changed-since main        # Only changed files
 ### Paid production coverage
 
 Production coverage answers a different question than static reachability: which functions actually execute in production. Fallow can merge V8 coverage dumps (`NODE_V8_COVERAGE=...`) and Istanbul `coverage-final.json` files into the `health` report, classify cold functions, and surface hot paths.
+
+Static `coverage_gaps` and paid `production_coverage` are separate layers in the same `health` surface:
+- `coverage_gaps` is graph-based and answers which runtime files or exports have no test dependency path
+- `production_coverage` is runtime-based and answers which functions actually executed in production-like coverage input
+- `coverage_gaps` can appear either because you passed `--coverage-gaps`, or because top-level `health` enabled it from config severity when no narrower section flags were selected
+
+| Surface | Flag | Input | Answers | License |
+|:--|:--|:--|:--|:--|
+| Static test reachability | `--coverage-gaps` | none | which runtime files/exports have no test dependency path | no |
+| Exact CRAP scoring | `--coverage` | Istanbul JSON file or `coverage-final.json` directory | how covered each function is for CRAP computation | no |
+| Runtime production coverage | `--production-coverage` | V8 directory, V8 JSON file, or Istanbul JSON file | which functions actually executed, which stayed cold, which are hot | yes |
 
 ```bash
 fallow license activate --trial --email you@company.com
@@ -125,7 +138,9 @@ fallow health --production-coverage ./coverage
 - `fallow license refresh` refreshes the stored license before the hard-fail window
 - `fallow coverage setup` detects your framework and package manager, installs the sidecar if needed, writes a collection recipe, and resumes from the current setup state on re-run
 - The sidecar can be installed globally or as a project devDependency; fallow resolves `FALLOW_COV_BIN`, project-local shims, package-manager bin lookups, `~/.fallow/bin/fallow-cov`, and `PATH`
-- `fallow health --production-coverage <path>` accepts a V8 directory, a single V8 JSON file, or an Istanbul `coverage-final.json`
+- `fallow health --production-coverage <path>` accepts a V8 directory, a single V8 JSON file, or a single Istanbul coverage map JSON file (commonly `coverage-final.json`)
+- `fallow health --coverage <path>` accepts a single Istanbul coverage map JSON file or a directory containing `coverage-final.json`
+- `--coverage-root <path>` rebases Istanbul file paths before CRAP matching. Use it when coverage was generated in CI or Docker with a different checkout root, for example `fallow health --coverage artifacts/coverage-final.json --coverage-root /home/runner/work/myapp`
 - V8 dumps that include Node's `source-map-cache` are remapped through supported source-map paths before analysis, including file paths, relative paths, `webpack://...`, and `vite://...`; unsupported virtual schemes safely fall back to raw V8 handling
 - `fallow health --changed-since <ref> --production-coverage <path>` promotes touched hot paths to a `hot-path-changes-needed` verdict during change review
 

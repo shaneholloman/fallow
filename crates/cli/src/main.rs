@@ -498,9 +498,11 @@ enum Command {
         /// Path to coverage data (coverage-final.json) for exact per-function
         /// CRAP scores. Generate with `jest --coverage`, `vitest run --coverage
         /// --provider istanbul`, or any Istanbul-compatible tool. Requires
-        /// Istanbul format (not v8/c8 native format). Accepts a file or directory
-        /// containing coverage-final.json. Affects CRAP scores only, not
-        /// --coverage-gaps. Also configurable via FALLOW_COVERAGE env var.
+        /// Istanbul format (not v8/c8 native format). Accepts a single
+        /// Istanbul coverage map JSON file or a directory containing
+        /// coverage-final.json. Use --coverage-root when the file was generated
+        /// in a different environment (CI runner, Docker). Affects CRAP scores
+        /// only, not --coverage-gaps. Also configurable via FALLOW_COVERAGE env var.
         #[arg(long, value_name = "PATH")]
         coverage: Option<PathBuf>,
 
@@ -512,7 +514,9 @@ enum Command {
         #[arg(long, value_name = "PATH")]
         coverage_root: Option<PathBuf>,
 
-        /// File or directory containing V8 / Istanbul coverage JSON
+        /// File or directory containing production coverage input. Accepts a
+        /// V8 coverage directory, a single V8 JSON file, or a single
+        /// Istanbul coverage map JSON file (commonly coverage-final.json).
         #[arg(long, value_name = "PATH")]
         production_coverage: Option<PathBuf>,
 
