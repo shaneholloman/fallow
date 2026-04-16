@@ -117,7 +117,7 @@ git push origin v{major} --force
 Where `{major}` is the major version number (e.g., `2` for `v2.6.0`).
 
 Pushing the tag triggers the CI release workflow (`.github/workflows/release.yml`) which automatically:
-- Publishes Rust crates to crates.io in dependency order (fallow-types → fallow-config → fallow-extract → fallow-graph → fallow-core → fallow-cli → fallow-mcp)
+- Publishes Rust crates to crates.io in dependency order (fallow-types → fallow-config → fallow-extract → fallow-graph → fallow-core → fallow-license → fallow-v8-coverage → fallow-cli → fallow-mcp)
 - Builds release binaries for 7 platform targets (macOS x64/ARM, Linux x64/ARM GNU/musl, Windows x64)
 - Creates a GitHub Release with build artifacts
 - Publishes all `@fallow-cli/*` npm platform packages with provenance
@@ -165,5 +165,5 @@ Report the workflow run URL to the user so they can monitor publishing progress.
 - CI publishes automatically on tag push — never publish manually unless CI fails and you need to retry
 - The `release.toml` config has `push = true`, but we push manually to control timing (tag push triggers CI)
 - For `cargo release`, we only use `cargo release version` (not the full `cargo release` which would also push)
-- The CI also publishes Rust crates to crates.io — 7 crates in dependency order with 30s delays between each for index propagation
+- The CI also publishes Rust crates to crates.io — 9 crates in dependency order with 30s delays between each for index propagation
 - The VS Code extension version is set from the git tag by CI — no need to update `editors/vscode/package.json` locally

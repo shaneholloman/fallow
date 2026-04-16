@@ -62,6 +62,22 @@ jobs:
       - name: Wait for crates.io index
         run: sleep 30
 
+      - name: Publish fallow-license
+        run: cargo publish -p fallow-license || echo "Already published, skipping"
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      - name: Wait for crates.io index
+        run: sleep 30
+
+      - name: Publish fallow-v8-coverage
+        run: cargo publish -p fallow-v8-coverage || echo "Already published, skipping"
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      - name: Wait for crates.io index
+        run: sleep 30
+
       - name: Publish fallow-cli
         run: cargo publish -p fallow-cli || echo "Already published, skipping"
         env:
