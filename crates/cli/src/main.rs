@@ -605,6 +605,11 @@ enum LicenseCli {
         stdin: bool,
 
         /// Start a 30-day email-gated trial in one step.
+        ///
+        /// The trial endpoint is rate-limited to 5 requests per hour per IP.
+        /// In CI or behind a shared NAT, start the trial from a developer
+        /// machine and set FALLOW_LICENSE (or FALLOW_LICENSE_PATH) on the
+        /// runner instead of re-running `activate --trial` per job.
         #[arg(long, requires = "email")]
         trial: bool,
 

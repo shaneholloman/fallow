@@ -192,6 +192,27 @@ pub const HEALTH_RULES: &[RuleDef] = &[
         full: "A value export is reachable from runtime entry points but no test-reachable module references it. This is a static test dependency gap rather than line coverage, and highlights exports exercised only through production entry paths.",
         docs_path: "explanations/health#coverage-gaps",
     },
+    RuleDef {
+        id: "fallow/production-never-called",
+        name: "Production Never Called",
+        short: "Function tracked in production coverage was never invoked",
+        full: "V8 tracked this function (it was parsed and prepared for execution) but it was never called during the observed production coverage window. Combined with static reachability analysis, a never-called function is the highest-confidence delete signal fallow emits.",
+        docs_path: "explanations/health#production-coverage",
+    },
+    RuleDef {
+        id: "fallow/production-coverage-unavailable",
+        name: "Production Coverage Unavailable",
+        short: "Production coverage could not be resolved for this function",
+        full: "The function could not be matched to a V8-tracked coverage entry. Common causes: the function lives in a worker thread (separate V8 isolate), it is lazy-parsed and never reached the JIT tier, or its source map did not resolve to the expected source path. This is advisory, not a dead-code signal.",
+        docs_path: "explanations/health#production-coverage",
+    },
+    RuleDef {
+        id: "fallow/production-coverage",
+        name: "Production Coverage",
+        short: "Production coverage finding",
+        full: "Generic production-coverage finding for states other than never-called and coverage-unavailable. Includes `called` entries surfaced for completeness when the sidecar emits them and the forward-compat `unknown` sentinel.",
+        docs_path: "explanations/health#production-coverage",
+    },
 ];
 
 pub const DUPES_RULES: &[RuleDef] = &[RuleDef {
@@ -230,6 +251,10 @@ pub fn check_meta() -> Value {
 
 /// Build the `_meta` object for `fallow health --format json --explain`.
 #[must_use]
+#[expect(
+    clippy::too_many_lines,
+    reason = "flat metric table: every entry is 3-4 short lines of metadata and keeping them in one map is clearer than splitting into per-metric helpers"
+)]
 pub fn health_meta() -> Value {
     json!({
         "docs": HEALTH_DOCS,
@@ -377,6 +402,36 @@ pub fn health_meta() -> Value {
                 "description": "true = a CODEOWNERS file exists but no rule matches this file; false = a rule matches; null = no CODEOWNERS file was discovered for the repository (cannot determine).",
                 "values": [true, false, null],
                 "interpretation": "true on a hotspot is a review-bottleneck risk; null means the signal is unavailable, not absent"
+            },
+            "production_coverage_verdict": {
+                "name": "Production Coverage Verdict",
+                "description": "Overall verdict across all production-coverage findings. `clean` = nothing cold; `cold-code-detected` = one or more tracked functions had zero invocations; `hot-path-changes-needed` = a function modified in the current change set is on the hot path; `license-expired-grace` = analysis ran but the license is in its post-expiry grace window; `unknown` = verdict could not be computed (degenerate input).",
+                "values": ["clean", "hot-path-changes-needed", "cold-code-detected", "license-expired-grace", "unknown"],
+                "interpretation": "`cold-code-detected` is the primary actionable signal; `hot-path-changes-needed` elevates code-review attention for touched hot paths"
+            },
+            "production_coverage_state": {
+                "name": "Production Coverage State",
+                "description": "Per-function observation: `called` = V8 saw at least one invocation; `never-called` = V8 tracked the function but it never ran; `coverage-unavailable` = the function was not in the V8 tracking set (e.g., lazy-parsed, worker thread, dynamic code); `unknown` = forward-compat sentinel for newer sidecar states.",
+                "values": ["called", "never-called", "coverage-unavailable", "unknown"],
+                "interpretation": "`never-called` in combination with static `unused` is the highest-confidence delete signal"
+            },
+            "production_coverage_confidence": {
+                "name": "Production Coverage Confidence",
+                "description": "Confidence in a production-coverage finding. `high` = tracked by V8 with a statistically meaningful observation volume; `medium` = either low observation volume or indirect evidence; `low` = minimal data; `unknown` = insufficient information to classify.",
+                "values": ["high", "medium", "low", "unknown"],
+                "interpretation": "high = act on it; medium = verify context; low = treat as a signal only"
+            },
+            "production_invocations": {
+                "name": "Production Invocations",
+                "description": "Observed invocation count for the function over the collected coverage window. For `coverage-unavailable` findings this is `0` and semantically means `null` (not tracked). Absolute counts are not directly comparable across services without normalizing by trace_count.",
+                "range": "[0, \u{221e})",
+                "interpretation": "0 + tracked = cold path; 0 + untracked = unknown; high + never-called cannot occur by definition"
+            },
+            "percent_dead_in_production": {
+                "name": "Percent Dead in Production",
+                "description": "Fraction of tracked functions with zero observed invocations, multiplied by 100. Computed before any `--top` truncation so the summary total is stable regardless of display limits.",
+                "range": "[0, 100]",
+                "interpretation": "lower is better; values above ~10% on a long-running service indicate a large cleanup opportunity"
             }
         }
     })
@@ -731,6 +786,11 @@ mod tests {
             "stale_days",
             "drift",
             "unowned",
+            "production_coverage_verdict",
+            "production_coverage_state",
+            "production_coverage_confidence",
+            "production_invocations",
+            "percent_dead_in_production",
         ];
         for key in &expected {
             assert!(
@@ -849,7 +909,7 @@ mod tests {
 
     #[test]
     fn health_rules_count() {
-        assert_eq!(HEALTH_RULES.len(), 6);
+        assert_eq!(HEALTH_RULES.len(), 9);
     }
 
     #[test]

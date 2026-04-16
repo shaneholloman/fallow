@@ -318,7 +318,7 @@ fn build_production_coverage_compact_lines(
     for finding in &production.findings {
         let relative = normalize_uri(&relative_path(&finding.path, root).display().to_string());
         lines.push(format!(
-            "production-coverage:{}:{}:{}:state={:?},invocations={},confidence={:?}",
+            "production-coverage:{}:{}:{}:state={},invocations={},confidence={}",
             relative,
             finding.line.unwrap_or(0),
             finding.function,
@@ -436,6 +436,7 @@ mod tests {
                     function: "hotPath".to_owned(),
                     line: Some(3),
                     invocations: 250,
+                    actions: vec![],
                 }],
                 watermark: None,
                 warnings: vec![],
@@ -456,7 +457,7 @@ mod tests {
         );
         assert_eq!(
             lines[1],
-            "production-coverage:src/cold.ts:14:coldPath:state=NeverCalled,invocations=0,confidence=High"
+            "production-coverage:src/cold.ts:14:coldPath:state=never-called,invocations=0,confidence=high"
         );
         assert_eq!(
             lines[2],

@@ -369,12 +369,34 @@ fn check_health_schema_contains_expected_properties() {
         "save_baseline",
         "no_cache",
         "threads",
+        "production_coverage",
+        "min_invocations_hot",
     ] {
         assert!(
             schema.contains(prop),
             "check_health schema should contain property '{prop}'"
         );
     }
+}
+
+#[test]
+fn check_health_description_mentions_production_coverage() {
+    let server = FallowMcp::new();
+    let tools = server.tool_router.list_all();
+    let tool = tools.iter().find(|t| t.name == "check_health").unwrap();
+    let desc = tool.description.as_deref().unwrap();
+    assert!(
+        desc.contains("production_coverage"),
+        "check_health description should mention production_coverage (paid feature wiring)"
+    );
+    assert!(
+        desc.contains("min_invocations_hot"),
+        "check_health description should mention min_invocations_hot tuning knob"
+    );
+    assert!(
+        desc.contains("fallow license"),
+        "check_health description should reference `fallow license activate` as the activation path"
+    );
 }
 
 #[test]

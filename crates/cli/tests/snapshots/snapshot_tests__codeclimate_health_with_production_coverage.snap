@@ -22,9 +22,9 @@ expression: json_str
   {
     "type": "issue",
     "check_name": "fallow/production-never-called",
-    "description": "'coldPath' production coverage state: NeverCalled (0 invocations)",
+    "description": "'coldPath' production coverage state: never-called (0 invocations)",
     "categories": [
-      "ProductionCoverage"
+      "Bug Risk"
     ],
     "severity": "major",
     "fingerprint": "9a5e2f85e94477dd",
@@ -38,11 +38,11 @@ expression: json_str
   {
     "type": "issue",
     "check_name": "fallow/production-coverage-unavailable",
-    "description": "'lateBound' production coverage state: CoverageUnavailable (0 invocations)",
+    "description": "'lateBound' production coverage state: coverage-unavailable (0 invocations)",
     "categories": [
-      "ProductionCoverage"
+      "Bug Risk"
     ],
-    "severity": "info",
+    "severity": "minor",
     "fingerprint": "25b3f5df2071893a",
     "location": {
       "path": "src/unknown.ts",

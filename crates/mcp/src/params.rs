@@ -339,6 +339,20 @@ pub struct HealthParams {
     /// Rebase file paths in coverage data by stripping this prefix and prepending the project root.
     /// Use when coverage was generated in a different environment (CI runner, Docker).
     pub coverage_root: Option<String>,
+
+    /// Path to production coverage input (paid feature). Accepts a V8
+    /// coverage directory (`NODE_V8_COVERAGE=...`), a single V8 coverage
+    /// JSON file, or an Istanbul `coverage-final.json`. Requires an active
+    /// license; run `fallow license activate --trial --email <addr>` first.
+    /// Production coverage can exceed the default 120s MCP subprocess timeout
+    /// on large dumps; raise `FALLOW_TIMEOUT_SECS` accordingly.
+    pub production_coverage: Option<String>,
+
+    /// Minimum invocation count for a function to be classified as a hot
+    /// path in production-coverage output. Inherits the CLI default (100)
+    /// when omitted. Takes effect only when `production_coverage` is also
+    /// set; silently ignored otherwise.
+    pub min_invocations_hot: Option<u64>,
 }
 
 #[derive(Default, Deserialize, JsonSchema)]

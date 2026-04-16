@@ -1649,6 +1649,7 @@ mod tests {
                 function: "hotPath".to_owned(),
                 line: Some(3),
                 invocations: 250,
+                actions: vec![],
             }],
             watermark: Some(crate::health_types::ProductionCoverageWatermark::LicenseExpiredGrace),
             warnings: vec![],

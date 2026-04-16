@@ -531,6 +531,8 @@ fn health_args_with_all_options() {
         summary: Some(true),
         coverage: Some("coverage/coverage-final.json".to_string()),
         coverage_root: Some("/ci/build".to_string()),
+        production_coverage: Some("./coverage".to_string()),
+        min_invocations_hot: Some(250),
         min_severity: None,
         ownership: None,
         ownership_email_mode: None,
@@ -583,6 +585,10 @@ fn health_args_with_all_options() {
             "coverage/coverage-final.json",
             "--coverage-root",
             "/ci/build",
+            "--production-coverage",
+            "./coverage",
+            "--min-invocations-hot",
+            "250",
         ]
     );
 }

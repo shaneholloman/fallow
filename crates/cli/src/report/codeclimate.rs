@@ -555,7 +555,7 @@ pub fn build_health_codeclimate(report: &HealthReport, root: &Path) -> serde_jso
                 }
             };
             let description = format!(
-                "'{}' production coverage state: {:?} ({} invocations)",
+                "'{}' production coverage state: {} ({} invocations)",
                 finding.function, finding.state, finding.invocations
             );
             let severity = if matches!(
@@ -564,7 +564,11 @@ pub fn build_health_codeclimate(report: &HealthReport, root: &Path) -> serde_jso
             ) {
                 "major"
             } else {
-                "info"
+                // GitLab Code Quality renders MR inline annotations only for
+                // blocker/critical/major/minor. "info" is schema-valid but
+                // silently dropped from MR annotations, so use "minor" for
+                // coverage-unavailable advisory findings.
+                "minor"
             };
             let fp = fingerprint_hash(&[
                 check_name,
@@ -576,7 +580,12 @@ pub fn build_health_codeclimate(report: &HealthReport, root: &Path) -> serde_jso
                 check_name,
                 &description,
                 severity,
-                "ProductionCoverage",
+                // CodeClimate/GitLab Code Quality allows a fixed category set:
+                // Bug Risk | Clarity | Compatibility | Complexity | Duplication
+                // | Performance | Security | Style. Production-coverage
+                // findings are a dead-code signal, so use "Bug Risk" — same
+                // category used by static dead-code issues elsewhere.
+                "Bug Risk",
                 &path,
                 finding.line,
                 &fp,

@@ -11,7 +11,7 @@ MCP server exposing fallow analysis as tools for AI agents. Stdio transport, wra
 - `analyze` — full dead code analysis (`fallow dead-code --format json`), supports `boundary_violations` convenience param
 - `check_changed` — incremental analysis (`fallow dead-code --changed-since`)
 - `find_dupes` — code duplication (`fallow dupes --format json`), supports `changed_since`
-- `check_health` — complexity metrics (`fallow health --format json`), supports `file_scores`, `hotspots`, `targets`, `since`, `min_commits` params
+- `check_health` — complexity metrics (`fallow health --format json`), supports `file_scores`, `hotspots`, `targets`, `since`, `min_commits`, `production_coverage` (paid, forwards `--production-coverage <path>`), `min_invocations_hot` (hot-path threshold) params
 - `audit` — combined dead-code + complexity + duplication for changed files, returns verdict (`fallow audit --format json`)
 - `fix_preview` — dry-run auto-fix (`fallow fix --dry-run --format json`)
 - `fix_apply` — apply auto-fixes (`fallow fix --yes --format json`) — destructive

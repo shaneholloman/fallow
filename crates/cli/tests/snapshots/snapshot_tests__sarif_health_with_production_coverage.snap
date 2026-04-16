@@ -90,6 +90,45 @@ expression: redact_health_sarif_version(&json_str)
               "defaultConfiguration": {
                 "level": "warning"
               }
+            },
+            {
+              "id": "fallow/production-never-called",
+              "shortDescription": {
+                "text": "Function tracked in production coverage was never invoked"
+              },
+              "fullDescription": {
+                "text": "V8 tracked this function (it was parsed and prepared for execution) but it was never called during the observed production coverage window. Combined with static reachability analysis, a never-called function is the highest-confidence delete signal fallow emits."
+              },
+              "helpUri": "https://docs.fallow.tools/explanations/health#production-coverage",
+              "defaultConfiguration": {
+                "level": "warning"
+              }
+            },
+            {
+              "id": "fallow/production-coverage-unavailable",
+              "shortDescription": {
+                "text": "Production coverage could not be resolved for this function"
+              },
+              "fullDescription": {
+                "text": "The function could not be matched to a V8-tracked coverage entry. Common causes: the function lives in a worker thread (separate V8 isolate), it is lazy-parsed and never reached the JIT tier, or its source map did not resolve to the expected source path. This is advisory, not a dead-code signal."
+              },
+              "helpUri": "https://docs.fallow.tools/explanations/health#production-coverage",
+              "defaultConfiguration": {
+                "level": "note"
+              }
+            },
+            {
+              "id": "fallow/production-coverage",
+              "shortDescription": {
+                "text": "Production coverage finding"
+              },
+              "fullDescription": {
+                "text": "Generic production-coverage finding for states other than never-called and coverage-unavailable. Includes `called` entries surfaced for completeness when the sidecar emits them and the forward-compat `unknown` sentinel."
+              },
+              "helpUri": "https://docs.fallow.tools/explanations/health#production-coverage",
+              "defaultConfiguration": {
+                "level": "note"
+              }
             }
           ]
         }
@@ -119,7 +158,7 @@ expression: redact_health_sarif_version(&json_str)
           "ruleId": "fallow/production-never-called",
           "level": "warning",
           "message": {
-            "text": "'coldPath' production coverage state: NeverCalled (0 invocations)"
+            "text": "'coldPath' production coverage state: never-called (0 invocations)"
           },
           "locations": [
             {
@@ -139,7 +178,7 @@ expression: redact_health_sarif_version(&json_str)
           "ruleId": "fallow/production-coverage-unavailable",
           "level": "note",
           "message": {
-            "text": "'lateBound' production coverage state: CoverageUnavailable (0 invocations)"
+            "text": "'lateBound' production coverage state: coverage-unavailable (0 invocations)"
           },
           "locations": [
             {

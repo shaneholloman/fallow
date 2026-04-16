@@ -604,41 +604,10 @@ pub(crate) fn inject_health_actions(output: &mut serde_json::Value) {
         }
     }
 
-    if let Some(production_coverage) = map
-        .get_mut("production_coverage")
-        .and_then(|v| v.as_object_mut())
-        && let Some(findings) = production_coverage
-            .get_mut("findings")
-            .and_then(|v| v.as_array_mut())
-    {
-        for item in findings {
-            normalize_embedded_actions(item);
-        }
-    }
-}
-
-fn normalize_embedded_actions(item: &mut serde_json::Value) {
-    let Some(obj) = item.as_object_mut() else {
-        return;
-    };
-    let Some(actions) = obj
-        .get_mut("actions")
-        .and_then(|value| value.as_array_mut())
-    else {
-        return;
-    };
-
-    for action in actions {
-        let Some(action_map) = action.as_object_mut() else {
-            continue;
-        };
-        if action_map.contains_key("type") {
-            continue;
-        }
-        if let Some(kind) = action_map.remove("kind") {
-            action_map.insert("type".to_string(), kind);
-        }
-    }
+    // Production coverage actions are emitted by the sidecar and serialized
+    // directly via serde (see `ProductionCoverageAction` in
+    // `crates/cli/src/health_types/production_coverage.rs`), so no post-hoc
+    // injection is needed here.
 }
 
 /// Build the `actions` array for a single complexity finding.
@@ -1015,30 +984,43 @@ fn insert_meta(output: &mut serde_json::Value, meta: serde_json::Value) {
     }
 }
 
+/// Build the JSON envelope + health payload shared by `print_health_json` and
+/// the CLI integration test suite. Exposed so snapshot tests can lock the
+/// on-the-wire shape without routing through stdout capture.
+///
+/// # Errors
+///
+/// Returns an error if the report cannot be serialized to JSON.
+pub fn build_health_json(
+    report: &crate::health_types::HealthReport,
+    root: &Path,
+    elapsed: Duration,
+    explain: bool,
+) -> Result<serde_json::Value, serde_json::Error> {
+    let report_value = serde_json::to_value(report)?;
+    let mut output = build_json_envelope(report_value, elapsed);
+    let root_prefix = format!("{}/", root.display());
+    strip_root_prefix(&mut output, &root_prefix);
+    inject_health_actions(&mut output);
+    if explain {
+        insert_meta(&mut output, explain::health_meta());
+    }
+    Ok(output)
+}
+
 pub(super) fn print_health_json(
     report: &crate::health_types::HealthReport,
     root: &Path,
     elapsed: Duration,
     explain: bool,
 ) -> ExitCode {
-    let report_value = match serde_json::to_value(report) {
-        Ok(v) => v,
+    match build_health_json(report, root, elapsed, explain) {
+        Ok(output) => emit_json(&output, "JSON"),
         Err(e) => {
             eprintln!("Error: failed to serialize health report: {e}");
-            return ExitCode::from(2);
+            ExitCode::from(2)
         }
-    };
-
-    let mut output = build_json_envelope(report_value, elapsed);
-    let root_prefix = format!("{}/", root.display());
-    strip_root_prefix(&mut output, &root_prefix);
-    inject_health_actions(&mut output);
-
-    if explain {
-        insert_meta(&mut output, explain::health_meta());
     }
-
-    emit_json(&output, "JSON")
 }
 
 pub(super) fn print_duplication_json(
@@ -1168,6 +1150,7 @@ mod tests {
                     function: "hotPath".to_owned(),
                     line: Some(3),
                     invocations: 250,
+                    actions: vec![],
                 }],
                 watermark: Some(ProductionCoverageWatermark::LicenseExpiredGrace),
                 warnings: vec![ProductionCoverageMessage {

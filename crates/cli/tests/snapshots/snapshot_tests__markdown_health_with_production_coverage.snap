@@ -9,22 +9,23 @@ expression: output
 | `src/complex.ts:42` | `processData` | high | 25 **!** | 30 **!** | 120 |
 
 **50** files, **200** functions analyzed (thresholds: cyclomatic > 20, cognitive > 15)
+
 ## Production Coverage
 
-- Verdict: ColdCodeDetected
+- Verdict: cold-code-detected
 - Tracked functions: 6
 - Called: 3
 - Never called: 2
 - Coverage unavailable: 1
 - Percent dead in production: 33.3%
 
-- Watermark: LicenseExpiredGrace
+- Watermark: license-expired-grace
 
 | Path | Function | State | Invocations | Confidence |
 |:-----|:---------|:------|------------:|:-----------|
-| src/cold.ts:14 | coldPath | NeverCalled | 0 | High |
-| src/unknown.ts:8 | lateBound | CoverageUnavailable | 0 | Low |
+| `src/cold.ts`:14 | `coldPath` | never-called | 0 | high |
+| `src/unknown.ts`:8 | `lateBound` | coverage-unavailable | 0 | low |
 
 | Hot path | Function | Invocations |
 |:---------|:---------|------------:|
-| src/hot.ts:3 | hotPath | 250 |
+| `src/hot.ts`:3 | `hotPath` | 250 |

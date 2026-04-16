@@ -11,7 +11,7 @@
 //! The Ed25519 verification key is compiled in at [`PUBLIC_KEY_BYTES`].
 
 use std::io::Read;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
 
@@ -68,6 +68,12 @@ struct TrialRequest<'a> {
 #[derive(Debug, Deserialize)]
 struct JwtResponse {
     jwt: String,
+    /// Optional ISO-8601 trial expiry timestamp returned by the backend for
+    /// `/v1/auth/license/trial`. Present only on the trial flow; `refresh`
+    /// responses omit it. We surface it to the user on trial activation so
+    /// they do not need to parse the JWT to see the trial end date.
+    #[serde(default, rename = "trialEndsAt")]
+    trial_ends_at: Option<String>,
 }
 
 /// Dispatch a `fallow license <sub>` invocation.
@@ -227,7 +233,27 @@ fn write_jwt(jwt: &str) -> Result<PathBuf, String> {
     }
     std::fs::write(&path, jwt)
         .map_err(|err| format!("failed to write {}: {err}", path.display()))?;
+    restrict_license_permissions(&path)?;
     Ok(path)
+}
+
+/// Restrict the license file to owner-only read/write on Unix platforms.
+///
+/// The JWT is a bearer token; anyone who can read the file can use the
+/// license. Home directories are typically 0700/0750 already, but setting
+/// 0600 on the file itself is defense-in-depth for shared environments. No-op
+/// on Windows (NTFS ACLs follow the parent directory).
+#[cfg(unix)]
+fn restrict_license_permissions(path: &Path) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt;
+    let perms = std::fs::Permissions::from_mode(0o600);
+    std::fs::set_permissions(path, perms)
+        .map_err(|err| format!("failed to set permissions on {}: {err}", path.display()))
+}
+
+#[cfg(not(unix))]
+fn restrict_license_permissions(_path: &Path) -> Result<(), String> {
+    Ok(())
 }
 
 /// Construct the compiled-in Ed25519 verification key.
@@ -303,16 +329,58 @@ fn store_verified_jwt(
     let status = verify_downloaded_jwt(&jwt)?;
     let path = write_jwt(&jwt)?;
     println!("fallow license: stored at {}", path.display());
+    if let Some(trial_ends_at) = payload.trial_ends_at.as_deref() {
+        let trimmed = trial_ends_at.trim();
+        if !trimmed.is_empty() {
+            println!("fallow license: trial ends at {trimmed}");
+        }
+    }
     Ok(status)
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct ErrorEnvelope {
+    #[serde(default)]
+    code: Option<String>,
+    #[serde(default)]
+    message: Option<String>,
+}
+
+/// Map a backend error-code + operation pair to an actionable user-facing
+/// hint. Returns `None` for unknown codes; callers fall back to the generic
+/// "HTTP N: body" shape.
+fn actionable_error_hint(operation: &str, code: &str) -> Option<&'static str> {
+    match (operation, code) {
+        ("refresh", "token_stale") => Some(
+            "your stored license is too stale to refresh. Reactivate with: fallow license activate --trial --email <addr>",
+        ),
+        ("refresh", "invalid_token") => Some(
+            "your stored license token is missing required claims. Reactivate with: fallow license activate --trial --email <addr>",
+        ),
+        ("refresh" | "trial", "unauthorized") => Some(
+            "authentication failed. Reactivate with: fallow license activate --trial --email <addr>",
+        ),
+        ("trial", "rate_limit_exceeded") => Some(
+            "trial creation is rate-limited to 5 per hour per IP. Wait an hour or retry from a different network (in CI, start the trial locally and set FALLOW_LICENSE on the runner).",
+        ),
+        _ => None,
+    }
 }
 
 fn http_status_message(response: &mut impl ResponseBodyReader, operation: &str) -> String {
     let status = response.status();
     let body = response.read_to_string().unwrap_or_else(|_| String::new());
-    let body_suffix = if body.trim().is_empty() {
-        String::new()
-    } else {
-        format!(": {}", body.trim())
+    let envelope: Option<ErrorEnvelope> = serde_json::from_str(&body).ok();
+    if let Some(envelope) = envelope.as_ref()
+        && let Some(code) = envelope.code.as_deref()
+        && let Some(hint) = actionable_error_hint(operation, code)
+    {
+        return format!("{hint} (HTTP {status}, code {code})");
+    }
+    let body_suffix = match envelope.as_ref().and_then(|e| e.message.as_deref()) {
+        Some(message) if !message.trim().is_empty() => format!(": {}", message.trim()),
+        _ if !body.trim().is_empty() => format!(": {}", body.trim()),
+        _ => String::new(),
     };
     format!("{operation} request failed with HTTP {status}{body_suffix}")
 }
@@ -361,6 +429,13 @@ fn print_status(status: &LicenseStatus) {
                 claims.features.join(","),
                 days_until_expiry
             );
+            if let Some(refresh_after) = claims.refresh_after
+                && current_unix_seconds() >= refresh_after
+            {
+                println!(
+                    "  refresh suggested now: fallow license refresh (prevents CI breakage before expiry)"
+                );
+            }
         }
         LicenseStatus::ExpiredWarning {
             claims,
@@ -445,5 +520,96 @@ mod tests {
     fn run_trial_without_email_errors() {
         let exit = run_trial(None);
         assert_eq!(format!("{exit:?}"), format!("{:?}", ExitCode::from(2)));
+    }
+
+    struct StubResponse {
+        status: u16,
+        body: String,
+    }
+
+    impl ResponseBodyReader for StubResponse {
+        fn status(&self) -> u16 {
+            self.status
+        }
+
+        fn read_json(&mut self) -> Result<JwtResponse, ureq::Error> {
+            unreachable!("error-path tests do not read JSON")
+        }
+
+        fn read_to_string(&mut self) -> Result<String, ureq::Error> {
+            Ok(std::mem::take(&mut self.body))
+        }
+    }
+
+    #[test]
+    fn refresh_token_stale_hint_points_to_reactivation() {
+        let mut response = StubResponse {
+            status: 401,
+            body: r#"{"error":true,"message":"token stale","code":"token_stale"}"#.to_owned(),
+        };
+        let message = http_status_message(&mut response, "refresh");
+        assert!(
+            message.contains("Reactivate with: fallow license activate --trial"),
+            "expected reactivation hint, got: {message}"
+        );
+        assert!(message.contains("token_stale"));
+    }
+
+    #[test]
+    fn refresh_invalid_token_hint_points_to_reactivation() {
+        let mut response = StubResponse {
+            status: 401,
+            body: r#"{"error":true,"code":"invalid_token"}"#.to_owned(),
+        };
+        let message = http_status_message(&mut response, "refresh");
+        assert!(message.contains("missing required claims"));
+        assert!(message.contains("invalid_token"));
+    }
+
+    #[test]
+    fn trial_rate_limit_hint_mentions_five_per_hour() {
+        let mut response = StubResponse {
+            status: 429,
+            body: r#"{"error":true,"code":"rate_limit_exceeded"}"#.to_owned(),
+        };
+        let message = http_status_message(&mut response, "trial");
+        assert!(message.contains("5 per hour per IP"));
+        assert!(message.contains("FALLOW_LICENSE"));
+    }
+
+    #[test]
+    fn unknown_code_falls_back_to_backend_message_when_present() {
+        let mut response = StubResponse {
+            status: 500,
+            body: r#"{"error":true,"code":"checkout_error","message":"stripe returned no session url"}"#
+                .to_owned(),
+        };
+        let message = http_status_message(&mut response, "refresh");
+        assert!(message.starts_with("refresh request failed with HTTP 500"));
+        assert!(
+            message.ends_with(": stripe returned no session url"),
+            "expected backend message on fallback, got: {message}"
+        );
+    }
+
+    #[test]
+    fn unknown_code_without_message_falls_back_to_raw_body() {
+        let mut response = StubResponse {
+            status: 500,
+            body: r#"{"error":true,"code":"checkout_error"}"#.to_owned(),
+        };
+        let message = http_status_message(&mut response, "refresh");
+        assert!(message.starts_with("refresh request failed with HTTP 500"));
+        assert!(message.contains("checkout_error"));
+    }
+
+    #[test]
+    fn empty_body_still_produces_minimal_message() {
+        let mut response = StubResponse {
+            status: 502,
+            body: String::new(),
+        };
+        let message = http_status_message(&mut response, "trial");
+        assert_eq!(message, "trial request failed with HTTP 502");
     }
 }

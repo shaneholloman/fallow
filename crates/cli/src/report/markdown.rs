@@ -484,9 +484,15 @@ fn write_production_coverage_section(
     let Some(ref production) = report.production_coverage else {
         return;
     };
+    // Prepend a blank line so the heading is not concatenated to the previous
+    // section (GFM requires a blank line before headings to avoid the heading
+    // being parsed as a paragraph continuation).
+    if !out.is_empty() && !out.ends_with("\n\n") {
+        out.push('\n');
+    }
     let _ = writeln!(
         out,
-        "## Production Coverage\n\n- Verdict: {:?}\n- Tracked functions: {}\n- Called: {}\n- Never called: {}\n- Coverage unavailable: {}\n- Percent dead in production: {:.1}%\n",
+        "## Production Coverage\n\n- Verdict: {}\n- Tracked functions: {}\n- Called: {}\n- Never called: {}\n- Coverage unavailable: {}\n- Percent dead in production: {:.1}%\n",
         production.verdict,
         production.summary.functions_total,
         production.summary.functions_called,
@@ -495,19 +501,23 @@ fn write_production_coverage_section(
         production.summary.percent_dead_in_production,
     );
     if let Some(watermark) = production.watermark {
-        let _ = writeln!(out, "- Watermark: {watermark:?}\n");
+        let _ = writeln!(out, "- Watermark: {watermark}\n");
     }
+    let rel = |p: &Path| {
+        escape_backticks(&normalize_uri(
+            &relative_path(p, root).display().to_string(),
+        ))
+    };
     if !production.findings.is_empty() {
         out.push_str("| Path | Function | State | Invocations | Confidence |\n");
         out.push_str("|:-----|:---------|:------|------------:|:-----------|\n");
         for finding in &production.findings {
-            let relative = relative_path(&finding.path, root).display();
             let _ = writeln!(
                 out,
-                "| {}:{} | {} | {:?} | {} | {:?} |",
-                relative,
+                "| `{}`:{} | `{}` | {} | {} | {} |",
+                rel(&finding.path),
                 finding.line.unwrap_or(0),
-                finding.function,
+                escape_backticks(&finding.function),
                 finding.state,
                 finding.invocations,
                 finding.confidence,
@@ -519,13 +529,12 @@ fn write_production_coverage_section(
         out.push_str("| Hot path | Function | Invocations |\n");
         out.push_str("|:---------|:---------|------------:|\n");
         for entry in &production.hot_paths {
-            let relative = relative_path(&entry.path, root).display();
             let _ = writeln!(
                 out,
-                "| {}:{} | {} | {} |",
-                relative,
+                "| `{}`:{} | `{}` | {} |",
+                rel(&entry.path),
                 entry.line.unwrap_or(0),
-                entry.function,
+                escape_backticks(&entry.function),
                 entry.invocations,
             );
         }

@@ -21,7 +21,7 @@ Key modules:
 - `list.rs` — Show active plugins, entry points, files, boundary zones/rules (`--boundaries`)
 - `schema.rs` — `schema`, `config-schema`, `plugin-schema` commands
 - `config.rs` — `config` subcommand: prints loaded config path + JSON resolved config (or `--path` only). Honors global `--config <path>`.
-- `license/` — `license activate|status|refresh|deactivate` subcommands. `activate` accepts JWT via positional arg, `--from-file`, or stdin (`-`); `--trial --email <addr>` issues a 30-day trial in one step. `refresh` and `--trial` network calls are stubbed (exit 7) until the API client lands. Wraps `fallow-license` (offline Ed25519 verify, alg pinned, RS256/none rejected, 7/30/hard-fail grace ladder).
+- `license/` — `license activate|status|refresh|deactivate` subcommands. `activate` accepts JWT via positional arg, `--from-file`, or stdin (`-`); `--trial --email <addr>` issues a 30-day trial in one step. On Unix the stored license file is written with mode `0600`. The trial response's `trialEndsAt` is surfaced on stdout after activation. `status` prints a refresh hint when the JWT's `refresh_after` claim has passed. `refresh` and `--trial` hit `api.fallow.cloud` via `ureq` with a 5s connect / 10s total timeout; failures exit `7`. Wraps `fallow-license` (offline Ed25519 verify, alg pinned, RS256/none rejected, 7/30/hard-fail grace ladder, optional `refresh_after` claim).
 - `coverage/` — `coverage setup` resumable first-run state inspector for production coverage. Today: license + sidecar discovery report. Future: framework-aware recipe + auto-resume to analysis.
 - `explain.rs` — Metric/rule definitions, JSON `_meta` builders, SARIF `fullDescription`/`helpUri` source, docs URLs
 - `validate.rs` — Input validation (control characters, path sanitization)
@@ -34,7 +34,7 @@ Key modules:
 - `FALLOW_COVERAGE` — path to Istanbul coverage data for accurate CRAP scores
 - `FALLOW_LICENSE` — license JWT (full string). First-class storage path; intended for shared CI runners.
 - `FALLOW_LICENSE_PATH` — file path containing the license JWT.
-- `FALLOW_COV_BIN` — explicit override for the closed-source `fallow-cov` sidecar binary (wins over PATH and `~/.fallow/bin/`).
+- `FALLOW_COV_BIN` — explicit override for the closed-source `fallow-cov` sidecar binary (wins over project-local `node_modules/.bin`, package-manager `bin`, `~/.fallow/bin/`, and `PATH`). When set but the path is not a file, sidecar discovery fails fast with a targeted error rather than silently falling through.
 
 ## JSON error format
 Structured JSON errors on stdout when `--format json` is active: `{"error": true, "message": "...", "exit_code": 2}`

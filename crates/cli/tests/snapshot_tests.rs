@@ -4,7 +4,7 @@ use std::time::Duration;
 use fallow_cli::health_types::*;
 use fallow_cli::report::{
     build_codeclimate, build_compact_lines, build_duplication_codeclimate,
-    build_duplication_markdown, build_health_codeclimate, build_health_markdown,
+    build_duplication_markdown, build_health_codeclimate, build_health_json, build_health_markdown,
     build_health_sarif, build_json, build_markdown, build_sarif,
 };
 use fallow_config::RulesConfig;
@@ -1846,6 +1846,7 @@ fn health_report_with_production_coverage(root: &Path) -> HealthReport {
             function: "hotPath".to_string(),
             line: Some(3),
             invocations: 250,
+            actions: vec![],
         }],
         watermark: Some(ProductionCoverageWatermark::LicenseExpiredGrace),
         warnings: vec![ProductionCoverageMessage {
@@ -2006,6 +2007,19 @@ fn codeclimate_health_with_production_coverage_snapshot() {
     let cc = build_health_codeclimate(&report, &root);
     let json_str = serde_json::to_string_pretty(&cc).expect("should serialize");
     insta::assert_snapshot!("codeclimate_health_with_production_coverage", json_str);
+}
+
+#[test]
+fn json_health_with_production_coverage_snapshot() {
+    let root = PathBuf::from("/project");
+    let report = health_report_with_production_coverage(&root);
+    let value = build_health_json(&report, &root, Duration::ZERO, false)
+        .expect("health JSON build should succeed");
+    let json_str = serde_json::to_string_pretty(&value).expect("should serialize");
+    insta::assert_snapshot!(
+        "json_health_with_production_coverage",
+        redact_version(&json_str)
+    );
 }
 
 // ── Health score snapshots ──────────────────────────────────────

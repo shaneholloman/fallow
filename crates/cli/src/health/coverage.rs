@@ -203,11 +203,19 @@ fn validate_license_status(
 }
 
 pub fn discover_sidecar(root: Option<&Path>) -> Result<PathBuf, String> {
-    if let Ok(path) = std::env::var("FALLOW_COV_BIN") {
-        let candidate = PathBuf::from(path);
+    // `FALLOW_COV_BIN` is an explicit override: if the user sets it, they
+    // expect fallow to either use that path or error. Silently falling
+    // through to auto-discovery when the path is missing / not a file
+    // contradicts the "explicit beats implicit" contract documented in
+    // `.claude/rules/cli-crate.md`.
+    if let Some(path) = env_non_empty("FALLOW_COV_BIN") {
+        let candidate = PathBuf::from(&path);
         if candidate.is_file() {
             return Ok(candidate);
         }
+        return Err(format!(
+            "FALLOW_COV_BIN is set to {path} but no file exists there. Unset FALLOW_COV_BIN to fall back to sidecar auto-discovery, or point it at the fallow-cov binary."
+        ));
     }
 
     if let Some(root) = root
@@ -231,6 +239,17 @@ pub fn discover_sidecar(root: Option<&Path>) -> Result<PathBuf, String> {
     }
 
     Err(sidecar_missing_message(root))
+}
+
+fn env_non_empty(key: &str) -> Option<String> {
+    std::env::var(key).ok().and_then(|value| {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_owned())
+        }
+    })
 }
 
 pub fn canonical_sidecar_path() -> PathBuf {
@@ -1251,6 +1270,10 @@ fn convert_response(
             path: PathBuf::from(entry.file),
             function: entry.function,
             invocations: entry.invocations,
+            // Actions on hot paths are reserved for future protocol versions
+            // (e.g., a "review-on-change" suggestion). The sidecar protocol
+            // at v0.1 does not emit per-hot-path actions, so leave empty.
+            actions: Vec::new(),
         })
         .collect::<Vec<_>>();
     hot_paths.sort_by(|left, right| {

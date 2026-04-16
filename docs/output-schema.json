@@ -529,6 +529,11 @@
           "type": "integer",
           "minimum": 0,
           "description": "Observed invocation count for the hot path."
+        },
+        "actions": {
+          "type": "array",
+          "description": "Suggested actions for this hot path (e.g., review-on-change). Omitted when empty.",
+          "items": { "$ref": "#/definitions/ProductionCoverageAction" }
         }
       }
     },

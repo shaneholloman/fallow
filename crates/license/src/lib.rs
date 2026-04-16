@@ -63,6 +63,12 @@ pub struct LicenseClaims {
     pub exp: i64,
     /// Unique JWT ID (used for refresh + revocation).
     pub jti: String,
+    /// Suggested refresh timestamp, seconds since UNIX epoch. Backend emits
+    /// this at `iat + 15 days` so CI runs can proactively refresh before the
+    /// hard-fail window. `None` when the backend did not include the claim
+    /// (older license payloads or third-party issuers).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refresh_after: Option<i64>,
 }
 
 /// Feature flag enum aligned with the protocol's `Feature` strings.
@@ -411,6 +417,7 @@ mod tests {
             iat: 1_700_000_000,
             exp,
             jti: "jti_test".into(),
+            refresh_after: Some(1_700_000_000 + 15 * SECONDS_PER_DAY),
         }
     }
 
@@ -538,5 +545,37 @@ mod tests {
     fn unknown_feature_round_trips_through_other() {
         let parsed = Feature::parse("future_feature");
         assert!(matches!(parsed, Feature::Other(ref s) if s == "future_feature"));
+    }
+
+    #[test]
+    fn refresh_after_parses_when_present_and_defaults_to_none() {
+        let with_refresh = serde_json::json!({
+            "iss": "https://api.fallow.cloud",
+            "sub": "org_test",
+            "tid": "tenant_test",
+            "seats": 5,
+            "tier": "team",
+            "features": ["production_coverage"],
+            "iat": 1_700_000_000,
+            "exp": 2_000_000_000_i64,
+            "jti": "jti_test",
+            "refresh_after": 1_701_296_000_i64,
+        });
+        let claims: LicenseClaims = serde_json::from_value(with_refresh).expect("parse");
+        assert_eq!(claims.refresh_after, Some(1_701_296_000));
+
+        let without_refresh = serde_json::json!({
+            "iss": "https://api.fallow.cloud",
+            "sub": "org_test",
+            "tid": "tenant_test",
+            "seats": 5,
+            "tier": "team",
+            "features": ["production_coverage"],
+            "iat": 1_700_000_000,
+            "exp": 2_000_000_000_i64,
+            "jti": "jti_test",
+        });
+        let claims: LicenseClaims = serde_json::from_value(without_refresh).expect("parse");
+        assert_eq!(claims.refresh_after, None);
     }
 }

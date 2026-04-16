@@ -626,6 +626,10 @@ pub(super) fn print_duplication_sarif(report: &DuplicationReport, root: &Path) -
 // File health scores are available in JSON, human, compact, and markdown formats.
 
 #[must_use]
+#[expect(
+    clippy::too_many_lines,
+    reason = "flat rules + results table: adding production-coverage rules pushed past the 150 line threshold but each section is a straightforward sequence of sarif_rule / sarif_result calls"
+)]
 pub fn build_health_sarif(
     report: &crate::health_types::HealthReport,
     root: &Path,
@@ -771,6 +775,21 @@ pub fn build_health_sarif(
             "Runtime-reachable export has no test dependency path",
             "warning",
         ),
+        sarif_rule(
+            "fallow/production-never-called",
+            "Function tracked in production coverage was never invoked",
+            "warning",
+        ),
+        sarif_rule(
+            "fallow/production-coverage-unavailable",
+            "Production coverage could not be resolved for this function",
+            "note",
+        ),
+        sarif_rule(
+            "fallow/production-coverage",
+            "Production coverage finding",
+            "note",
+        ),
     ];
 
     serde_json::json!({
@@ -816,7 +835,7 @@ fn append_production_coverage_sarif_results(
             "note"
         };
         let message = format!(
-            "'{}' production coverage state: {:?} ({} invocations)",
+            "'{}' production coverage state: {} ({} invocations)",
             finding.function, finding.state, finding.invocations
         );
         sarif_results.push(sarif_result(
@@ -1159,7 +1178,7 @@ mod tests {
         let rules = sarif["runs"][0]["tool"]["driver"]["rules"]
             .as_array()
             .unwrap();
-        assert_eq!(rules.len(), 6);
+        assert_eq!(rules.len(), 9);
     }
 
     #[test]

@@ -669,6 +669,8 @@ fn health_args_with_all_options_including_targets_and_snapshot() {
         summary: Some(true),
         coverage: Some("coverage/coverage-final.json".to_string()),
         coverage_root: Some("/home/runner/work/myapp".to_string()),
+        production_coverage: Some("./coverage".to_string()),
+        min_invocations_hot: Some(500),
         min_severity: Some("critical".to_string()),
         ownership: Some(true),
         ownership_email_mode: Some(crate::params::EmailModeParam::Hash),

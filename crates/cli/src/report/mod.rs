@@ -419,6 +419,11 @@ pub use json::build_baseline_deltas_json;
     unused_imports,
     reason = "target-dependent: used in lib, unused in bin"
 )]
+pub use json::build_health_json;
+#[allow(
+    unused_imports,
+    reason = "target-dependent: used in lib, unused in bin"
+)]
 pub use json::build_json;
 #[allow(
     unused_imports,
