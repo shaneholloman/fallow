@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.40.3] - 2026-04-17
+
+### Fixed
+
+- **Sidecar discovery now prefers the real platform binary over the Node wrapper.** After `npm install @fallow-cli/fallow-cov`, `node_modules/.bin/fallow-cov` is a Node wrapper script that re-execs the real binary in the platform subpackage (e.g. `@fallow-cli/fallow-cov-darwin-arm64/fallow-cov`). The wrapper path has no adjacent `.sig` file, so the Phase 2.5 signature verification gate refused to spawn with `Sidecar binary at ... is missing its signature file` (exit 4) even though the signed binary and its `.sig` were sitting right next to each other in the platform subdirectory. Discovery now walks up ancestors looking for `node_modules/@fallow-cli/fallow-cov-*/fallow-cov` first, then falls back to the `.bin` wrapper for non-npm-optionalDependency layouts. Every v2.40.0 / v2.40.1 / v2.40.2 user running `fallow health --production-coverage` for the first time hit this; `FALLOW_COV_BINARY_PATH=...` worked around it but the happy path should not require an env var. Found via Phase 2.5 end-to-end smoke test against sidecar-v0.1.5.
+
 ## [2.40.2] - 2026-04-17
 
 ### Fixed
@@ -1472,7 +1478,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--changed-since` and `--fail-on-issues` for CI
 - Cross-workspace resolution for npm/yarn/pnpm workspaces
 
-[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.40.2...HEAD
+[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.40.3...HEAD
+[2.40.3]: https://github.com/fallow-rs/fallow/compare/v2.40.2...v2.40.3
 [2.40.2]: https://github.com/fallow-rs/fallow/compare/v2.40.1...v2.40.2
 [2.40.1]: https://github.com/fallow-rs/fallow/compare/v2.40.0...v2.40.1
 [2.40.0]: https://github.com/fallow-rs/fallow/compare/v2.39.0...v2.40.0
