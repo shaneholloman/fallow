@@ -5,7 +5,7 @@ use std::process::ExitCode;
 use std::process::{Command, Stdio};
 use std::{collections::BTreeMap, fs};
 
-use ed25519_dalek::VerifyingKey;
+use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use fallow_config::OutputFormat;
 use fallow_cov_protocol::{
     Confidence, CoverageSource, Evidence, PROTOCOL_VERSION, ReportVerdict, Request, Response,
@@ -32,6 +32,24 @@ use crate::health_types::{
     ProductionCoverageVerdict, ProductionCoverageWatermark,
 };
 use crate::license::verifying_key;
+
+/// Ed25519 public key used to verify the fallow-cov sidecar binary at every
+/// spawn. Intentionally SEPARATE from the license-signing pubkey at
+/// `crate::license::PUBLIC_KEY_BYTES` so binary and license keys can rotate
+/// independently; see `fallow-cloud/decisions/008-sidecar-key-rotation.md`.
+///
+/// The constant name deliberately avoids the substring `PUBLIC_KEY_BYTES` so
+/// the `fallow-cloud/.github/workflows/public-key-parity.yml` Python regex
+/// (which matches the first `PUBLIC_KEY_BYTES: [u8; 32]` in the file) never
+/// misidentifies it as the license pubkey.
+///
+/// PLACEHOLDER: the 32 zero bytes below will be replaced in Phase 2.5 step B2
+/// with the real binary-signing public key produced by the keypair generator
+/// in B1. A `cargo test` guard below refuses to let the all-zeros placeholder
+/// ship by asserting the constant differs from `[0u8; 32]`; the test is
+/// marked `#[ignore]` so local builds still pass, and the release skill runs
+/// `cargo test -- --include-ignored` to catch it before tagging v2.40.0.
+const BINARY_SIGNING_VERIFY_KEY: [u8; 32] = [0u8; 32];
 
 type FunctionLocations = FxHashMap<(String, String), Option<u32>>;
 
@@ -219,6 +237,21 @@ pub fn discover_sidecar(root: Option<&Path>) -> Result<PathBuf, String> {
         }
         return Err(format!(
             "FALLOW_COV_BIN is set to {path} but no file exists there. Unset FALLOW_COV_BIN to fall back to sidecar auto-discovery, or point it at the fallow-cov binary."
+        ));
+    }
+
+    // `FALLOW_COV_BINARY_PATH` is the air-gap / pre-placed-binary override.
+    // Precedes project-local, canonical, and PATH lookup so users in
+    // enterprise / Docker / distro-packaged setups can point fallow straight
+    // at a specific binary without having it on PATH. Same explicit-beats-
+    // implicit semantics as FALLOW_COV_BIN: if it's set and invalid, error.
+    if let Some(path) = env_non_empty("FALLOW_COV_BINARY_PATH") {
+        let candidate = PathBuf::from(&path);
+        if candidate.is_file() {
+            return Ok(candidate);
+        }
+        return Err(format!(
+            "FALLOW_COV_BINARY_PATH is set to {path} but no file exists there. Unset FALLOW_COV_BINARY_PATH to fall back to sidecar auto-discovery, or point it at the fallow-cov binary."
         ));
     }
 
@@ -1121,12 +1154,66 @@ fn is_istanbul_coverage_json(value: &serde_json::Value) -> bool {
     })
 }
 
+/// Verify the Ed25519 signature of the resolved sidecar binary against
+/// `BINARY_SIGNING_VERIFY_KEY`. Runs on every spawn so file-system tampering
+/// between install and spawn cannot substitute a malicious binary.
+///
+/// Strict by design: missing or invalid `.sig` file, wrong signature length,
+/// and verification failure all fail hard (exit 4). No warn-and-run fallback.
+/// Phase 2.5 ships to no existing users, so there is no install-base on the
+/// old unsigned path to accommodate.
+fn verify_sidecar_signature(binary: &Path) -> Result<(), String> {
+    let sig_path = {
+        let mut path = binary.as_os_str().to_os_string();
+        path.push(".sig");
+        PathBuf::from(path)
+    };
+
+    let sig_bytes = fs::read(&sig_path).map_err(|err| {
+        format!(
+            "Sidecar binary at {} is missing its signature file {}: {err}. The fallow CLI refuses to spawn an unsigned sidecar. Reinstall @fallow-cli/fallow-cov.",
+            binary.display(),
+            sig_path.display()
+        )
+    })?;
+    let sig_array: [u8; 64] = sig_bytes.as_slice().try_into().map_err(|_| {
+        format!(
+            "Sidecar signature file at {} is {} bytes; expected 64. Reinstall @fallow-cli/fallow-cov.",
+            sig_path.display(),
+            sig_bytes.len()
+        )
+    })?;
+    let signature = Signature::from_bytes(&sig_array);
+
+    let key = VerifyingKey::from_bytes(&BINARY_SIGNING_VERIFY_KEY).map_err(|err| {
+        format!("compiled-in binary-signing key is invalid: {err} (build-time bug)")
+    })?;
+
+    let binary_bytes = fs::read(binary).map_err(|err| {
+        format!(
+            "failed to read sidecar binary at {} for signature verification: {err}",
+            binary.display()
+        )
+    })?;
+
+    key.verify(&binary_bytes, &signature).map_err(|err| {
+        format!(
+            "Sidecar binary at {} failed Ed25519 signature verification: {err}. The .sig file does not match the fallow CLI's compiled-in binary-signing public key. Reinstall @fallow-cli/fallow-cov from npm, or if you are building from a pre-release fallow source, rebuild against the published fallow release.",
+            binary.display()
+        )
+    })?;
+
+    Ok(())
+}
+
 fn run_sidecar(
     sidecar: &Path,
     request: &Request,
     quiet: bool,
     output: OutputFormat,
 ) -> Result<Response, ExitCode> {
+    verify_sidecar_signature(sidecar).map_err(|message| emit_error(&message, 4, output))?;
+
     let mut child = Command::new(sidecar)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -1408,10 +1495,11 @@ const fn verdict_rank(verdict: ProductionCoverageVerdict) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::{
-        AccumulatedFunction, FunctionIdentity, PackageManagerOutput, RemappedFunction,
-        build_request, convert_response, discover_sidecar, looks_like_istanbul,
+        AccumulatedFunction, BINARY_SIGNING_VERIFY_KEY, FunctionIdentity, PackageManagerOutput,
+        RemappedFunction, build_request, convert_response, discover_sidecar, looks_like_istanbul,
         merge_remapped_functions, path_binary_candidates, prepare_coverage_sources,
-        resolve_original_source_path, resolve_sidecar_via_command, write_istanbul_coverage_file,
+        resolve_original_source_path, resolve_sidecar_via_command, verify_sidecar_signature,
+        write_istanbul_coverage_file,
     };
     use crate::health::ProductionCoverageOptions;
     use fallow_cov_protocol::{
@@ -1435,6 +1523,92 @@ mod tests {
         assert!(!looks_like_istanbul(
             PathBuf::from("coverage.json").as_path()
         ));
+    }
+
+    #[test]
+    fn binary_signing_verify_key_is_32_bytes() {
+        // Ed25519 public keys are always 32 bytes. Guards against accidental
+        // byte-array edits that would silently break verification.
+        assert_eq!(BINARY_SIGNING_VERIFY_KEY.len(), 32);
+    }
+
+    // Hard-fail gate for the release process. This test stays ignored during
+    // normal `cargo test` (the constant is `[0u8; 32]` until Phase 2.5 B2
+    // rotates the real key in). The release skill runs
+    // `cargo test -- --include-ignored` before tagging v2.40.0, which will
+    // fail this test if the placeholder is still in place. See
+    // fallow-cloud/decisions/008-sidecar-key-rotation.md.
+    #[test]
+    #[ignore = "placeholder key; replace in Phase 2.5 B2 before v2.40.0 is tagged"]
+    fn binary_signing_verify_key_must_not_be_placeholder() {
+        assert_ne!(
+            BINARY_SIGNING_VERIFY_KEY, [0u8; 32],
+            "BINARY_SIGNING_VERIFY_KEY is still the all-zeros placeholder. Generate a real keypair per fallow-cloud/decisions/008-sidecar-key-rotation.md and paste the public bytes here before cutting a release."
+        );
+    }
+
+    #[test]
+    fn verify_sidecar_signature_rejects_missing_sig_file() {
+        let root = make_temp_dir("cov-sig-missing");
+        std::fs::create_dir_all(&root).expect("create temp dir");
+        let binary = root.join("fallow-cov");
+        std::fs::write(&binary, b"not a real binary").expect("write binary");
+
+        let err = verify_sidecar_signature(&binary).expect_err("missing .sig must fail");
+        assert!(
+            err.contains("missing its signature file"),
+            "error message missing expected guidance: {err}"
+        );
+        assert!(
+            err.contains("Reinstall @fallow-cli/fallow-cov"),
+            "error message missing reinstall hint: {err}"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn verify_sidecar_signature_rejects_wrong_length_sig() {
+        let root = make_temp_dir("cov-sig-wrong-length");
+        std::fs::create_dir_all(&root).expect("create temp dir");
+        let binary = root.join("fallow-cov");
+        std::fs::write(&binary, b"not a real binary").expect("write binary");
+        let sig_path = {
+            let mut path = binary.as_os_str().to_os_string();
+            path.push(".sig");
+            PathBuf::from(path)
+        };
+        std::fs::write(&sig_path, [0u8; 32]).expect("write short sig");
+
+        let err = verify_sidecar_signature(&binary).expect_err("short sig must fail");
+        assert!(
+            err.contains("expected 64"),
+            "error message missing length detail: {err}"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn verify_sidecar_signature_rejects_bad_signature() {
+        let root = make_temp_dir("cov-sig-bad");
+        std::fs::create_dir_all(&root).expect("create temp dir");
+        let binary = root.join("fallow-cov");
+        std::fs::write(&binary, b"not a real binary").expect("write binary");
+        let sig_path = {
+            let mut path = binary.as_os_str().to_os_string();
+            path.push(".sig");
+            PathBuf::from(path)
+        };
+        std::fs::write(&sig_path, [0u8; 64]).expect("write zero sig");
+
+        let err = verify_sidecar_signature(&binary).expect_err("bogus sig must fail");
+        assert!(
+            err.contains("failed Ed25519 signature verification"),
+            "error message missing verification phrase: {err}"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
