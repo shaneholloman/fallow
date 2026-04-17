@@ -253,7 +253,7 @@ fn env_non_empty(key: &str) -> Option<String> {
 }
 
 pub fn canonical_sidecar_path() -> PathBuf {
-    let home = std::env::var("HOME").map_or_else(|_| PathBuf::from("."), PathBuf::from);
+    let home = fallow_license::user_home_dir().unwrap_or_else(|| PathBuf::from("."));
     let binary = if cfg!(windows) {
         "fallow-cov.exe"
     } else {

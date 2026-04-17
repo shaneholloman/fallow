@@ -345,14 +345,39 @@ fn read_jwt_file(path: &Path) -> Result<String, LicenseError> {
     Ok(normalize_jwt(&raw))
 }
 
+/// Resolve the user's home directory in a cross-platform way.
+///
+/// Checks `$HOME` first (standard on Unix and set by Git Bash / MSYS /
+/// Cygwin on Windows), then `%USERPROFILE%` (native Windows). Returns
+/// `None` only when neither resolves to a non-empty string, which in
+/// practice means a bare container with no home set — callers decide
+/// whether to fall back to cwd or error.
+#[must_use]
+pub fn user_home_dir() -> Option<PathBuf> {
+    user_home_from_env(|key| std::env::var(key).ok())
+}
+
+fn user_home_from_env(getenv: impl Fn(&str) -> Option<String>) -> Option<PathBuf> {
+    for key in ["HOME", "USERPROFILE"] {
+        if let Some(value) = getenv(key)
+            && !value.is_empty()
+        {
+            return Some(PathBuf::from(value));
+        }
+    }
+    None
+}
+
 /// Compute the canonical default license path (`~/.fallow/license.jwt`).
 ///
-/// Falls back to `./.fallow/license.jwt` if the home directory cannot be
-/// resolved (e.g. in a container with no `$HOME`).
+/// On Unix this reads `$HOME`; on Windows it falls back to `%USERPROFILE%`
+/// when `$HOME` is not set (native cmd / PowerShell). Falls back to
+/// `./.fallow/license.jwt` if neither resolves — exotic containers and
+/// CI sandboxes being the usual suspects.
 #[must_use]
 pub fn default_license_path() -> PathBuf {
-    std::env::var("HOME")
-        .map_or_else(|_| PathBuf::from("."), PathBuf::from)
+    user_home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
         .join(".fallow")
         .join("license.jwt")
 }
@@ -577,5 +602,50 @@ mod tests {
         });
         let claims: LicenseClaims = serde_json::from_value(without_refresh).expect("parse");
         assert_eq!(claims.refresh_after, None);
+    }
+
+    #[test]
+    fn user_home_from_env_prefers_home_over_userprofile() {
+        let getenv = |key: &str| match key {
+            "HOME" => Some("/home/alice".to_owned()),
+            "USERPROFILE" => Some(r"C:\Users\alice".to_owned()),
+            _ => None,
+        };
+        assert_eq!(
+            user_home_from_env(getenv),
+            Some(PathBuf::from("/home/alice"))
+        );
+    }
+
+    #[test]
+    fn user_home_from_env_falls_back_to_userprofile_on_windows() {
+        let getenv = |key: &str| match key {
+            "USERPROFILE" => Some(r"C:\Users\alice".to_owned()),
+            _ => None,
+        };
+        assert_eq!(
+            user_home_from_env(getenv),
+            Some(PathBuf::from(r"C:\Users\alice"))
+        );
+    }
+
+    #[test]
+    fn user_home_from_env_skips_empty_values() {
+        // A CI runner that exports HOME="" should not be treated as "HOME is /"
+        // (was a real footgun: join(".fallow") produced "/.fallow").
+        let getenv = |key: &str| match key {
+            "HOME" => Some(String::new()),
+            "USERPROFILE" => Some(r"C:\Users\alice".to_owned()),
+            _ => None,
+        };
+        assert_eq!(
+            user_home_from_env(getenv),
+            Some(PathBuf::from(r"C:\Users\alice"))
+        );
+    }
+
+    #[test]
+    fn user_home_from_env_returns_none_when_nothing_set() {
+        assert_eq!(user_home_from_env(|_| None), None);
     }
 }
