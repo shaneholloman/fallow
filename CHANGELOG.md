@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.39.0] - 2026-04-17
+
+### Added
+
+- **Production Coverage Intelligence (Phase 2)** -- `fallow health --production-coverage <path>` merges V8 or Istanbul runtime coverage into the existing health report. Spawns the closed-source `fallow-cov` sidecar (distributed separately; binary distribution deferred to Phase 2.5) and surfaces a typed report with stable content-hash IDs, per-finding verdicts, a supporting evidence block, hot-path percentiles, and a `license-expired-grace` watermark track. Paid feature — gated on a valid Ed25519-signed license JWT with the `production_coverage` feature.
+- **`fallow license` subcommand** -- `activate` (with `--trial --email <addr>` for zero-credit-card onboarding or `--from-file <path>` / stdin for existing licenses), `status`, `refresh`, `deactivate`. JWT verification is fully offline against a compiled-in Ed25519 public key; only `activate --trial` and `refresh` make network calls (5s connect timeout, 10s total). License is stored at `~/.fallow/license.jwt` (or `$FALLOW_LICENSE_PATH`) with owner-only permissions on Unix; the Windows fallback honours `%USERPROFILE%`. Grace ladder matches Docker Desktop / JetBrains: 0–7 day warning, 7–30 day watermark, 30+ day hard-fail.
+- **`fallow coverage setup`** -- single-entry-point resumable first-run flow that walks a user through: license check, `fallow-cov` sidecar discovery/install, framework-specific coverage recipe (Next.js / Nest / SvelteKit / Remix / Astro / plain Node), and automatic handoff into `fallow health --production-coverage`. Sidecar discovery resolves `$FALLOW_COV_BIN` → `./node_modules/.bin/fallow-cov` → package-manager bin → `~/.fallow/bin/fallow-cov` → `$PATH`.
+- **`--min-observation-volume <N>`** on `fallow health` -- minimum total trace volume before the sidecar is allowed to emit high-confidence `safe_to_delete` / `review_required` verdicts. Below this threshold the sidecar caps confidence at `medium`. Defaults to the spec value (5000) when omitted.
+- **`--low-traffic-threshold <RATIO>`** on `fallow health` -- fraction of total trace count below which an invoked function is classified as `low_traffic` rather than `active` (e.g. `0.001` for 0.1%). Defaults to the spec value when omitted.
+- **`fallow-cov-protocol 0.2.0`** -- new published crate (`crates.io`) holding the versioned envelope types shared between the public CLI and the closed-source sidecar. Stable content-hash IDs (`fallow:prod:<hash>` / `fallow:hot:<hash>`), per-finding `Verdict` / `Confidence` / `Evidence`, `ReportVerdict` renaming, `StaticFunction::static_used` + `test_covered` as required fields, new `Options` knobs, and forward-compat `Unknown` sentinels on every enum.
+- **SARIF rules for production coverage** -- `fallow/production-safe-to-delete`, `fallow/production-review-required`, `fallow/production-low-traffic`, `fallow/production-coverage-unavailable`, `fallow/production-coverage`. Each rule has `fullDescription` and `helpUri` from the shared explain module.
+- **CodeClimate severity mapping for production coverage** -- `safe_to_delete` → `critical`, `review_required` → `major`, everything else → `minor` (GitLab Code Quality only renders inline MR annotations for blocker/critical/major/minor).
+
+### Changed
+
+- **`schema_version` bumped 3 → 4** on `fallow health --format json` -- the `production_coverage` object is reshaped to the 0.2 contract. Renames: `functions_total` → `functions_tracked`, `functions_called` → `functions_hit`, `functions_never_called` → `functions_unhit`, `functions_coverage_unavailable` → `functions_untracked`, `percent_dead_in_production` → `coverage_percent` (inverted semantics). Findings now carry `id`, required `line`, `verdict` (per-finding: `safe_to_delete` / `review_required` / `coverage_unavailable` / `low_traffic` / `active`), `invocations` (nullable for untracked functions), and a full `evidence` block. Hot paths carry `id`, required `line`, and `percentile`. Summary adds `trace_count`, `period_days`, `deployments_seen`.
+- **Baseline dedup for production-coverage findings** keys on the sidecar's stable content-hash ID (`fallow:prod:<hash>`) rather than a derived `path:function:line:state` string. Moving a function now correctly shows as a fresh finding instead of a stable baseline match.
+
+### Fixed
+
+- **GitLab CODEOWNERS section headers (`[Docs]`, `^[Frontend]`) now parsed correctly** -- previously treated as regular rules, which produced nonsensical "reviewer: @Frontend" output. Section headers are now recognised and their nested rules attributed to the section. Section-level exclusions (`^[Frontend] @excluded`) are also respected.
+- **`~` home-directory resolution on Windows** for `$FALLOW_LICENSE_PATH` and `~/.fallow/license.jwt` -- previously failed with "user home directory not found" on Windows where `$HOME` is unset by default. Now falls back to `%USERPROFILE%`.
+- **`fallow health` exit code triggers on `SafeToDelete` + `ReviewRequired` verdicts** (replacing the 0.1 `NeverCalled` state) so CI continues to fail on definitive dead-code signals.
+- **Numerous production-coverage hardening fixes** from the Phase 2 beta cycle: license-gate parity between CLI and sidecar, runtime license-key override removal, local license verification key support, coverage input detection polish, CI stabilization for Rust 1.95, sidecar setup recipe improvements, and protocol-version enforcement keyed on `0.<minor>` while the contract stays on 0.x.
+
+### Breaking
+
+- **`fallow health --production-coverage` JSON output** has moved from the 0.1 shape to the 0.2 shape described above (`schema_version 3 → 4`). Consumers of the `production_coverage` object must update field names and switch from the per-finding `state` enum (`called` / `never-called` / `coverage-unavailable`) to the `verdict` enum (`safe_to_delete` / `review_required` / `coverage_unavailable` / `low_traffic` / `active`). The top-level report `verdict` is unchanged (`clean` / `hot-path-changes-needed` / `cold-code-detected` / `license-expired-grace`).
+- **`fallow-cov-protocol` requires `StaticFunction::static_used` + `test_covered`** -- any existing non-Fallow consumer of the protocol crate must populate both fields on every `StaticFunction`. The sidecar rejects 0.1-shape requests at deserialization (exit code 2) rather than silently defaulting to "used + covered", which would hide every `safe_to_delete` finding.
+
 ## [2.38.0] - 2026-04-15
 
 ### Added
@@ -1418,7 +1448,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--changed-since` and `--fail-on-issues` for CI
 - Cross-workspace resolution for npm/yarn/pnpm workspaces
 
-[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.38.0...HEAD
+[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.39.0...HEAD
+[2.39.0]: https://github.com/fallow-rs/fallow/compare/v2.38.0...v2.39.0
 [2.38.0]: https://github.com/fallow-rs/fallow/compare/v2.37.0...v2.38.0
 [2.37.0]: https://github.com/fallow-rs/fallow/compare/v2.36.0...v2.37.0
 [2.36.0]: https://github.com/fallow-rs/fallow/compare/v2.35.0...v2.36.0
