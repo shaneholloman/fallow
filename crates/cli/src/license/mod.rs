@@ -252,6 +252,10 @@ fn restrict_license_permissions(path: &Path) -> Result<(), String> {
 }
 
 #[cfg(not(unix))]
+#[allow(
+    clippy::unnecessary_wraps,
+    reason = "mirrors Unix variant's Result signature for API consistency"
+)]
 fn restrict_license_permissions(_path: &Path) -> Result<(), String> {
     Ok(())
 }
