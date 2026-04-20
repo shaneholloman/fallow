@@ -19,9 +19,9 @@ path = "src/main.rs"
 fallow-core = { workspace = true }
 fallow-config = { workspace = true }
 fallow-types = { workspace = true }
-fallow-v8-coverage = { version = "2.40.3", path = "../v8-coverage" }
+fallow-v8-coverage = { version = "2.41.0", path = "../v8-coverage" }
 fallow-cov-protocol = "0.2"
-fallow-license = { version = "2.40.3", path = "../license" }
+fallow-license = { version = "2.41.0", path = "../license" }
 ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
 clap = { workspace = true }
 dunce = { workspace = true }

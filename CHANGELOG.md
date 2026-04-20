@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [2.40.3] - 2026-04-17
+## [2.41.0] - 2026-04-20
+
+### Added
+
+- **`--workspace` accepts multiple patterns with globs and `!` negation.** The global `-w` / `--workspace` flag is no longer limited to a single exact package name; it now accepts comma-separated values (`-w web,admin`), repeated flags (`-w web -w admin`), glob patterns matched against BOTH the `package.json` name AND the workspace path relative to the repo root (`-w 'apps/*'`, `-w '@scope/*'`), and `!`-prefixed negations (`-w '!apps/legacy'`). Combinations follow gitignore-style rules: positive-only includes matches, negative-only starts from all workspaces and removes matches, mixed applies positives then subtracts negatives. Literal package names that happen to contain glob metacharacters (e.g. `web-[staging]`) are handled by an exact-name short-circuit so they still match without any quoting dance. Single-value usage (`-w my-package`) stays fully back-compatible. Propagated through `dead-code`, `health` (including hotspots, coverage sidecar, large-function analysis), `flags`, `audit`, and the combined pipeline. MCP `workspace` param keeps its `Option<String>` shape so existing agent integrations continue to work; docstrings document the new syntax. Unmatched positive patterns are collected into a single "no workspaces matched patterns: 'X', 'Y'. Available: a, b, ..." error (exit 2) rather than one error per miss, and the available-workspaces list caps at 10 names for large monorepos. The "all workspaces excluded" error splits Included vs Excluded so a typo in a negation pattern is immediately visible. Closes knip issue #1441.
 
 ### Fixed
 
@@ -1478,7 +1482,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--changed-since` and `--fail-on-issues` for CI
 - Cross-workspace resolution for npm/yarn/pnpm workspaces
 
-[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.40.3...HEAD
+[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.41.0...HEAD
+[2.41.0]: https://github.com/fallow-rs/fallow/compare/v2.40.3...v2.41.0
 [2.40.3]: https://github.com/fallow-rs/fallow/compare/v2.40.2...v2.40.3
 [2.40.2]: https://github.com/fallow-rs/fallow/compare/v2.40.1...v2.40.2
 [2.40.1]: https://github.com/fallow-rs/fallow/compare/v2.40.0...v2.40.1
