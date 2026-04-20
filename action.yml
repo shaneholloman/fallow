@@ -1,5 +1,5 @@
-name: 'Fallow - Codebase Health'
-description: 'Find unused code, duplicates, circular deps, and complexity hotspots in TypeScript/JavaScript projects'
+name: 'Fallow - Codebase Intelligence'
+description: 'Codebase intelligence for TypeScript and JavaScript. Finds unused code, duplication, circular deps, complexity hotspots, and architecture drift. Optional runtime intelligence layer merges production execution data into the same report.'
 author: 'Bart Waardenburg'
 
 branding:
@@ -321,7 +321,7 @@ runs:
           echo "available=true" >> "$GITHUB_OUTPUT"
         else
           echo "available=false" >> "$GITHUB_OUTPUT"
-          echo "::warning::SARIF upload skipped — Code Scanning (GitHub Advanced Security) is not enabled on this repository. To enable: Settings → Code security → Code scanning. The job summary and JSON output are still available. To suppress this warning, use format: json instead of sarif."
+          echo "::warning::SARIF upload skipped. Code Scanning (GitHub Advanced Security) is not enabled on this repository. To enable: Settings > Code security > Code scanning. The job summary and JSON output are still available. To suppress this warning, use format: json instead of sarif."
         fi
 
     - name: Upload SARIF
