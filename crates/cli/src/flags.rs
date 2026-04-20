@@ -59,6 +59,7 @@ pub struct FlagsOptions<'a> {
     pub quiet: bool,
     pub production: bool,
     pub workspace: Option<&'a [String]>,
+    pub changed_workspaces: Option<&'a str>,
     pub changed_since: Option<&'a str>,
     pub explain: bool,
     pub top: Option<usize>,
@@ -188,13 +189,17 @@ pub fn run_flags(opts: &FlagsOptions<'_>) -> ExitCode {
         flags.retain(|f| changed.contains(&f.path));
     }
 
-    // Filter to workspace(s) if specified
-    if let Some(patterns) = opts.workspace {
-        let ws_roots =
-            match crate::check::resolve_workspace_filters(opts.root, patterns, opts.output) {
-                Ok(r) => r,
-                Err(code) => return code,
-            };
+    // Filter to workspace(s) if specified (either --workspace or --changed-workspaces)
+    let ws_scope = match crate::check::resolve_workspace_scope(
+        opts.root,
+        opts.workspace,
+        opts.changed_workspaces,
+        opts.output,
+    ) {
+        Ok(scope) => scope,
+        Err(code) => return code,
+    };
+    if let Some(ref ws_roots) = ws_scope {
         flags.retain(|f| ws_roots.iter().any(|r| f.path.starts_with(r)));
     }
 

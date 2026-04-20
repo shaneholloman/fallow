@@ -116,6 +116,17 @@ struct Cli {
     #[arg(short, long, global = true, value_delimiter = ',')]
     workspace: Option<Vec<String>>,
 
+    /// Scope output to workspaces containing any file changed since the given git ref.
+    /// Auto-derives the set of touched packages in a monorepo so CI jobs don't have
+    /// to maintain a hand-written workspace list. Git is required; a missing ref or
+    /// non-git directory is a hard error, so failure is visible instead of quietly
+    /// widening back to the full monorepo. Mutually exclusive with --workspace.
+    ///
+    /// Example:
+    ///   fallow --changed-workspaces origin/main
+    #[arg(long, global = true, value_name = "REF")]
+    changed_workspaces: Option<String>,
+
     /// Group output by owner (.github/CODEOWNERS) or by directory (no CODEOWNERS needed).
     /// Partitions all issues into labeled sections for team-level triage and dashboards.
     #[arg(long, global = true)]
@@ -964,6 +975,24 @@ fn validate_inputs(
     {
         return Err(emit_error(&e, 2, output));
     }
+    if let Some(ref git_ref) = cli.changed_workspaces
+        && let Err(e) = validate::validate_no_control_chars(git_ref, "--changed-workspaces")
+    {
+        return Err(emit_error(&e, 2, output));
+    }
+
+    // --workspace and --changed-workspaces are mutually exclusive: one is an
+    // explicit list of packages, the other is git-derived. Mixing them has no
+    // coherent intersection semantics, so reject early with a targeted message.
+    if cli.workspace.is_some() && cli.changed_workspaces.is_some() {
+        return Err(emit_error(
+            "--workspace and --changed-workspaces are mutually exclusive. \
+             Pick one: --workspace for explicit package names/globs, \
+             --changed-workspaces for git-derived monorepo CI scoping.",
+            2,
+            output,
+        ));
+    }
 
     // Validate and resolve root
     let raw_root = cli
@@ -983,6 +1012,16 @@ fn validate_inputs(
     {
         return Err(emit_error(
             &format!("invalid --changed-since: {e}"),
+            2,
+            output,
+        ));
+    }
+
+    if let Some(ref git_ref) = cli.changed_workspaces
+        && let Err(e) = validate::validate_git_ref(git_ref)
+    {
+        return Err(emit_error(
+            &format!("invalid --changed-workspaces: {e}"),
             2,
             output,
         ));
@@ -1200,6 +1239,7 @@ fn dispatch_bare_command(
         save_baseline: cli.save_baseline.as_deref(),
         production: cli.production,
         workspace: cli.workspace.as_deref(),
+        changed_workspaces: cli.changed_workspaces.as_deref(),
         group_by: cli.group_by,
         explain: cli.explain,
         performance: cli.performance,
@@ -1216,7 +1256,9 @@ fn dispatch_bare_command(
             cli.regression_baseline.as_deref(),
             save_regression_file,
             save_to_config,
-            cli.changed_since.is_some() || cli.workspace.is_some(),
+            cli.changed_since.is_some()
+                || cli.workspace.is_some()
+                || cli.changed_workspaces.is_some(),
             quiet,
         ),
     })
@@ -1306,6 +1348,7 @@ fn dispatch_subcommand(
                 sarif_file: cli.sarif_file.as_deref(),
                 production: cli.production,
                 workspace: cli.workspace.as_deref(),
+                changed_workspaces: cli.changed_workspaces.as_deref(),
                 group_by: cli.group_by,
                 include_dupes,
                 trace_opts: &trace_opts,
@@ -1320,7 +1363,10 @@ fn dispatch_subcommand(
                     cli.regression_baseline.as_deref(),
                     save_regression_file,
                     save_to_config,
-                    cli.changed_since.is_some() || cli.workspace.is_some() || !file.is_empty(),
+                    cli.changed_since.is_some()
+                        || cli.workspace.is_some()
+                        || cli.changed_workspaces.is_some()
+                        || !file.is_empty(),
                     quiet,
                 ),
                 retain_modules_for_health: false,
@@ -1497,6 +1543,7 @@ fn dispatch_subcommand(
             quiet,
             production: cli.production,
             workspace: cli.workspace.as_deref(),
+            changed_workspaces: cli.changed_workspaces.as_deref(),
             changed_since: cli.changed_since.as_deref(),
             explain: cli.explain,
             top,
@@ -1511,6 +1558,7 @@ fn dispatch_subcommand(
             changed_since: cli.changed_since.as_deref(),
             production: cli.production,
             workspace: cli.workspace.as_deref(),
+            changed_workspaces: cli.changed_workspaces.as_deref(),
             explain: cli.explain,
             performance: cli.performance,
             group_by: cli.group_by,
@@ -1652,6 +1700,7 @@ fn dispatch_health(
         production: cli.production,
         changed_since: cli.changed_since.as_deref(),
         workspace: cli.workspace.as_deref(),
+        changed_workspaces: cli.changed_workspaces.as_deref(),
         baseline: cli.baseline.as_deref(),
         save_baseline: cli.save_baseline.as_deref(),
         complexity: eff_complexity,

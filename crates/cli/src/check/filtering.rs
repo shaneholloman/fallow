@@ -332,38 +332,51 @@ pub(super) fn filter_changed_files(
 
 // ── Changed files ────────────────────────────────────────────────
 
-/// Get files changed since a git ref.
-pub fn get_changed_files(
+/// Classification of a git-diff failure, so callers can word their own error
+/// message (soft warning vs. hard error) consistently.
+#[derive(Debug)]
+pub enum ChangedFilesError {
+    /// `git` binary not found / not executable.
+    GitMissing(String),
+    /// Command ran but the directory isn't a git repository.
+    NotARepository,
+    /// Command ran but the ref is invalid / another git error.
+    GitFailed(String),
+}
+
+impl ChangedFilesError {
+    /// Human-readable clause suitable for embedding in an error message.
+    /// Does not include the flag name (e.g. "--changed-since") so callers can
+    /// prepend their own context.
+    pub fn describe(&self) -> String {
+        match self {
+            Self::GitMissing(e) => format!("failed to run git: {e}"),
+            Self::NotARepository => "not a git repository".to_owned(),
+            Self::GitFailed(stderr) => stderr.clone(),
+        }
+    }
+}
+
+/// Get files changed since a git ref. Returns `Err` (with details) when the
+/// git invocation itself failed, so callers can choose between warn-and-ignore
+/// and hard-error behavior.
+pub fn try_get_changed_files(
     root: &std::path::Path,
     git_ref: &str,
-) -> Option<rustc_hash::FxHashSet<std::path::PathBuf>> {
-    let output = match std::process::Command::new("git")
+) -> Result<rustc_hash::FxHashSet<std::path::PathBuf>, ChangedFilesError> {
+    let output = std::process::Command::new("git")
         .args(["diff", "--name-only", &format!("{git_ref}...HEAD")])
         .current_dir(root)
         .output()
-    {
-        Ok(o) => o,
-        Err(e) => {
-            // git binary not found or not executable — could be a non-git project
-            eprintln!("Warning: --changed-since ignored: failed to run git: {e}");
-            return None;
-        }
-    };
+        .map_err(|e| ChangedFilesError::GitMissing(e.to_string()))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        if stderr.contains("not a git repository") {
-            // Not a git repo — silently skip the filter (could be OK)
-            eprintln!("Warning: --changed-since ignored: not a git repository");
+        return Err(if stderr.contains("not a git repository") {
+            ChangedFilesError::NotARepository
         } else {
-            // Likely a bad ref — warn the user
-            eprintln!(
-                "Warning: --changed-since failed for ref '{}': {}",
-                git_ref,
-                stderr.trim()
-            );
-        }
-        return None;
+            ChangedFilesError::GitFailed(stderr.trim().to_owned())
+        });
     }
 
     let files: rustc_hash::FxHashSet<std::path::PathBuf> = String::from_utf8_lossy(&output.stdout)
@@ -371,7 +384,120 @@ pub fn get_changed_files(
         .map(|line| root.join(line))
         .collect();
 
-    Some(files)
+    Ok(files)
+}
+
+/// Get files changed since a git ref. Returns `None` on git failure after
+/// printing a warning to stderr. Used by `--changed-since` and `--file`, where
+/// a failure falls back to full-scope analysis.
+pub fn get_changed_files(
+    root: &std::path::Path,
+    git_ref: &str,
+) -> Option<rustc_hash::FxHashSet<std::path::PathBuf>> {
+    match try_get_changed_files(root, git_ref) {
+        Ok(files) => Some(files),
+        Err(ChangedFilesError::GitMissing(e)) => {
+            eprintln!("Warning: --changed-since ignored: failed to run git: {e}");
+            None
+        }
+        Err(ChangedFilesError::NotARepository) => {
+            eprintln!("Warning: --changed-since ignored: not a git repository");
+            None
+        }
+        Err(ChangedFilesError::GitFailed(stderr)) => {
+            eprintln!("Warning: --changed-since failed for ref '{git_ref}': {stderr}");
+            None
+        }
+    }
+}
+
+// ── Changed workspaces ───────────────────────────────────────────
+
+/// Given a list of discovered workspaces and a set of changed file paths,
+/// return the indices of workspaces that contain any changed file.
+///
+/// Pure function, intentionally independent of git / filesystem so the mapping
+/// logic can be exercised without a repo. Files outside any workspace (e.g.
+/// root-level `package.json`, lockfiles, CI configs) are ignored; they map to
+/// zero workspaces, and the caller decides what to do with an empty result.
+fn workspaces_containing_any(
+    workspaces: &[WorkspaceInfo],
+    changed_files: &FxHashSet<std::path::PathBuf>,
+) -> Vec<usize> {
+    let mut hits: Vec<usize> = Vec::new();
+    for (idx, ws) in workspaces.iter().enumerate() {
+        if changed_files.iter().any(|f| f.starts_with(&ws.root)) {
+            hits.push(idx);
+        }
+    }
+    hits
+}
+
+/// Resolve `--changed-workspaces <REF>` to a set of workspace roots containing
+/// files changed since `git_ref`.
+///
+/// Unlike `--changed-since`, which silently falls back to full-scope analysis
+/// if git fails, this resolver treats any git failure as a hard error: the
+/// flag's entire purpose is to narrow CI scope, so silently widening back to
+/// the whole monorepo would defeat the optimization and surprise the user.
+///
+/// Returns `Ok(vec![])` when git succeeded but no tracked workspace files
+/// changed (normal CI outcome: a root-only lockfile bump, for example).
+pub fn resolve_changed_workspaces(
+    root: &Path,
+    git_ref: &str,
+    output: OutputFormat,
+) -> Result<Vec<PathBuf>, ExitCode> {
+    let workspaces = discover_workspaces(root);
+    if workspaces.is_empty() {
+        let msg = format!(
+            "--changed-workspaces '{git_ref}' specified but no workspaces found. \
+             Ensure root package.json has a \"workspaces\" field, pnpm-workspace.yaml exists, \
+             or tsconfig.json has \"references\"."
+        );
+        return Err(emit_error(&msg, 2, output));
+    }
+
+    let changed_files = try_get_changed_files(root, git_ref).map_err(|err| {
+        let msg = format!(
+            "--changed-workspaces failed for ref '{git_ref}': {}",
+            err.describe()
+        );
+        emit_error(&msg, 2, output)
+    })?;
+
+    let hits = workspaces_containing_any(&workspaces, &changed_files);
+    let mut roots: Vec<PathBuf> = hits
+        .into_iter()
+        .map(|i| workspaces[i].root.clone())
+        .collect();
+    roots.sort();
+    Ok(roots)
+}
+
+/// Resolve whichever workspace scoping flag the user passed. Returns `None`
+/// when neither `--workspace` nor `--changed-workspaces` is set, so callers
+/// can leave analysis at full scope.
+///
+/// `--workspace` and `--changed-workspaces` are mutually exclusive at the
+/// CLI layer; this helper errors if both are set as a defence-in-depth check.
+pub fn resolve_workspace_scope(
+    root: &Path,
+    workspace: Option<&[String]>,
+    changed_workspaces: Option<&str>,
+    output: OutputFormat,
+) -> Result<Option<Vec<PathBuf>>, ExitCode> {
+    match (workspace, changed_workspaces) {
+        (Some(patterns), None) => Ok(Some(resolve_workspace_filters(root, patterns, output)?)),
+        (None, Some(git_ref)) => Ok(Some(resolve_changed_workspaces(root, git_ref, output)?)),
+        (None, None) => Ok(None),
+        (Some(_), Some(_)) => {
+            let msg = "--workspace and --changed-workspaces are mutually exclusive. \
+                 Pick one: --workspace for explicit package names/globs, \
+                 --changed-workspaces for git-derived monorepo CI scoping.";
+            Err(emit_error(msg, 2, output))
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1389,5 +1515,98 @@ mod tests {
         });
         filter_to_workspaces(&mut results, &[]);
         assert_eq!(results.unused_files.len(), 0);
+    }
+
+    // ── workspaces_containing_any (pure mapping) ────────────────────
+
+    #[test]
+    fn workspaces_containing_any_returns_only_hits() {
+        let workspaces = vec![
+            ws("ui", "packages/ui"),
+            ws("api", "packages/api"),
+            ws("legacy", "packages/legacy"),
+        ];
+        let mut changed = FxHashSet::default();
+        changed.insert(PathBuf::from("/project/packages/ui/src/a.ts"));
+        changed.insert(PathBuf::from("/project/packages/api/src/b.ts"));
+
+        let hits = workspaces_containing_any(&workspaces, &changed);
+        assert_eq!(hits, vec![0, 1]);
+    }
+
+    #[test]
+    fn workspaces_containing_any_ignores_root_only_changes() {
+        // Root-level changes (lockfiles, CI config, top package.json) must not
+        // implicitly scope to "every workspace": they map to zero workspaces.
+        let workspaces = vec![ws("ui", "packages/ui"), ws("api", "packages/api")];
+        let mut changed = FxHashSet::default();
+        changed.insert(PathBuf::from("/project/package.json"));
+        changed.insert(PathBuf::from("/project/pnpm-lock.yaml"));
+
+        let hits = workspaces_containing_any(&workspaces, &changed);
+        assert!(hits.is_empty());
+    }
+
+    #[test]
+    fn workspaces_containing_any_empty_changed_set_is_no_hits() {
+        let workspaces = vec![ws("ui", "packages/ui")];
+        let changed = FxHashSet::default();
+
+        let hits = workspaces_containing_any(&workspaces, &changed);
+        assert!(hits.is_empty());
+    }
+
+    #[test]
+    fn workspaces_containing_any_single_changed_file_maps_to_one_workspace() {
+        let workspaces = vec![
+            ws("ui", "packages/ui"),
+            ws("api", "packages/api"),
+            ws("cli", "packages/cli"),
+        ];
+        let mut changed = FxHashSet::default();
+        changed.insert(PathBuf::from("/project/packages/api/src/b.ts"));
+
+        let hits = workspaces_containing_any(&workspaces, &changed);
+        assert_eq!(hits, vec![1]);
+    }
+
+    // ── resolve_workspace_scope ─────────────────────────────────────
+
+    #[test]
+    fn resolve_workspace_scope_neither_flag_returns_none() {
+        let root = Path::new("/project");
+        let got = resolve_workspace_scope(root, None, None, OutputFormat::Human).unwrap();
+        assert!(got.is_none());
+    }
+
+    #[test]
+    fn resolve_workspace_scope_both_flags_is_error() {
+        let root = Path::new("/project");
+        let patterns = ["web".to_owned()];
+        let got = resolve_workspace_scope(root, Some(&patterns), Some("main"), OutputFormat::Human);
+        assert!(
+            got.is_err(),
+            "--workspace + --changed-workspaces must error out"
+        );
+    }
+
+    // ── ChangedFilesError::describe ────────────────────────────────
+
+    #[test]
+    fn changed_files_error_describe_includes_underlying_reason() {
+        assert_eq!(
+            ChangedFilesError::NotARepository.describe(),
+            "not a git repository"
+        );
+        assert!(
+            ChangedFilesError::GitMissing("No such file or directory".into())
+                .describe()
+                .contains("No such file or directory")
+        );
+        assert!(
+            ChangedFilesError::GitFailed("unknown revision 'nope'".into())
+                .describe()
+                .contains("unknown revision")
+        );
     }
 }

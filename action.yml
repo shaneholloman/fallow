@@ -101,6 +101,9 @@ inputs:
   workspace:
     description: "Scope output to one or more workspaces. Supports exact package names, globs matched against name and workspace path (apps/*, @scope/*), and !-prefixed negations. Comma-separated values ('web,admin') or a single pattern."
     required: false
+  changed-workspaces:
+    description: "Git-derived monorepo scoping: scope output to workspaces containing any file changed since REF (e.g., 'origin/main'). Auto-derives the workspace set from git diff so CI jobs don't maintain a hand-written list. Requires git history (fetch-depth: 0). Mutually exclusive with 'workspace'. A missing ref or non-git directory is a hard error (exit 2) rather than silent full-scope fallback."
+    required: false
   # Health-specific inputs
   max-cyclomatic:
     description: 'Maximum cyclomatic complexity threshold (health command, default: 20)'
@@ -249,6 +252,7 @@ runs:
         INPUT_IGNORE_IMPORTS: ${{ inputs.ignore-imports }}
         INPUT_DRY_RUN: ${{ inputs.dry-run }}
         INPUT_WORKSPACE: ${{ inputs.workspace }}
+        INPUT_CHANGED_WORKSPACES: ${{ inputs.changed-workspaces }}
         INPUT_MAX_CYCLOMATIC: ${{ inputs.max-cyclomatic }}
         INPUT_MAX_COGNITIVE: ${{ inputs.max-cognitive }}
         INPUT_TOP: ${{ inputs.top }}

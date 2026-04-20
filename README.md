@@ -180,6 +180,7 @@ fallow:
 - `--group-by owner|directory|package` -- group output by CODEOWNERS ownership, directory, or workspace package for team-level triage
 - `--summary` -- show only category counts (no individual issues)
 - `--changed-since main` -- analyze only files touched in a PR
+- `--changed-workspaces origin/main` -- scope monorepo analysis to workspaces containing any changed file (CI primitive; fails hard on git errors so CI never silently widens back to the full repo)
 - `--baseline` / `--save-baseline` -- fail only on **new** issues
 - `--fail-on-regression` / `--tolerance 2%` -- fail only if issues **grew** beyond tolerance
 - `--format sarif` -- upload to GitHub Code Scanning

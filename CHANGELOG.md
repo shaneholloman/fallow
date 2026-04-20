@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [2.41.0] - 2026-04-20
+### Added
+
+- **`--changed-workspaces <REF>`: git-derived monorepo CI scoping.** New global flag that auto-detects which workspaces contain any file changed since the given git ref (e.g. `origin/main`, `HEAD~1`) and scopes output to that set. Removes the need for CI jobs to hand-maintain a `--workspace a,b,c` list as the package graph evolves. Reuses the existing `--workspace` filter path end-to-end, so dead-code, health (complexity + hotspots + coverage), flags, audit, and the combined pipeline all respect the derived scope identically. Mutually exclusive with `--workspace`: validated at the CLI layer with a targeted error. Unlike `--changed-since`, a missing ref or non-git directory is a hard error (exit 2) rather than a silent full-scope fallback. The flag's entire purpose is to narrow CI scope, so quietly widening back to the whole monorepo would defeat the optimization. When git succeeds but no tracked workspace file changed (e.g. a root-only lockfile bump), the scope is empty and the pipeline exits 0 with no issues reported. Shipped with unit tests on the mapping logic and an end-to-end integration test suite that builds a real monorepo, commits changes, and exercises the happy path, the conflict error, the hard-error ref failure, the no-workspaces error, and the root-only no-op. Closes knip PR #1455 parity gap.
 
 ### Added
 

@@ -92,6 +92,7 @@ variables:
 
   # Workspace / monorepo
   FALLOW_WORKSPACE: ""
+  FALLOW_CHANGED_WORKSPACES: ""  # Git-derived monorepo scoping: set to a git ref (e.g. "origin/main") to scope analysis to workspaces containing any changed file. Requires full git history. Mutually exclusive with FALLOW_WORKSPACE.
 
   # Dead-code specific
   FALLOW_ISSUE_TYPES: ""        # Comma-separated: unused-files,unused-exports,...
@@ -266,6 +267,7 @@ variables:
       [ -n "$FALLOW_BASELINE" ]         && ARGS+=(--baseline "$FALLOW_BASELINE")
       [ -n "$FALLOW_SAVE_BASELINE" ]    && ARGS+=(--save-baseline "$FALLOW_SAVE_BASELINE")
       [ -n "$FALLOW_WORKSPACE" ]        && ARGS+=(--workspace "$FALLOW_WORKSPACE")
+      [ -n "$FALLOW_CHANGED_WORKSPACES" ] && ARGS+=(--changed-workspaces "$FALLOW_CHANGED_WORKSPACES")
       [ "$FALLOW_NO_CACHE" = "true" ]   && ARGS+=(--no-cache)
       [ -n "$FALLOW_THREADS" ]          && ARGS+=(--threads "$FALLOW_THREADS")
 

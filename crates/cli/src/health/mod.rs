@@ -16,7 +16,7 @@ use crate::baseline::{
     HealthBaselineData, filter_new_health_findings, filter_new_health_targets,
     filter_new_production_coverage_findings,
 };
-use crate::check::{get_changed_files, resolve_workspace_filters};
+use crate::check::{get_changed_files, resolve_workspace_scope};
 use crate::error::emit_error;
 pub use crate::health_types::*;
 use crate::load_config;
@@ -73,6 +73,7 @@ pub struct HealthOptions<'a> {
     pub production: bool,
     pub changed_since: Option<&'a str>,
     pub workspace: Option<&'a [String]>,
+    pub changed_workspaces: Option<&'a str>,
     pub baseline: Option<&'a std::path::Path>,
     pub save_baseline: Option<&'a std::path::Path>,
     pub complexity: bool,
@@ -220,11 +221,12 @@ fn execute_health_inner(
     let changed_files = opts
         .changed_since
         .and_then(|git_ref| get_changed_files(opts.root, git_ref));
-    let ws_roots = if let Some(patterns) = opts.workspace {
-        Some(resolve_workspace_filters(opts.root, patterns, opts.output)?)
-    } else {
-        None
-    };
+    let ws_roots = resolve_workspace_scope(
+        opts.root,
+        opts.workspace,
+        opts.changed_workspaces,
+        opts.output,
+    )?;
 
     // Build FileId -> path lookup for O(1) access
     let file_paths: rustc_hash::FxHashMap<_, _> = files.iter().map(|f| (f.id, &f.path)).collect();

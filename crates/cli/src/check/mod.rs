@@ -15,7 +15,7 @@ mod output;
 mod rules;
 
 pub use filtering::get_changed_files;
-pub use filtering::resolve_workspace_filters;
+pub use filtering::resolve_workspace_scope;
 pub use rules::has_error_severity_issues;
 
 // ── Issue type filters ──────────────────────────────────────────
@@ -134,6 +134,7 @@ pub struct CheckOptions<'a> {
     pub sarif_file: Option<&'a std::path::Path>,
     pub production: bool,
     pub workspace: Option<&'a [String]>,
+    pub changed_workspaces: Option<&'a str>,
     pub group_by: Option<crate::GroupBy>,
     pub include_dupes: bool,
     pub trace_opts: &'a TraceOptions,
@@ -192,16 +193,13 @@ pub fn execute_check(opts: &CheckOptions<'_>) -> Result<CheckResult, ExitCode> {
         config.include_entry_exports = true;
     }
 
-    // Workspace filter resolution
-    let ws_roots = if let Some(patterns) = opts.workspace {
-        Some(filtering::resolve_workspace_filters(
-            opts.root,
-            patterns,
-            opts.output,
-        )?)
-    } else {
-        None
-    };
+    // Workspace filter resolution (either --workspace or --changed-workspaces)
+    let ws_roots = filtering::resolve_workspace_scope(
+        opts.root,
+        opts.workspace,
+        opts.changed_workspaces,
+        opts.output,
+    )?;
 
     // Changed-files resolution
     let changed_files: Option<rustc_hash::FxHashSet<std::path::PathBuf>> = opts
@@ -321,8 +319,9 @@ pub fn execute_check(opts: &CheckOptions<'_>) -> Result<CheckResult, ExitCode> {
     ) && opts.regression_opts.scoped
     {
         eprintln!(
-            "Warning: saving regression baseline with --changed-since or --workspace active. \
-             The baseline will reflect only scoped results, not the full project."
+            "Warning: saving regression baseline with --changed-since, --workspace, or \
+             --changed-workspaces active. The baseline will reflect only scoped results, \
+             not the full project."
         );
     }
 
