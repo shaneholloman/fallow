@@ -2,7 +2,7 @@
   "name": "fallow-vscode",
   "displayName": "Fallow",
   "description": "Codebase intelligence for TypeScript and JavaScript. Real-time diagnostics for unused code, duplication, complexity hotspots, and architecture drift, with optional runtime evidence via Fallow Runtime.",
-  "version": "2.41.0",
+  "version": "2.42.0",
   "packageManager": "pnpm@10.17.1",
   "publisher": "fallow-rs",
   "license": "MIT",

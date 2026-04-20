@@ -8,7 +8,7 @@ AI agents ship code faster than teams can review it. The problem is not only dea
 
 ---
 
-## Where we are (v2.41.0)
+## Where we are (v2.42.0)
 
 Two layers ship today: the static layer (free and open source) covers how the code is wired, and the runtime layer (paid) covers what actually executes in production.
 
