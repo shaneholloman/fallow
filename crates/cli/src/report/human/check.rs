@@ -1056,6 +1056,14 @@ pub(in crate::report) fn print_grouped_human(
 
         println!("{}", header_text.cyan().bold());
 
+        // Section-mode: list the section's default owners under the heading
+        // so human output mirrors the `owners` metadata emitted in JSON.
+        if let Some(ref owners) = group.owners
+            && !owners.is_empty()
+        {
+            println!("  {} {}", "owners:".dimmed(), owners.join(" ").dimmed());
+        }
+
         // Build lines and dedup doc URL footers across groups
         let lines = build_human_lines(&group.results, root, rules, None);
         for line in &lines {

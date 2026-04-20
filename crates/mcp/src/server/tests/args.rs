@@ -116,6 +116,19 @@ fn analyze_args_with_all_options() {
 }
 
 #[test]
+fn analyze_args_group_by_section() {
+    let params = AnalyzeParams {
+        group_by: Some("section".to_string()),
+        ..Default::default()
+    };
+    let args = build_analyze_args(&params).unwrap();
+    assert!(
+        args.windows(2).any(|w| w == ["--group-by", "section"]),
+        "expected args to contain --group-by section, got {args:?}"
+    );
+}
+
+#[test]
 fn analyze_args_production_false_is_omitted() {
     let params = AnalyzeParams {
         production: Some(false),

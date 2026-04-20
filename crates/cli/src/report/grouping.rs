@@ -10,7 +10,7 @@ use fallow_core::results::AnalysisResults;
 use rustc_hash::FxHashMap;
 
 use super::relative_path;
-use crate::codeowners::{self, CodeOwners, UNOWNED_LABEL};
+use crate::codeowners::{self, CodeOwners, NO_SECTION_LABEL, UNOWNED_LABEL};
 
 /// Ownership resolver for `--group-by`.
 ///
@@ -23,6 +23,12 @@ pub enum OwnershipResolver {
     Directory,
     /// Group by workspace package (monorepo).
     Package(PackageResolver),
+    /// Group by GitLab CODEOWNERS section name (`[Section]` headers).
+    ///
+    /// Distinct sections produce distinct groups even when they share the
+    /// same default owner. Rules that appear before any section header
+    /// fall into the `(no section)` bucket.
+    Section(CodeOwners),
 }
 
 /// Resolves file paths to workspace package names via longest-prefix matching.
@@ -69,13 +75,20 @@ impl OwnershipResolver {
             Self::Owner(co) => co.owner_of(rel_path).unwrap_or(UNOWNED_LABEL).to_string(),
             Self::Directory => codeowners::directory_group(rel_path).to_string(),
             Self::Package(pr) => pr.resolve(rel_path).to_string(),
+            Self::Section(co) => match co.section_of(rel_path) {
+                Some(Some(name)) => name.to_string(),
+                Some(None) => NO_SECTION_LABEL.to_string(),
+                None => UNOWNED_LABEL.to_string(),
+            },
         }
     }
 
     /// Resolve the group key and matching rule for a path.
     ///
     /// Returns `(owner, Some(pattern))` for Owner mode,
-    /// `(directory, None)` for Directory/Package mode.
+    /// `(directory, None)` for Directory/Package mode,
+    /// `(section, Some(pattern))` for Section mode (pattern is the raw
+    /// CODEOWNERS pattern from the last matching rule).
     pub fn resolve_with_rule(&self, rel_path: &Path) -> (String, Option<String>) {
         match self {
             Self::Owner(co) => {
@@ -87,6 +100,14 @@ impl OwnershipResolver {
             }
             Self::Directory => (codeowners::directory_group(rel_path).to_string(), None),
             Self::Package(pr) => (pr.resolve(rel_path).to_string(), None),
+            Self::Section(co) => {
+                if let Some((section, _owners, rule)) = co.section_owners_and_rule_of(rel_path) {
+                    let key = section.map_or_else(|| NO_SECTION_LABEL.to_string(), str::to_string);
+                    (key, Some(rule.to_string()))
+                } else {
+                    (UNOWNED_LABEL.to_string(), None)
+                }
+            }
         }
     }
 
@@ -96,14 +117,35 @@ impl OwnershipResolver {
             Self::Owner(_) => "owner",
             Self::Directory => "directory",
             Self::Package(_) => "package",
+            Self::Section(_) => "section",
+        }
+    }
+
+    /// Look up the section default owners for a group key.
+    ///
+    /// Returns `Some(&[...])` only in Section mode when `rel_path` resolves
+    /// to a rule inside a named section. Used to emit the `owners` metadata
+    /// array in grouped JSON output.
+    pub fn section_owners_of(&self, rel_path: &Path) -> Option<&[String]> {
+        if let Self::Section(co) = self
+            && let Some((_, owners)) = co.section_and_owners_of(rel_path)
+        {
+            Some(owners)
+        } else {
+            None
         }
     }
 }
 
 /// A single group: a label and its subset of results.
 pub struct ResultGroup {
-    /// Group label (owner name or directory).
+    /// Group label (owner name, directory, package, or section).
     pub key: String,
+    /// Section default owners for `--group-by section`.
+    ///
+    /// `None` for all other grouping modes. `Some(vec![])` for the
+    /// `(no section)` and `(unowned)` buckets in Section mode.
+    pub owners: Option<Vec<String>>,
     /// Issues belonging to this group.
     pub results: AnalysisResults,
 }
@@ -119,8 +161,24 @@ pub fn group_analysis_results(
     resolver: &OwnershipResolver,
 ) -> Vec<ResultGroup> {
     let mut groups: FxHashMap<String, AnalysisResults> = FxHashMap::default();
+    // Section-mode: remember the default owners for each section key. Written
+    // once per key (the first path that lands there); all subsequent paths in
+    // the same section share the same defaults.
+    let mut group_owners: FxHashMap<String, Vec<String>> = FxHashMap::default();
+    let is_section_mode = matches!(resolver, OwnershipResolver::Section(_));
 
-    let key_for = |path: &Path| -> String { resolver.resolve(relative_path(path, root)) };
+    let mut key_for = |path: &Path| -> String {
+        let rel = relative_path(path, root);
+        let key = resolver.resolve(rel);
+        if is_section_mode && !group_owners.contains_key(&key) {
+            let owners = resolver
+                .section_owners_of(rel)
+                .map(<[String]>::to_vec)
+                .unwrap_or_default();
+            group_owners.insert(key.clone(), owners);
+        }
+        key
+    };
 
     // ── File-scoped issue types ─────────────────────────────────
     for item in &results.unused_files {
@@ -252,10 +310,32 @@ pub fn group_analysis_results(
             .push(item.clone());
     }
 
-    // ── Sort: most issues first, alphabetical tiebreaker, (unowned) last
+    finalize_groups(groups, group_owners, is_section_mode)
+}
+
+/// Merge per-key results and owners into sorted `ResultGroup`s.
+///
+/// Ordering: most issues first, alphabetical tiebreaker, `(unowned)` pinned to
+/// the end. `group_owners` is consumed only when `is_section_mode` is true.
+fn finalize_groups(
+    groups: FxHashMap<String, AnalysisResults>,
+    mut group_owners: FxHashMap<String, Vec<String>>,
+    is_section_mode: bool,
+) -> Vec<ResultGroup> {
     let mut sorted: Vec<_> = groups
         .into_iter()
-        .map(|(key, results)| ResultGroup { key, results })
+        .map(|(key, results)| {
+            let owners = if is_section_mode {
+                Some(group_owners.remove(&key).unwrap_or_default())
+            } else {
+                None
+            };
+            ResultGroup {
+                key,
+                owners,
+                results,
+            }
+        })
         .collect();
     sorted.sort_by(|a, b| {
         let a_unowned = a.key == UNOWNED_LABEL;
@@ -655,6 +735,120 @@ mod tests {
     fn mode_label_package() {
         let pr = PackageResolver { workspaces: vec![] };
         assert_eq!(OwnershipResolver::Package(pr).mode_label(), "package");
+    }
+
+    #[test]
+    fn mode_label_section() {
+        let co = CodeOwners::parse("[S] @owner\nfoo/\n").unwrap();
+        assert_eq!(OwnershipResolver::Section(co).mode_label(), "section");
+    }
+
+    // ── Section mode ────────────────────────────────────────────
+
+    #[test]
+    fn section_mode_groups_distinct_sections_with_shared_owners() {
+        // Issue #133 reproduction: billing and notifications share the lead
+        // owner but are separate sections, so they must produce 2 groups.
+        let content = "\
+            [billing] @core-reviewers @alice @bob\n\
+            src/billing/\n\
+            [notifications] @core-reviewers @alice @bob\n\
+            src/notifications/\n\
+        ";
+        let co = CodeOwners::parse(content).unwrap();
+        let resolver = OwnershipResolver::Section(co);
+
+        let mut results = AnalysisResults::default();
+        results
+            .unused_files
+            .push(unused_file("/root/src/billing/a.ts"));
+        results
+            .unused_files
+            .push(unused_file("/root/src/billing/b.ts"));
+        results
+            .unused_files
+            .push(unused_file("/root/src/notifications/c.ts"));
+
+        let groups = group_analysis_results(&results, &root(), &resolver);
+
+        assert_eq!(groups.len(), 2);
+        let billing = groups.iter().find(|g| g.key == "billing").unwrap();
+        let notifications = groups.iter().find(|g| g.key == "notifications").unwrap();
+        assert_eq!(billing.results.total_issues(), 2);
+        assert_eq!(notifications.results.total_issues(), 1);
+        assert_eq!(
+            billing.owners.as_deref(),
+            Some(
+                [
+                    "@core-reviewers".to_string(),
+                    "@alice".to_string(),
+                    "@bob".to_string()
+                ]
+                .as_slice()
+            )
+        );
+        assert_eq!(
+            notifications.owners.as_deref(),
+            Some(
+                [
+                    "@core-reviewers".to_string(),
+                    "@alice".to_string(),
+                    "@bob".to_string()
+                ]
+                .as_slice()
+            )
+        );
+    }
+
+    #[test]
+    fn section_mode_pre_section_rule_goes_to_no_section() {
+        let content = "\
+            * @default\n\
+            [Utilities] @utils\n\
+            src/utils/\n\
+        ";
+        let co = CodeOwners::parse(content).unwrap();
+        let resolver = OwnershipResolver::Section(co);
+
+        let mut results = AnalysisResults::default();
+        results.unused_files.push(unused_file("/root/README.md"));
+        results
+            .unused_files
+            .push(unused_file("/root/src/utils/greet.ts"));
+
+        let groups = group_analysis_results(&results, &root(), &resolver);
+
+        assert_eq!(groups.len(), 2);
+        let no_section = groups.iter().find(|g| g.key == "(no section)").unwrap();
+        let utils = groups.iter().find(|g| g.key == "Utilities").unwrap();
+        assert_eq!(no_section.owners.as_deref(), Some([].as_slice()));
+        assert_eq!(
+            utils.owners.as_deref(),
+            Some(["@utils".to_string()].as_slice())
+        );
+    }
+
+    #[test]
+    fn section_mode_unmatched_goes_to_unowned() {
+        let co = CodeOwners::parse("[Utilities] @utils\nsrc/utils/\n").unwrap();
+        let resolver = OwnershipResolver::Section(co);
+
+        let mut results = AnalysisResults::default();
+        results.unused_files.push(unused_file("/root/README.md"));
+
+        let groups = group_analysis_results(&results, &root(), &resolver);
+
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].key, UNOWNED_LABEL);
+        assert_eq!(groups[0].owners.as_deref(), Some([].as_slice()));
+    }
+
+    #[test]
+    fn directory_mode_groups_have_no_owners_metadata() {
+        let mut results = AnalysisResults::default();
+        results.unused_files.push(unused_file("/root/src/a.ts"));
+        let groups = group_analysis_results(&results, &root(), &OwnershipResolver::Directory);
+        assert_eq!(groups[0].owners, None);
     }
 
     // ── PackageResolver ─────────────────────────────────────────

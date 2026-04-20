@@ -71,9 +71,13 @@ pub(super) fn print_grouped_json(
             inject_actions(&mut value);
 
             if let serde_json::Value::Object(ref mut map) = value {
-                // Insert key and total_issues at the front by rebuilding the map
+                // Insert key, owners (section mode), and total_issues at the
+                // front by rebuilding the map.
                 let mut ordered = serde_json::Map::new();
                 ordered.insert("key".to_string(), serde_json::json!(group.key));
+                if let Some(ref owners) = group.owners {
+                    ordered.insert("owners".to_string(), serde_json::json!(owners));
+                }
                 ordered.insert(
                     "total_issues".to_string(),
                     serde_json::json!(group.results.total_issues()),

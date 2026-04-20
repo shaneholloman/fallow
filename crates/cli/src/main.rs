@@ -720,6 +720,11 @@ pub enum GroupBy {
     /// Group by workspace package (monorepo).
     #[value(alias = "workspace", alias = "pkg")]
     Package,
+    /// Group by GitLab CODEOWNERS section name (`[Section]` headers).
+    /// Stable across reviewer rotation; produces distinct groups when
+    /// multiple sections share a common default owner.
+    #[value(alias = "gl-section")]
+    Section,
 }
 
 /// Filter refactoring targets by effort level.
@@ -809,6 +814,22 @@ fn build_ownership_resolver(
     match mode {
         GroupBy::Owner => match codeowners::CodeOwners::load(root, codeowners_path) {
             Ok(co) => Ok(Some(report::OwnershipResolver::Owner(co))),
+            Err(e) => Err(emit_error(&e, 2, output)),
+        },
+        GroupBy::Section => match codeowners::CodeOwners::load(root, codeowners_path) {
+            Ok(co) => {
+                if co.has_sections() {
+                    Ok(Some(report::OwnershipResolver::Section(co)))
+                } else {
+                    Err(emit_error(
+                        "--group-by section requires a GitLab-style CODEOWNERS file \
+                         with `[Section]` headers. This CODEOWNERS has no sections; \
+                         use --group-by owner instead.",
+                        2,
+                        output,
+                    ))
+                }
+            }
             Err(e) => Err(emit_error(&e, 2, output)),
         },
         GroupBy::Directory => Ok(Some(report::OwnershipResolver::Directory)),

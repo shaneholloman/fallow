@@ -248,6 +248,20 @@ pub(super) fn print_grouped_markdown(groups: &[ResultGroup], root: &Path) {
             escape_backticks(&group.key),
             plural(count)
         );
+        // Section-mode: surface the section's default owners under the heading
+        // so PR comment dashboards can see who approves without re-opening
+        // CODEOWNERS. `owners` is `None` outside of `--group-by section` and
+        // empty for the `(no section)` / `(unowned)` buckets.
+        if let Some(ref owners) = group.owners
+            && !owners.is_empty()
+        {
+            let joined = owners
+                .iter()
+                .map(|o| escape_backticks(o))
+                .collect::<Vec<_>>()
+                .join(" ");
+            println!("Owners: {joined}\n");
+        }
         // build_markdown already emits its own `## Fallow: N issues found` header;
         // we re-use the section-level rendering by extracting just the section body.
         let body = build_markdown(&group.results, root);

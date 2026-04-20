@@ -43,6 +43,15 @@ pub struct CodeOwners {
     /// Whether each rule is a GitLab-style negation (`!path`). A matching
     /// negation as the last-matching rule clears ownership for that file.
     is_negation: Vec<bool>,
+    /// GitLab section name per rule, or `None` for rules that appear before
+    /// the first section header. Used by `--group-by section`.
+    sections: Vec<Option<String>>,
+    /// Section default owners per rule (cloned from the active section
+    /// header). Empty for rules outside any section, used as metadata in
+    /// JSON output for `--group-by section`.
+    section_owners: Vec<Vec<String>>,
+    /// Whether the file contains at least one GitLab section header.
+    has_sections: bool,
     /// Compiled glob patterns for matching.
     globs: GlobSet,
 }
@@ -59,6 +68,12 @@ const PROBE_PATHS: &[&str] = &[
 
 /// Label for files that match no CODEOWNERS rule.
 pub const UNOWNED_LABEL: &str = "(unowned)";
+
+/// Label for files owned by a rule declared before any GitLab section header.
+///
+/// Used as the group key for `--group-by section` when the last matching rule
+/// isn't inside any `[Section]` block.
+pub const NO_SECTION_LABEL: &str = "(no section)";
 
 impl CodeOwners {
     /// Load and parse a CODEOWNERS file from the given path.
@@ -101,7 +116,11 @@ impl CodeOwners {
         let mut owners = Vec::new();
         let mut patterns = Vec::new();
         let mut is_negation = Vec::new();
-        let mut section_default_owners: Vec<String> = Vec::new();
+        let mut sections: Vec<Option<String>> = Vec::new();
+        let mut section_owners: Vec<Vec<String>> = Vec::new();
+        let mut current_section: Option<String> = None;
+        let mut current_section_owners: Vec<String> = Vec::new();
+        let mut has_sections = false;
 
         for line in content.lines() {
             let line = line.trim();
@@ -112,8 +131,10 @@ impl CodeOwners {
             // GitLab section header: `[Name]`, `^[Name]`, `[Name][N]`, optionally
             // followed by section default owners. Update the running defaults
             // and move on; section headers never produce a rule.
-            if let Some(defaults) = parse_section_header(line) {
-                section_default_owners = defaults;
+            if let Some((name, defaults)) = parse_section_header(line) {
+                current_section = Some(name);
+                current_section_owners = defaults;
+                has_sections = true;
                 continue;
             }
 
@@ -136,7 +157,7 @@ impl CodeOwners {
                 ""
             } else if let Some(o) = first_inline_owner {
                 o
-            } else if let Some(o) = section_default_owners.first() {
+            } else if let Some(o) = current_section_owners.first() {
                 o.as_str()
             } else {
                 // Pattern without owners and no section default, skip.
@@ -155,6 +176,8 @@ impl CodeOwners {
                 pattern.to_string()
             });
             is_negation.push(negate);
+            sections.push(current_section.clone());
+            section_owners.push(current_section_owners.clone());
         }
 
         let globs = builder
@@ -165,6 +188,9 @@ impl CodeOwners {
             owners,
             patterns,
             is_negation,
+            sections,
+            section_owners,
+            has_sections,
             globs,
         })
     }
@@ -202,6 +228,78 @@ impl CodeOwners {
             }
         })
     }
+
+    /// Look up the GitLab CODEOWNERS section that owns a file.
+    ///
+    /// Returns `Some(Some(name))` when the last matching rule is inside a
+    /// named section, `Some(None)` when the rule appears before any section
+    /// header, or `None` when no rule matches or the last match is a
+    /// GitLab-style exclusion.
+    #[allow(
+        clippy::option_option,
+        reason = "three distinct states: no match, matched pre-section, matched in named section"
+    )]
+    pub fn section_of(&self, relative_path: &Path) -> Option<Option<&str>> {
+        let matches = self.globs.matches(relative_path);
+        matches.iter().max().and_then(|&idx| {
+            if self.is_negation[idx] {
+                None
+            } else {
+                Some(self.sections[idx].as_deref())
+            }
+        })
+    }
+
+    /// Look up the section name plus the section's default owners for a file.
+    ///
+    /// Used by `--group-by section` to attach owner metadata to each group.
+    /// Returns `None` when no rule matches or the last match is a negation.
+    /// The returned owner slice is empty for rules declared outside any
+    /// section or for sections that declare no default owners.
+    pub fn section_and_owners_of(&self, relative_path: &Path) -> Option<(Option<&str>, &[String])> {
+        let matches = self.globs.matches(relative_path);
+        matches.iter().max().and_then(|&idx| {
+            if self.is_negation[idx] {
+                None
+            } else {
+                Some((
+                    self.sections[idx].as_deref(),
+                    self.section_owners[idx].as_slice(),
+                ))
+            }
+        })
+    }
+
+    /// Look up section, section owners, and the raw CODEOWNERS pattern in one
+    /// glob pass.
+    ///
+    /// Used by `--group-by section` display paths that need both the section
+    /// key and the matching rule text without walking the `GlobSet` twice.
+    pub fn section_owners_and_rule_of(
+        &self,
+        relative_path: &Path,
+    ) -> Option<(Option<&str>, &[String], &str)> {
+        let matches = self.globs.matches(relative_path);
+        matches.iter().max().and_then(|&idx| {
+            if self.is_negation[idx] {
+                None
+            } else {
+                Some((
+                    self.sections[idx].as_deref(),
+                    self.section_owners[idx].as_slice(),
+                    self.patterns[idx].as_str(),
+                ))
+            }
+        })
+    }
+
+    /// Whether the parsed file contains at least one GitLab section header.
+    ///
+    /// `--group-by section` errors out when this is false, since every file
+    /// would collapse into the `(no section)` bucket.
+    pub fn has_sections(&self) -> bool {
+        self.has_sections
+    }
 }
 
 /// Parse a GitLab CODEOWNERS section header.
@@ -212,13 +310,14 @@ impl CodeOwners {
 /// - `[Section name] @owner1 @owner2` (section default owners)
 /// - `^[Section name][N] @owner` (any combination of the above)
 ///
-/// Returns `Some(default_owners)` if the line is a well-formed section header
-/// (the returned vec is empty when the header declares no default owners),
-/// or `None` when the line is not a section header and should be parsed as a
-/// rule instead. Detection is strict: a line like `[abc]def @owner` that has
-/// non-whitespace content directly after the closing `]` is not treated as a
-/// section header, so legacy GitHub CODEOWNERS patterns continue to parse.
-fn parse_section_header(line: &str) -> Option<Vec<String>> {
+/// Returns `Some((name, default_owners))` if the line is a well-formed section
+/// header. The returned owner vec is empty when the header declares no default
+/// owners. Returns `None` when the line is not a section header and should be
+/// parsed as a rule instead. Detection is strict: a line like `[abc]def @owner`
+/// that has non-whitespace content directly after the closing `]` is not
+/// treated as a section header, so legacy GitHub CODEOWNERS patterns continue
+/// to parse.
+fn parse_section_header(line: &str) -> Option<(String, Vec<String>)> {
     let rest = line.strip_prefix('^').unwrap_or(line);
     let rest = rest.strip_prefix('[')?;
     let close = rest.find(']')?;
@@ -244,7 +343,10 @@ fn parse_section_header(line: &str) -> Option<Vec<String>> {
         return None;
     }
 
-    Some(after.split_whitespace().map(String::from).collect())
+    Some((
+        name.to_string(),
+        after.split_whitespace().map(String::from).collect(),
+    ))
 }
 
 /// Translate a CODEOWNERS pattern to a `globset`-compatible glob pattern.
@@ -720,17 +822,29 @@ src/components/
 
     #[test]
     fn parse_section_header_variants() {
-        assert_eq!(parse_section_header("[Section]"), Some(vec![]));
-        assert_eq!(parse_section_header("^[Section]"), Some(vec![]));
-        assert_eq!(parse_section_header("[Section][2]"), Some(vec![]));
-        assert_eq!(parse_section_header("^[Section][2]"), Some(vec![]));
+        assert_eq!(
+            parse_section_header("[Section]"),
+            Some(("Section".into(), vec![]))
+        );
+        assert_eq!(
+            parse_section_header("^[Section]"),
+            Some(("Section".into(), vec![]))
+        );
+        assert_eq!(
+            parse_section_header("[Section][2]"),
+            Some(("Section".into(), vec![]))
+        );
+        assert_eq!(
+            parse_section_header("^[Section][2]"),
+            Some(("Section".into(), vec![]))
+        );
         assert_eq!(
             parse_section_header("[Section] @a @b"),
-            Some(vec!["@a".into(), "@b".into()])
+            Some(("Section".into(), vec!["@a".into(), "@b".into()]))
         );
         assert_eq!(
             parse_section_header("[Section][2] @a"),
-            Some(vec!["@a".into()])
+            Some(("Section".into(), vec!["@a".into()]))
         );
     }
 
@@ -742,6 +856,124 @@ src/components/
         assert_eq!(parse_section_header("[abc]def @owner"), None);
         assert_eq!(parse_section_header("[Section][] @owner"), None);
         assert_eq!(parse_section_header("[Section][abc] @owner"), None);
+    }
+
+    // ── section_of / section_and_owners_of / has_sections ─────────
+
+    #[test]
+    fn has_sections_false_without_headers() {
+        let co = CodeOwners::parse("* @default\n/src/ @frontend\n").unwrap();
+        assert!(!co.has_sections());
+    }
+
+    #[test]
+    fn has_sections_true_with_headers() {
+        let co = CodeOwners::parse("[Utilities] @utils\nsrc/utils/\n").unwrap();
+        assert!(co.has_sections());
+    }
+
+    #[test]
+    fn section_of_returns_named_section() {
+        let content = "\
+            [Billing] @billing-team\n\
+            src/billing/\n\
+            [Search] @search-team\n\
+            src/search/\n\
+        ";
+        let co = CodeOwners::parse(content).unwrap();
+        assert_eq!(
+            co.section_of(Path::new("src/billing/invoice.ts")),
+            Some(Some("Billing"))
+        );
+        assert_eq!(
+            co.section_of(Path::new("src/search/indexer.ts")),
+            Some(Some("Search"))
+        );
+    }
+
+    #[test]
+    fn section_of_returns_some_none_for_pre_section_rule() {
+        // `* @default` sits before any section header.
+        let content = "\
+            * @default\n\
+            [Billing] @billing-team\n\
+            src/billing/\n\
+        ";
+        let co = CodeOwners::parse(content).unwrap();
+        assert_eq!(co.section_of(Path::new("README.md")), Some(None));
+        assert_eq!(
+            co.section_of(Path::new("src/billing/invoice.ts")),
+            Some(Some("Billing"))
+        );
+    }
+
+    #[test]
+    fn section_of_returns_none_for_unmatched_path() {
+        let content = "[Billing] @billing-team\nsrc/billing/\n";
+        let co = CodeOwners::parse(content).unwrap();
+        assert_eq!(co.section_of(Path::new("src/other/x.ts")), None);
+    }
+
+    #[test]
+    fn section_of_returns_none_for_negation_last_match() {
+        let content = "\
+            [Billing] @billing-team\n\
+            src/billing/\n\
+            !src/billing/vendor/\n\
+        ";
+        let co = CodeOwners::parse(content).unwrap();
+        assert_eq!(
+            co.section_of(Path::new("src/billing/invoice.ts")),
+            Some(Some("Billing"))
+        );
+        assert_eq!(co.section_of(Path::new("src/billing/vendor/lib.js")), None);
+    }
+
+    #[test]
+    fn section_and_owners_of_returns_section_defaults() {
+        let content = "\
+            [Billing] @core-reviewers @alice\n\
+            src/billing/\n\
+        ";
+        let co = CodeOwners::parse(content).unwrap();
+        let (section, owners) = co
+            .section_and_owners_of(Path::new("src/billing/invoice.ts"))
+            .unwrap();
+        assert_eq!(section, Some("Billing"));
+        assert_eq!(
+            owners,
+            &["@core-reviewers".to_string(), "@alice".to_string()]
+        );
+    }
+
+    #[test]
+    fn section_and_owners_of_same_owners_distinct_sections() {
+        // Issue #133: billing and notifications share @core-reviewers, but are
+        // distinct sections and must produce distinct groups.
+        let content = "\
+            [billing] @core-reviewers @alice @bob\n\
+            src/billing/\n\
+            [notifications] @core-reviewers @alice @bob\n\
+            src/notifications/\n\
+        ";
+        let co = CodeOwners::parse(content).unwrap();
+        let (billing_sec, _) = co
+            .section_and_owners_of(Path::new("src/billing/invoice.ts"))
+            .unwrap();
+        let (notifications_sec, _) = co
+            .section_and_owners_of(Path::new("src/notifications/email.ts"))
+            .unwrap();
+        assert_eq!(billing_sec, Some("billing"));
+        assert_eq!(notifications_sec, Some("notifications"));
+    }
+
+    #[test]
+    fn section_and_owners_of_empty_owners_for_pre_section_rule() {
+        let content = "* @default\n[Billing]\nsrc/billing/ @billing\n";
+        let co = CodeOwners::parse(content).unwrap();
+        let (section, owners) = co.section_and_owners_of(Path::new("README.md")).unwrap();
+        assert_eq!(section, None);
+        assert!(owners.is_empty());
     }
 
     #[test]

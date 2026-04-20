@@ -76,7 +76,13 @@ pub struct AnalyzeParams {
     /// Save current results as a regression baseline file for future comparisons.
     pub save_regression_baseline: Option<String>,
 
-    /// Group results by owner (from CODEOWNERS) or directory. Values: "owner", "directory".
+    /// Group results by CODEOWNERS ownership, directory, workspace package, or
+    /// GitLab CODEOWNERS section. Values: "owner", "directory", "package",
+    /// "section". The `section` mode produces distinct groups per `[Section]`
+    /// header even when sections share a default reviewer, and attaches an
+    /// `owners: string[]` array to each group in the JSON output (populated
+    /// from the section's default owners). The `owners` field is absent for
+    /// Owner/Directory/Package modes.
     pub group_by: Option<String>,
 
     /// Only report issues in the specified file(s). Useful for lint-staged pre-commit hooks.

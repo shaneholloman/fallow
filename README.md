@@ -91,6 +91,7 @@ fallow dead-code --include-entry-exports  # Also check exports from entry files
 fallow dead-code --group-by owner         # Group by CODEOWNERS for team triage
 fallow dead-code --group-by directory     # Group by first directory component
 fallow dead-code --group-by package       # Group by workspace package (monorepo)
+fallow dead-code --group-by section       # Group by GitLab CODEOWNERS section
 ```
 
 ## Duplication
@@ -195,7 +196,7 @@ fallow:
 
 `--ci` enables SARIF output, quiet mode, and non-zero exit on issues. Also supports:
 
-- `--group-by owner|directory|package` -- group output by CODEOWNERS ownership, directory, or workspace package for team-level triage
+- `--group-by owner|directory|package|section` -- group output by CODEOWNERS ownership, directory, workspace package, or GitLab CODEOWNERS `[Section]` headers for team-level triage
 - `--summary` -- show only category counts (no individual issues)
 - `--changed-since main` -- analyze only files touched in a PR
 - `--changed-workspaces origin/main` -- scope monorepo analysis to workspaces containing any changed file (CI primitive; fails hard on git errors so CI never silently widens back to the full repo)

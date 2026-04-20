@@ -173,8 +173,8 @@
     },
 
     "CheckGroupedOutput": {
-      "title": "fallow dead-code --group-by <owner|directory|package> --format json",
-      "description": "Grouped dead code output produced when --group-by is active. Issues are partitioned into groups (by CODEOWNERS team, directory prefix, or workspace package) instead of flat arrays.",
+      "title": "fallow dead-code --group-by <owner|directory|package|section> --format json",
+      "description": "Grouped dead code output produced when --group-by is active. Issues are partitioned into groups (by CODEOWNERS team, directory prefix, workspace package, or GitLab CODEOWNERS section) instead of flat arrays.",
       "type": "object",
       "required": ["schema_version", "version", "elapsed_ms", "grouped_by", "total_issues", "groups"],
       "properties": {
@@ -183,8 +183,8 @@
         "elapsed_ms": { "$ref": "#/definitions/ElapsedMs" },
         "grouped_by": {
           "type": "string",
-          "enum": ["owner", "directory", "package"],
-          "description": "The grouping strategy used. 'owner' groups by CODEOWNERS team, 'directory' groups by top-level directory prefix, 'package' groups by workspace package name."
+          "enum": ["owner", "directory", "package", "section"],
+          "description": "The grouping strategy used. 'owner' groups by CODEOWNERS team, 'directory' groups by top-level directory prefix, 'package' groups by workspace package name, 'section' groups by GitLab CODEOWNERS `[Section]` header name."
         },
         "total_issues": {
           "type": "integer",
@@ -206,7 +206,12 @@
       "properties": {
         "key": {
           "type": "string",
-          "description": "Group identifier. For 'owner' grouping: the CODEOWNERS team (e.g., '@team-name'). For 'directory' grouping: the top-level directory prefix (e.g., 'src/components')."
+          "description": "Group identifier. For 'owner' grouping: the CODEOWNERS team (e.g., '@team-name'). For 'directory' grouping: the top-level directory prefix (e.g., 'src/components'). For 'section' grouping: the GitLab CODEOWNERS section name (e.g., 'billing'), or '(no section)' for files owned by a rule declared before any section header."
+        },
+        "owners": {
+          "type": "array",
+          "description": "Section default owners (GitLab CODEOWNERS `[Section] @owner1 @owner2`). Emitted only when grouped_by is 'section'. Empty for the '(no section)' and '(unowned)' buckets.",
+          "items": { "type": "string" }
         },
         "total_issues": {
           "type": "integer",
