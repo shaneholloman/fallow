@@ -8,7 +8,7 @@ homepage.workspace = true
 documentation.workspace = true
 keywords.workspace = true
 categories.workspace = true
-description = "Configuration types for the fallow TypeScript/JavaScript codebase analyzer"
+description = "Configuration types and workspace discovery for fallow codebase intelligence"
 readme = "../../README.md"
 
 [dependencies]

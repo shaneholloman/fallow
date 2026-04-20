@@ -1,4 +1,4 @@
-//! Parsing and extraction engine for the fallow codebase analyzer.
+//! Parsing and extraction engine for fallow codebase intelligence.
 //!
 //! This crate handles all file parsing: JS/TS via Oxc, Vue/Svelte SFC extraction,
 //! Astro frontmatter, MDX import/export extraction, CSS Module class name extraction,
@@ -141,7 +141,7 @@ fn parse_single_file_cached(
     }
     cache_misses.fetch_add(1, Ordering::Relaxed);
 
-    // Cache miss — do a full parse
+    // Cache miss, do a full parse
     Some(parse_source_to_module(
         file.id,
         &file.path,

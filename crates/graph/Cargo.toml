@@ -8,7 +8,7 @@ homepage.workspace = true
 documentation.workspace = true
 keywords.workspace = true
 categories.workspace = true
-description = "Module graph construction, resolution, and project state for the fallow TypeScript/JavaScript codebase analyzer"
+description = "Module graph construction and import resolution for fallow codebase intelligence"
 readme = "../../README.md"
 
 [lib]

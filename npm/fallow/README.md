@@ -1,12 +1,14 @@
 # fallow
 
-The codebase analyzer for TypeScript and JavaScript, built in Rust.
+Codebase intelligence for TypeScript and JavaScript, built in Rust.
 
 [![CI](https://github.com/fallow-rs/fallow/actions/workflows/ci.yml/badge.svg)](https://github.com/fallow-rs/fallow/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/fallow.svg)](https://www.npmjs.com/package/fallow)
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/fallow-rs/fallow/blob/main/LICENSE)
 
-Unused code, circular dependencies, code duplication, complexity hotspots, and architecture boundary violations. Found in seconds, not minutes. fallow analyzes your codebase for unused files, exports, dependencies, and types, detects circular dependencies, finds duplicated code blocks, surfaces complexity hotspots, and enforces architecture boundaries. **5-41x faster** than [knip](https://knip.dev) v5 (**2-18x faster** than knip v6), **8-29x faster** than [jscpd](https://github.com/kucherenko/jscpd) for duplication detection, with no Node.js runtime dependency.
+Static analysis finds what is connected. Runtime intelligence finds what actually runs. Both land in the same report. The free static layer analyzes your codebase for unused files, exports, dependencies, and types, detects circular dependencies, finds duplicated code blocks, surfaces complexity hotspots, and enforces architecture boundaries. An optional paid runtime layer (Fallow Runtime) adds production execution evidence so you can delete and refactor with confidence. **5-41x faster** than [knip](https://knip.dev) v5 (**2-18x faster** than knip v6), **8-29x faster** than [jscpd](https://github.com/kucherenko/jscpd) for duplication detection, with no Node.js runtime dependency.
+
+Static analysis is free and open source. Runtime intelligence is the paid team layer.
 
 ## Installation
 

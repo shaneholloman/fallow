@@ -7,11 +7,11 @@ Create a new release for the fallow project. Handles version bumping, npm versio
 
 ## Usage
 
-- `/release patch` — bump patch version (0.1.0 → 0.1.1)
-- `/release minor` — bump minor version (0.1.0 → 0.2.0)
-- `/release major` — bump major version (0.1.0 → 1.0.0)
-- `/release 0.2.0` — set an explicit version
-- `/release` — defaults to patch
+- `/release patch`: bump patch version (0.1.0 to 0.1.1)
+- `/release minor`: bump minor version (0.1.0 to 0.2.0)
+- `/release major`: bump major version (0.1.0 to 1.0.0)
+- `/release 0.2.0`: set an explicit version
+- `/release`: defaults to patch
 
 ## Steps
 
@@ -36,7 +36,7 @@ Before bumping versions, update the `CHANGELOG.md` file:
 4. Update the comparison links at the bottom of the file:
    - Add: `[Unreleased]: https://github.com/fallow-rs/fallow/compare/v{version}...HEAD`
    - Add: `[{version}]: https://github.com/fallow-rs/fallow/compare/v{prev_version}...v{version}`
-5. Review the changelog entries — ensure they cover all significant changes since the last release. Check `git log {prev_tag}..HEAD --oneline` for anything missing.
+5. Review the changelog entries and ensure they cover all significant changes since the last release. Check `git log {prev_tag}..HEAD --oneline` for anything missing.
 
 ### 4. Bump versions
 
@@ -75,7 +75,7 @@ git diff {prev_tag}..HEAD --stat  # or `git diff --stat $(git rev-list --max-par
 
 ### 7. Write the GitHub release changelog
 
-Write a high-quality changelog for the GitHub release. This is separate from `CHANGELOG.md` — the GitHub release notes should be more narrative and highlight what matters most.
+Write a high-quality changelog for the GitHub release. This is separate from `CHANGELOG.md`: the GitHub release notes should be more narrative and highlight what matters most.
 
 **Structure by theme, not by commit.** Group related changes under descriptive headings like:
 - Features
@@ -84,7 +84,7 @@ Write a high-quality changelog for the GitHub release. This is separate from `CH
 - Breaking changes (if any)
 - Infrastructure / CI
 
-**Write for the audience** — developers evaluating fallow as a codebase analyzer for JS/TS projects. Explain what matters, not just what changed.
+**Write for the audience**: developers evaluating fallow as codebase intelligence for JavaScript and TypeScript. Explain what matters, not just what changed.
 
 **Be honest about tradeoffs.** If something is experimental or has known limitations, say so.
 
@@ -124,27 +124,27 @@ Pushing the tag triggers the CI release workflow (`.github/workflows/release.yml
 - Publishes the main `fallow` npm wrapper package
 - Publishes the VS Code extension to the marketplace
 
-There is no need to publish manually — CI handles everything.
+There is no need to publish manually: CI handles everything.
 
 ### 9. Create the GitHub release
 
 After pushing (so `--verify-tag` can find the tag on the remote):
 
 ```bash
-gh release create v{version} --title "v{version} — {short_summary}" --notes "{changelog}" --verify-tag
+gh release create v{version} --title "v{version}: {short_summary}" --notes "{changelog}" --verify-tag
 ```
 
 Note: The CI workflow also creates a release with auto-generated notes. The `gh release create` command will fail if the release already exists. In that case, update the existing release:
 
 ```bash
-gh release edit v{version} --title "v{version} — {short_summary}" --notes "{changelog}"
+gh release edit v{version} --title "v{version}: {short_summary}" --notes "{changelog}"
 ```
 
 ### 10. Update GitHub Marketplace listing
 
 Remind the user to manually update the Marketplace listing:
 
-> **Manual step:** Go to https://github.com/marketplace/actions/fallow-codebase-health, click "Edit listing", select the new release (`v{version}`), and publish. The `gh` CLI does not support this — it must be done through the web UI.
+> **Manual step:** Go to https://github.com/marketplace/actions/fallow-codebase-intelligence, click "Edit listing", select the new release (`v{version}`), and publish. The `gh` CLI does not support this; it must be done through the web UI.
 
 ### 11. Monitor CI
 
@@ -161,9 +161,9 @@ Report the workflow run URL to the user so they can monitor publishing progress.
 - Always use signed commits (`git commit -S`) and signed tags (`git tag -s`)
 - Never add Co-Authored-By or AI attribution to commits
 - Use conventional commit format: `chore: release v{version}`
-- The changelog quality matters — this is what people see on GitHub. Take the time to write it well.
-- CI publishes automatically on tag push — never publish manually unless CI fails and you need to retry
+- The changelog quality matters: this is what people see on GitHub. Take the time to write it well.
+- CI publishes automatically on tag push, so never publish manually unless CI fails and you need to retry
 - The `release.toml` config has `push = true`, but we push manually to control timing (tag push triggers CI)
 - For `cargo release`, we only use `cargo release version` (not the full `cargo release` which would also push)
-- The CI also publishes Rust crates to crates.io — 9 crates in dependency order with 30s delays between each for index propagation
-- The VS Code extension version is set from the git tag by CI — no need to update `editors/vscode/package.json` locally
+- The CI also publishes Rust crates to crates.io: 9 crates in dependency order with 30s delays between each for index propagation
+- The VS Code extension version is set from the git tag by CI, so there is no need to update `editors/vscode/package.json` locally

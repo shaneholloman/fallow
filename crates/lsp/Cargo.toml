@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "LSP server for the fallow TypeScript/JavaScript codebase analyzer"
+description = "LSP server for fallow codebase intelligence (diagnostics, code actions, hover, code lens)"
 publish = false
 
 [[bin]]

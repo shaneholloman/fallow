@@ -8,7 +8,7 @@ homepage.workspace = true
 documentation.workspace = true
 keywords.workspace = true
 categories.workspace = true
-description = "Parsing and extraction engine for the fallow TypeScript/JavaScript codebase analyzer"
+description = "AST extraction engine for fallow codebase intelligence (parser, complexity, SFC / Astro / MDX / CSS)"
 readme = "../../README.md"
 
 [lib]

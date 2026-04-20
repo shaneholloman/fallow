@@ -9,7 +9,7 @@ homepage.workspace = true
 documentation.workspace = true
 keywords.workspace = true
 categories.workspace = true
-description = "MCP server for the fallow TypeScript/JavaScript codebase analyzer"
+description = "MCP server for fallow codebase intelligence (exposes fallow as typed tools to AI agents)"
 readme = "../../README.md"
 
 [[bin]]

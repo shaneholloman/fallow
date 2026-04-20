@@ -1,7 +1,7 @@
-//! Shared types for the fallow codebase analyzer.
+//! Shared types for fallow codebase intelligence.
 //!
 //! This crate contains type definitions used across multiple fallow crates
-//! (core, CLI, LSP). It has no analysis logic — only data structures.
+//! (core, CLI, LSP). It has no analysis logic, only data structures.
 
 #![warn(missing_docs)]
 

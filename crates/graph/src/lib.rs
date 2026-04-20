@@ -1,4 +1,4 @@
-//! Module graph construction and import resolution for the fallow codebase analyzer.
+//! Module graph construction and import resolution for fallow codebase intelligence.
 //!
 //! This crate builds the dependency graph from parsed modules, resolves import
 //! specifiers to their targets, and tracks export usage through re-export chains.

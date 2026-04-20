@@ -8,7 +8,7 @@ homepage.workspace = true
 documentation.workspace = true
 keywords.workspace = true
 categories.workspace = true
-description = "Core analysis engine for the fallow TypeScript/JavaScript codebase analyzer"
+description = "Analysis orchestration for fallow codebase intelligence (dead code, duplication, plugins, cross-reference)"
 readme = "../../README.md"
 
 [lib]

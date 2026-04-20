@@ -8,7 +8,7 @@ homepage.workspace = true
 documentation.workspace = true
 keywords.workspace = true
 categories.workspace = true
-description = "CLI for the fallow TypeScript/JavaScript codebase analyzer"
+description = "CLI for fallow, Rust-native codebase intelligence for TypeScript and JavaScript"
 readme = "../../README.md"
 
 [[bin]]
