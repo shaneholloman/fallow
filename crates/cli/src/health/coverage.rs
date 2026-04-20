@@ -171,7 +171,7 @@ pub fn analyze(
     file_paths: &FxHashMap<fallow_types::discover::FileId, &PathBuf>,
     ignore_set: &GlobSet,
     changed_files: Option<&FxHashSet<PathBuf>>,
-    ws_root: Option<&Path>,
+    ws_roots: Option<&[PathBuf]>,
     top: Option<usize>,
     quiet: bool,
     output: OutputFormat,
@@ -187,7 +187,7 @@ pub fn analyze(
         file_paths,
         ignore_set,
         changed_files,
-        ws_root,
+        ws_roots,
         prepared_sources.sources,
     );
     let response = run_sidecar(&sidecar, &request, quiet, output)?;
@@ -574,10 +574,16 @@ fn build_request(
     file_paths: &FxHashMap<fallow_types::discover::FileId, &PathBuf>,
     ignore_set: &GlobSet,
     changed_files: Option<&FxHashSet<PathBuf>>,
-    ws_root: Option<&Path>,
+    ws_roots: Option<&[PathBuf]>,
     coverage_sources: Vec<CoverageSource>,
 ) -> (Request, FunctionLocations) {
-    let project_root = ws_root.unwrap_or(root);
+    // Sidecar expects a single project_root for path relativization. When a
+    // single workspace is scoped, use it; otherwise fall back to the repo root
+    // so multi-workspace runs stay unambiguous.
+    let project_root = match ws_roots {
+        Some([only]) => only.as_path(),
+        _ => root,
+    };
     let mut files = Vec::new();
     let mut locations = FxHashMap::default();
     for module in modules {
@@ -593,8 +599,8 @@ fn build_request(
         {
             continue;
         }
-        if let Some(ws) = ws_root
-            && !path.starts_with(ws)
+        if let Some(ws) = ws_roots
+            && !ws.iter().any(|r| path.starts_with(r))
         {
             continue;
         }
@@ -1992,6 +1998,7 @@ mod tests {
     fn build_request_uses_workspace_root_for_sidecar_project_root() {
         let root = PathBuf::from("/repo");
         let ws_root = root.join("packages/app");
+        let ws_roots = [ws_root.clone()];
         let options = ProductionCoverageOptions {
             path: root.join("coverage"),
             min_invocations_hot: 100,
@@ -2011,7 +2018,7 @@ mod tests {
             &FxHashMap::default(),
             &ignore_set,
             None,
-            Some(ws_root.as_path()),
+            Some(&ws_roots),
             vec![],
         );
 

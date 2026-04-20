@@ -99,7 +99,7 @@ inputs:
     default: 'false'
   # Workspace
   workspace:
-    description: 'Scope output to a single workspace package by name (monorepo support)'
+    description: "Scope output to one or more workspaces. Supports exact package names, globs matched against name and workspace path (apps/*, @scope/*), and !-prefixed negations. Comma-separated values ('web,admin') or a single pattern."
     required: false
   # Health-specific inputs
   max-cyclomatic:

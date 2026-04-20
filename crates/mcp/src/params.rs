@@ -39,7 +39,11 @@ pub struct AnalyzeParams {
     /// Only analyze production code (excludes tests, stories, dev files).
     pub production: Option<bool>,
 
-    /// Scope analysis to a specific workspace package name.
+    /// Scope analysis to one or more workspaces. Accepts a single package name
+    /// for the common case, or a comma-separated list with globs and `!` negation
+    /// (e.g. `"web,admin"`, `"apps/*"`, `"apps/*,!apps/legacy"`). Patterns match
+    /// against both the package name and the workspace path relative to the repo
+    /// root. Passed through to the CLI's `--workspace` flag.
     pub workspace: Option<String>,
 
     /// Issue types to include. When set, only these types are reported.
@@ -105,7 +109,11 @@ pub struct CheckChangedParams {
     /// Only analyze production code.
     pub production: Option<bool>,
 
-    /// Scope analysis to a specific workspace package name.
+    /// Scope analysis to one or more workspaces. Accepts a single package name
+    /// for the common case, or a comma-separated list with globs and `!` negation
+    /// (e.g. `"web,admin"`, `"apps/*"`, `"apps/*,!apps/legacy"`). Patterns match
+    /// against both the package name and the workspace path relative to the repo
+    /// root. Passed through to the CLI's `--workspace` flag.
     pub workspace: Option<String>,
 
     /// Compare results against a saved baseline file. Only new issues (not in the baseline) are reported.
@@ -144,7 +152,11 @@ pub struct FindDupesParams {
     /// Path to fallow config file (.fallowrc.json or fallow.toml).
     pub config: Option<String>,
 
-    /// Scope analysis to a specific workspace package name.
+    /// Scope analysis to one or more workspaces. Accepts a single package name
+    /// for the common case, or a comma-separated list with globs and `!` negation
+    /// (e.g. `"web,admin"`, `"apps/*"`, `"apps/*,!apps/legacy"`). Patterns match
+    /// against both the package name and the workspace path relative to the repo
+    /// root. Passed through to the CLI's `--workspace` flag.
     pub workspace: Option<String>,
 
     /// Detection mode: "strict" (exact tokens), "mild" (normalized identifiers),
@@ -201,7 +213,11 @@ pub struct FixParams {
     /// Only analyze production code (excludes tests, stories, dev files).
     pub production: Option<bool>,
 
-    /// Scope analysis to a specific workspace package name.
+    /// Scope analysis to one or more workspaces. Accepts a single package name
+    /// for the common case, or a comma-separated list with globs and `!` negation
+    /// (e.g. `"web,admin"`, `"apps/*"`, `"apps/*,!apps/legacy"`). Patterns match
+    /// against both the package name and the workspace path relative to the repo
+    /// root. Passed through to the CLI's `--workspace` flag.
     pub workspace: Option<String>,
 
     /// Disable the incremental parse cache. Forces a full re-parse of all files.
@@ -300,7 +316,11 @@ pub struct HealthParams {
     /// Minimum commits for a file to appear in hotspot ranking.
     pub min_commits: Option<u32>,
 
-    /// Scope output to a single workspace package.
+    /// Scope output to one or more workspaces. Accepts a single package name
+    /// for the common case, or a comma-separated list with globs and `!` negation
+    /// (e.g. `"web,admin"`, `"apps/*"`, `"apps/*,!apps/legacy"`). Patterns match
+    /// against both the package name and the workspace path relative to the repo
+    /// root. Passed through to the CLI's `--workspace` flag.
     pub workspace: Option<String>,
 
     /// Only analyze production code (excludes tests, stories, dev files).
@@ -370,7 +390,11 @@ pub struct AuditParams {
     /// Only analyze production code (excludes tests, stories, dev files).
     pub production: Option<bool>,
 
-    /// Scope analysis to a specific workspace package name.
+    /// Scope analysis to one or more workspaces. Accepts a single package name
+    /// for the common case, or a comma-separated list with globs and `!` negation
+    /// (e.g. `"web,admin"`, `"apps/*"`, `"apps/*,!apps/legacy"`). Patterns match
+    /// against both the package name and the workspace path relative to the repo
+    /// root. Passed through to the CLI's `--workspace` flag.
     pub workspace: Option<String>,
 
     /// Disable the incremental parse cache. Forces a full re-parse of all files.
@@ -404,7 +428,11 @@ pub struct FeatureFlagsParams {
     /// Only analyze production code (excludes tests, stories, dev files).
     pub production: Option<bool>,
 
-    /// Scope analysis to a specific workspace package name.
+    /// Scope analysis to one or more workspaces. Accepts a single package name
+    /// for the common case, or a comma-separated list with globs and `!` negation
+    /// (e.g. `"web,admin"`, `"apps/*"`, `"apps/*,!apps/legacy"`). Patterns match
+    /// against both the package name and the workspace path relative to the repo
+    /// root. Passed through to the CLI's `--workspace` flag.
     pub workspace: Option<String>,
 
     /// Filter by flag type: "environment_variable", "sdk_call", or "config_object".

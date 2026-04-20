@@ -24,7 +24,7 @@ pub struct CombinedOptions<'a> {
     pub baseline: Option<&'a std::path::Path>,
     pub save_baseline: Option<&'a std::path::Path>,
     pub production: bool,
-    pub workspace: Option<&'a str>,
+    pub workspace: Option<&'a [String]>,
     pub group_by: Option<crate::GroupBy>,
     pub explain: bool,
     pub performance: bool,

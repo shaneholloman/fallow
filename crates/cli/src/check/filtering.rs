@@ -1,102 +1,271 @@
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use fallow_config::{OutputFormat, discover_workspaces};
+use fallow_config::{OutputFormat, WorkspaceInfo, discover_workspaces};
+use globset::Glob;
+use rustc_hash::FxHashSet;
 
 use crate::error::emit_error;
 
 // ── Workspace filtering ──────────────────────────────────────────
 
-/// Scope results to a single workspace package.
+/// Scope results to the union of the given workspace roots.
 ///
 /// The full cross-workspace graph is still built (so cross-package imports
-/// are resolved), but only issues from files under `ws_root` are reported.
-pub fn filter_to_workspace(
+/// are resolved), but only issues from files under any `ws_root` are reported.
+///
+/// Any issue whose path starts with one of the roots passes; dependency-level
+/// issues are scoped to the matching workspaces' own `package.json` files.
+pub fn filter_to_workspaces(
     results: &mut fallow_core::results::AnalysisResults,
-    ws_root: &std::path::Path,
+    ws_roots: &[PathBuf],
 ) {
-    // File-scoped issues: retain only those under the workspace root
-    results.unused_files.retain(|f| f.path.starts_with(ws_root));
-    results
-        .unused_exports
-        .retain(|e| e.path.starts_with(ws_root));
-    results.unused_types.retain(|e| e.path.starts_with(ws_root));
-    results
-        .unused_enum_members
-        .retain(|m| m.path.starts_with(ws_root));
-    results
-        .unused_class_members
-        .retain(|m| m.path.starts_with(ws_root));
-    results
-        .unresolved_imports
-        .retain(|i| i.path.starts_with(ws_root));
+    let any_under = |p: &Path| ws_roots.iter().any(|r| p.starts_with(r));
+    let pkg_jsons: Vec<PathBuf> = ws_roots.iter().map(|r| r.join("package.json")).collect();
+    let in_pkg_jsons = |p: &Path| pkg_jsons.iter().any(|pkg| p == pkg);
 
-    // Dependency issues: scope to workspace's own package.json
-    let ws_pkg = ws_root.join("package.json");
-    results.unused_dependencies.retain(|d| d.path == ws_pkg);
-    results.unused_dev_dependencies.retain(|d| d.path == ws_pkg);
+    // File-scoped issues: retain only those under any workspace root
+    results.unused_files.retain(|f| any_under(&f.path));
+    results.unused_exports.retain(|e| any_under(&e.path));
+    results.unused_types.retain(|e| any_under(&e.path));
+    results.unused_enum_members.retain(|m| any_under(&m.path));
+    results.unused_class_members.retain(|m| any_under(&m.path));
+    results.unresolved_imports.retain(|i| any_under(&i.path));
+
+    // Dependency issues: scope to matching workspaces' package.json files
+    results
+        .unused_dependencies
+        .retain(|d| in_pkg_jsons(&d.path));
+    results
+        .unused_dev_dependencies
+        .retain(|d| in_pkg_jsons(&d.path));
     results
         .unused_optional_dependencies
-        .retain(|d| d.path == ws_pkg);
-    results.type_only_dependencies.retain(|d| d.path == ws_pkg);
-    results.test_only_dependencies.retain(|d| d.path == ws_pkg);
+        .retain(|d| in_pkg_jsons(&d.path));
+    results
+        .type_only_dependencies
+        .retain(|d| in_pkg_jsons(&d.path));
+    results
+        .test_only_dependencies
+        .retain(|d| in_pkg_jsons(&d.path));
 
-    // Unlisted deps: keep only if any importing file is in this workspace
+    // Unlisted deps: keep only if any importing file is in a matched workspace
     results
         .unlisted_dependencies
-        .retain(|d| d.imported_from.iter().any(|s| s.path.starts_with(ws_root)));
+        .retain(|d| d.imported_from.iter().any(|s| any_under(&s.path)));
 
     // Duplicate exports: filter locations to workspace, drop groups with < 2
     for dup in &mut results.duplicate_exports {
-        dup.locations.retain(|loc| loc.path.starts_with(ws_root));
+        dup.locations.retain(|loc| any_under(&loc.path));
     }
     results.duplicate_exports.retain(|d| d.locations.len() >= 2);
 
-    // Circular deps: keep cycles where at least one file is in this workspace
+    // Circular deps: keep cycles where at least one file is in a matched workspace
     results
         .circular_dependencies
-        .retain(|c| c.files.iter().any(|f| f.starts_with(ws_root)));
+        .retain(|c| c.files.iter().any(|f| any_under(f)));
 
-    // Boundary violations: keep if the importing file is in this workspace
+    // Boundary violations: keep if the importing file is in a matched workspace
     results
         .boundary_violations
-        .retain(|v| v.from_path.starts_with(ws_root));
+        .retain(|v| any_under(&v.from_path));
 
-    // Stale suppressions: keep if the file is in this workspace
-    results
-        .stale_suppressions
-        .retain(|s| s.path.starts_with(ws_root));
+    // Stale suppressions: keep if the file is in a matched workspace
+    results.stale_suppressions.retain(|s| any_under(&s.path));
 }
 
-/// Resolve `--workspace <name>` to a workspace root path, or exit with an error.
-pub fn resolve_workspace_filter(
-    root: &std::path::Path,
-    workspace_name: &str,
+/// Resolve `--workspace <patterns...>` to a set of workspace roots, or exit with
+/// an error.
+///
+/// Patterns support three forms:
+/// - Exact package name (`web`) or relative workspace path (`apps/web`)
+/// - Glob (`apps/*`, `@scope/*`), matched against BOTH `ws.name` AND the path
+///   relative to the repo root; either match counts
+/// - Negation (`!apps/legacy`), excludes matching workspaces from the result
+///
+/// Combination rules (gitignore-style):
+/// - Only positive patterns: include matches
+/// - Only negative patterns: include all workspaces then remove matches
+/// - Mixed: start from union of positive matches, then remove negative matches
+///
+/// Reserved prefixes for future pnpm-style graph selectors: `^`, `+`, `...`
+/// (not yet implemented; reject or repurpose only after panel review).
+pub fn resolve_workspace_filters(
+    root: &Path,
+    patterns: &[String],
     output: OutputFormat,
-) -> Result<std::path::PathBuf, ExitCode> {
+) -> Result<Vec<PathBuf>, ExitCode> {
     let workspaces = discover_workspaces(root);
     if workspaces.is_empty() {
+        let joined = patterns
+            .iter()
+            .map(|p| format!("'{p}'"))
+            .collect::<Vec<_>>()
+            .join(", ");
         let msg = format!(
-            "--workspace '{workspace_name}' specified but no workspaces found. \
+            "--workspace {joined} specified but no workspaces found. \
              Ensure root package.json has a \"workspaces\" field, pnpm-workspace.yaml exists, \
              or tsconfig.json has \"references\"."
         );
         return Err(emit_error(&msg, 2, output));
     }
 
-    workspaces
+    let rel_paths: Vec<String> = workspaces
         .iter()
-        .find(|ws| ws.name == workspace_name)
-        .map_or_else(
-            || {
-                let names: Vec<&str> = workspaces.iter().map(|ws| ws.name.as_str()).collect();
-                let msg = format!(
-                    "workspace '{workspace_name}' not found. Available workspaces: {}",
-                    names.join(", ")
-                );
-                Err(emit_error(&msg, 2, output))
-            },
-            |ws| Ok(ws.root.clone()),
-        )
+        .map(|ws| relative_workspace_path(&ws.root, root))
+        .collect();
+
+    let (positive, negative) = split_patterns(patterns);
+
+    let mut matched: FxHashSet<usize> = FxHashSet::default();
+    let mut unmatched: Vec<String> = Vec::new();
+
+    if positive.is_empty() {
+        matched.extend(0..workspaces.len());
+    } else {
+        for pat in &positive {
+            let hits = find_matches(pat, &workspaces, &rel_paths, output)?;
+            if hits.is_empty() {
+                unmatched.push(pat.to_string());
+            }
+            matched.extend(hits);
+        }
+    }
+
+    if !unmatched.is_empty() {
+        let quoted: Vec<String> = unmatched.iter().map(|p| format!("'{p}'")).collect();
+        let available = format_available_workspaces(&workspaces);
+        let msg = format!(
+            "--workspace: no workspaces matched pattern{}: {}. Available: {available}",
+            if unmatched.len() == 1 { "" } else { "s" },
+            quoted.join(", "),
+        );
+        return Err(emit_error(&msg, 2, output));
+    }
+
+    for pat in &negative {
+        let hits = find_matches(pat, &workspaces, &rel_paths, output)?;
+        for idx in hits {
+            matched.remove(&idx);
+        }
+    }
+
+    if matched.is_empty() {
+        let include_desc = if positive.is_empty() {
+            "<all>".to_owned()
+        } else {
+            positive
+                .iter()
+                .map(|p| format!("'{p}'"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let exclude_desc = negative
+            .iter()
+            .map(|p| format!("'{p}'"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let msg = format!(
+            "--workspace: all workspaces were excluded by the filter. \
+             Included: {include_desc}. Excluded: {exclude_desc}."
+        );
+        return Err(emit_error(&msg, 2, output));
+    }
+
+    let mut roots: Vec<PathBuf> = matched
+        .into_iter()
+        .map(|i| workspaces[i].root.clone())
+        .collect();
+    roots.sort();
+    Ok(roots)
+}
+
+/// Format the workspace list for inclusion in error messages. Caps the
+/// displayed names so large monorepos (30+ workspaces) don't produce an
+/// unreadable wall of text.
+fn format_available_workspaces(workspaces: &[WorkspaceInfo]) -> String {
+    const MAX_SHOWN: usize = 10;
+    let total = workspaces.len();
+    if total <= MAX_SHOWN {
+        return workspaces
+            .iter()
+            .map(|ws| ws.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+    }
+    let shown: Vec<&str> = workspaces
+        .iter()
+        .take(MAX_SHOWN)
+        .map(|ws| ws.name.as_str())
+        .collect();
+    format!(
+        "{shown_list}, ... and {remaining} more ({total} total)",
+        shown_list = shown.join(", "),
+        remaining = total - MAX_SHOWN,
+    )
+}
+
+/// Compute the workspace path relative to the repo root, normalized to forward
+/// slashes so glob patterns written with `/` work on Windows.
+fn relative_workspace_path(ws_root: &Path, root: &Path) -> String {
+    ws_root
+        .strip_prefix(root)
+        .unwrap_or(ws_root)
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
+/// Split comma-separated patterns into (positive, negative). Whitespace-trimmed;
+/// empty entries ignored; leading `!` marks negation.
+fn split_patterns(patterns: &[String]) -> (Vec<&str>, Vec<&str>) {
+    let mut positive = Vec::new();
+    let mut negative = Vec::new();
+    for raw in patterns {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if let Some(neg) = trimmed.strip_prefix('!') {
+            let neg = neg.trim();
+            if !neg.is_empty() {
+                negative.push(neg);
+            }
+        } else {
+            positive.push(trimmed);
+        }
+    }
+    (positive, negative)
+}
+
+/// Find workspace indices matching `pattern`. Exact-name and exact-relative-path
+/// matches short-circuit before globbing, so literal names containing glob
+/// metacharacters (e.g. `web-[staging]`) still work.
+fn find_matches(
+    pattern: &str,
+    workspaces: &[WorkspaceInfo],
+    rel_paths: &[String],
+    output: OutputFormat,
+) -> Result<Vec<usize>, ExitCode> {
+    if let Some(idx) = workspaces.iter().position(|ws| ws.name == pattern) {
+        return Ok(vec![idx]);
+    }
+    if let Some(idx) = rel_paths.iter().position(|p| p == pattern) {
+        return Ok(vec![idx]);
+    }
+
+    let glob = Glob::new(pattern).map_err(|e| {
+        let msg = format!("--workspace: invalid pattern '{pattern}': {e}");
+        emit_error(&msg, 2, output)
+    })?;
+    let matcher = glob.compile_matcher();
+
+    let mut hits = Vec::new();
+    for (idx, ws) in workspaces.iter().enumerate() {
+        if matcher.is_match(&ws.name) || matcher.is_match(&rel_paths[idx]) {
+            hits.push(idx);
+        }
+    }
+    Ok(hits)
 }
 
 // ── Changed-file filtering ───────────────────────────────────────
@@ -211,6 +380,11 @@ mod tests {
     use fallow_core::extract::MemberKind;
     use fallow_core::results::*;
     use std::path::PathBuf;
+
+    /// Test shim: single-workspace variant on top of `filter_to_workspaces`.
+    fn filter_to_workspace(results: &mut AnalysisResults, ws_root: &Path) {
+        filter_to_workspaces(results, std::slice::from_ref(&ws_root.to_path_buf()));
+    }
 
     #[test]
     fn filter_to_workspace_keeps_files_under_ws_root() {
@@ -1033,5 +1207,187 @@ mod tests {
 
         assert_eq!(results.unresolved_imports.len(), 1);
         assert_eq!(results.unresolved_imports[0].specifier, "./missing");
+    }
+
+    // ── multi-workspace resolution ──────────────────────────────────
+
+    fn ws(name: &str, rel: &str) -> fallow_config::WorkspaceInfo {
+        fallow_config::WorkspaceInfo {
+            root: PathBuf::from("/project").join(rel),
+            name: name.to_owned(),
+            is_internal_dependency: false,
+        }
+    }
+
+    fn rel(workspaces: &[fallow_config::WorkspaceInfo]) -> Vec<String> {
+        workspaces
+            .iter()
+            .map(|w| relative_workspace_path(&w.root, Path::new("/project")))
+            .collect()
+    }
+
+    #[test]
+    fn split_patterns_separates_positive_and_negative() {
+        let input = vec![
+            "web".to_owned(),
+            "apps/*".to_owned(),
+            "!apps/legacy".to_owned(),
+            "  ".to_owned(),
+            String::new(),
+            "!  ".to_owned(),
+        ];
+        let (pos, neg) = split_patterns(&input);
+        assert_eq!(pos, vec!["web", "apps/*"]);
+        assert_eq!(neg, vec!["apps/legacy"]);
+    }
+
+    #[test]
+    fn find_matches_exact_name_short_circuits_glob_metachars() {
+        // Package named `web-[staging]` contains glob metachars. Exact-name
+        // short-circuit must match it without attempting to compile as a glob.
+        let workspaces = vec![ws("web-[staging]", "apps/web-staging")];
+        let rels = rel(&workspaces);
+        let hits = find_matches(
+            "web-[staging]",
+            &workspaces,
+            &rels,
+            fallow_config::OutputFormat::Human,
+        )
+        .unwrap();
+        assert_eq!(hits, vec![0]);
+    }
+
+    #[test]
+    fn find_matches_glob_against_name_and_path() {
+        let workspaces = vec![
+            ws("@scope/ui", "packages/ui"),
+            ws("admin", "apps/admin"),
+            ws("web", "apps/web"),
+        ];
+        let rels = rel(&workspaces);
+
+        // Glob matching via name
+        let hits = find_matches(
+            "@scope/*",
+            &workspaces,
+            &rels,
+            fallow_config::OutputFormat::Human,
+        )
+        .unwrap();
+        assert_eq!(hits, vec![0]);
+
+        // Glob matching via relative path
+        let hits = find_matches(
+            "apps/*",
+            &workspaces,
+            &rels,
+            fallow_config::OutputFormat::Human,
+        )
+        .unwrap();
+        assert_eq!(hits, vec![1, 2]);
+    }
+
+    #[test]
+    fn find_matches_invalid_glob_after_no_literal_match_errors() {
+        let workspaces = vec![ws("web", "apps/web")];
+        let rels = rel(&workspaces);
+        // `[` without closing is invalid glob syntax AND not a literal name.
+        assert!(
+            find_matches(
+                "web-[bad",
+                &workspaces,
+                &rels,
+                fallow_config::OutputFormat::Human,
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn format_available_workspaces_truncates_when_above_cap() {
+        let workspaces: Vec<WorkspaceInfo> = (0..15)
+            .map(|i| ws(&format!("pkg-{i}"), &format!("packages/pkg-{i}")))
+            .collect();
+        let rendered = format_available_workspaces(&workspaces);
+        assert!(rendered.starts_with("pkg-0, pkg-1,"));
+        assert!(rendered.contains("and 5 more"));
+        assert!(rendered.contains("15 total"));
+    }
+
+    #[test]
+    fn format_available_workspaces_does_not_truncate_below_cap() {
+        let workspaces = vec![ws("a", "packages/a"), ws("b", "packages/b")];
+        assert_eq!(format_available_workspaces(&workspaces), "a, b");
+    }
+
+    #[test]
+    fn filter_to_workspaces_unions_multiple_roots() {
+        let mut results = AnalysisResults::default();
+        results.unused_files.push(UnusedFile {
+            path: PathBuf::from("/project/packages/ui/src/a.ts"),
+        });
+        results.unused_files.push(UnusedFile {
+            path: PathBuf::from("/project/packages/api/src/b.ts"),
+        });
+        results.unused_files.push(UnusedFile {
+            path: PathBuf::from("/project/packages/legacy/src/c.ts"),
+        });
+
+        let roots = [
+            PathBuf::from("/project/packages/ui"),
+            PathBuf::from("/project/packages/api"),
+        ];
+        filter_to_workspaces(&mut results, &roots);
+
+        assert_eq!(results.unused_files.len(), 2);
+    }
+
+    #[test]
+    fn filter_to_workspaces_scopes_deps_to_matched_package_jsons() {
+        let mut results = AnalysisResults::default();
+        results.unused_dependencies.push(UnusedDependency {
+            package_name: "lodash".into(),
+            location: DependencyLocation::Dependencies,
+            path: PathBuf::from("/project/packages/ui/package.json"),
+            line: 5,
+        });
+        results.unused_dependencies.push(UnusedDependency {
+            package_name: "react".into(),
+            location: DependencyLocation::Dependencies,
+            path: PathBuf::from("/project/packages/api/package.json"),
+            line: 5,
+        });
+        results.unused_dependencies.push(UnusedDependency {
+            package_name: "axios".into(),
+            location: DependencyLocation::Dependencies,
+            path: PathBuf::from("/project/packages/legacy/package.json"),
+            line: 5,
+        });
+
+        let roots = [
+            PathBuf::from("/project/packages/ui"),
+            PathBuf::from("/project/packages/api"),
+        ];
+        filter_to_workspaces(&mut results, &roots);
+
+        assert_eq!(results.unused_dependencies.len(), 2);
+        let names: Vec<&str> = results
+            .unused_dependencies
+            .iter()
+            .map(|d| d.package_name.as_ref())
+            .collect();
+        assert!(names.contains(&"lodash"));
+        assert!(names.contains(&"react"));
+        assert!(!names.contains(&"axios"));
+    }
+
+    #[test]
+    fn filter_to_workspaces_empty_slice_drops_everything() {
+        let mut results = AnalysisResults::default();
+        results.unused_files.push(UnusedFile {
+            path: PathBuf::from("/project/packages/ui/src/a.ts"),
+        });
+        filter_to_workspaces(&mut results, &[]);
+        assert_eq!(results.unused_files.len(), 0);
     }
 }

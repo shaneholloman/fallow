@@ -16,7 +16,7 @@ use crate::baseline::{
     HealthBaselineData, filter_new_health_findings, filter_new_health_targets,
     filter_new_production_coverage_findings,
 };
-use crate::check::{get_changed_files, resolve_workspace_filter};
+use crate::check::{get_changed_files, resolve_workspace_filters};
 use crate::error::emit_error;
 pub use crate::health_types::*;
 use crate::load_config;
@@ -72,7 +72,7 @@ pub struct HealthOptions<'a> {
     pub sort: SortBy,
     pub production: bool,
     pub changed_since: Option<&'a str>,
-    pub workspace: Option<&'a str>,
+    pub workspace: Option<&'a [String]>,
     pub baseline: Option<&'a std::path::Path>,
     pub save_baseline: Option<&'a std::path::Path>,
     pub complexity: bool,
@@ -220,8 +220,8 @@ fn execute_health_inner(
     let changed_files = opts
         .changed_since
         .and_then(|git_ref| get_changed_files(opts.root, git_ref));
-    let ws_root = if let Some(ws_name) = opts.workspace {
-        Some(resolve_workspace_filter(opts.root, ws_name, opts.output)?)
+    let ws_roots = if let Some(patterns) = opts.workspace {
+        Some(resolve_workspace_filters(opts.root, patterns, opts.output)?)
     } else {
         None
     };
@@ -240,8 +240,8 @@ fn execute_health_inner(
         max_cyclomatic,
         max_cognitive,
     );
-    if let Some(ref ws) = ws_root {
-        findings.retain(|f| f.path.starts_with(ws));
+    if let Some(ref ws) = ws_roots {
+        findings.retain(|f| ws.iter().any(|r| f.path.starts_with(r)));
     }
     sort_findings(&mut findings, &opts.sort);
     let complexity_ms = t.elapsed().as_secs_f64() * 1000.0;
@@ -330,7 +330,7 @@ fn execute_health_inner(
                 &modules,
                 &file_paths,
                 changed_files.as_ref(),
-                ws_root.as_deref(),
+                ws_roots.as_deref(),
                 &ignore_set,
                 opts.output,
                 istanbul_coverage.as_ref(),
@@ -348,7 +348,7 @@ fn execute_health_inner(
                 &modules,
                 &file_paths,
                 changed_files.as_ref(),
-                ws_root.as_deref(),
+                ws_roots.as_deref(),
                 &ignore_set,
                 opts.output,
                 istanbul_coverage.as_ref(),
@@ -399,7 +399,7 @@ fn execute_health_inner(
             &config,
             file_scores_slice,
             &ignore_set,
-            ws_root.as_deref(),
+            ws_roots.as_deref(),
             churn_data,
         )
     } else {
@@ -427,7 +427,7 @@ fn execute_health_inner(
             &file_paths,
             &ignore_set,
             changed_files.as_ref(),
-            ws_root.as_deref(),
+            ws_roots.as_deref(),
             opts.top,
             opts.quiet,
             opts.output,
@@ -501,7 +501,7 @@ fn execute_health_inner(
         &config.root,
         &ignore_set,
         changed_files.as_ref(),
-        ws_root.as_deref(),
+        ws_roots.as_deref(),
     );
 
     // Determine coverage model for snapshot and report
@@ -667,7 +667,7 @@ fn compute_filtered_file_scores(
     modules: &[fallow_core::extract::ModuleInfo],
     file_paths: &rustc_hash::FxHashMap<fallow_core::discover::FileId, &std::path::PathBuf>,
     changed_files: Option<&rustc_hash::FxHashSet<std::path::PathBuf>>,
-    ws_root: Option<&std::path::Path>,
+    ws_roots: Option<&[std::path::PathBuf]>,
     ignore_set: &globset::GlobSet,
     output: OutputFormat,
     istanbul_coverage: Option<&scoring::IstanbulCoverage>,
@@ -687,8 +687,10 @@ fn compute_filtered_file_scores(
         istanbul_coverage,
     ) {
         Ok(mut output) => {
-            if let Some(ws) = ws_root {
-                output.scores.retain(|s| s.path.starts_with(ws));
+            if let Some(ws) = ws_roots {
+                output
+                    .scores
+                    .retain(|s| ws.iter().any(|r| s.path.starts_with(r)));
             }
             if !ignore_set.is_empty() {
                 output.scores.retain(|s| {
@@ -701,7 +703,7 @@ fn compute_filtered_file_scores(
                 &mut output.coverage.runtime_paths,
                 config,
                 changed_files,
-                ws_root,
+                ws_roots,
                 ignore_set,
             );
             // Compute average BEFORE --top truncation so it reflects the full project
@@ -755,7 +757,7 @@ fn path_in_health_scope(
     path: &std::path::Path,
     config: &ResolvedConfig,
     changed_files: Option<&rustc_hash::FxHashSet<std::path::PathBuf>>,
-    ws_root: Option<&std::path::Path>,
+    ws_roots: Option<&[std::path::PathBuf]>,
     ignore_set: &globset::GlobSet,
 ) -> bool {
     if let Some(changed) = changed_files
@@ -763,8 +765,8 @@ fn path_in_health_scope(
     {
         return false;
     }
-    if let Some(ws) = ws_root
-        && !path.starts_with(ws)
+    if let Some(ws) = ws_roots
+        && !ws.iter().any(|r| path.starts_with(r))
     {
         return false;
     }
@@ -782,16 +784,16 @@ fn filter_coverage_gaps(
     runtime_paths: &mut Vec<std::path::PathBuf>,
     config: &ResolvedConfig,
     changed_files: Option<&rustc_hash::FxHashSet<std::path::PathBuf>>,
-    ws_root: Option<&std::path::Path>,
+    ws_roots: Option<&[std::path::PathBuf]>,
     ignore_set: &globset::GlobSet,
 ) {
     runtime_paths
-        .retain(|path| path_in_health_scope(path, config, changed_files, ws_root, ignore_set));
+        .retain(|path| path_in_health_scope(path, config, changed_files, ws_roots, ignore_set));
     coverage_gaps.files.retain(|item| {
-        path_in_health_scope(&item.path, config, changed_files, ws_root, ignore_set)
+        path_in_health_scope(&item.path, config, changed_files, ws_roots, ignore_set)
     });
     coverage_gaps.exports.retain(|item| {
-        path_in_health_scope(&item.path, config, changed_files, ws_root, ignore_set)
+        path_in_health_scope(&item.path, config, changed_files, ws_roots, ignore_set)
     });
 
     runtime_paths.sort();
@@ -1077,7 +1079,7 @@ fn collect_large_functions(
     config_root: &std::path::Path,
     ignore_set: &globset::GlobSet,
     changed_files: Option<&rustc_hash::FxHashSet<std::path::PathBuf>>,
-    ws_root: Option<&std::path::Path>,
+    ws_roots: Option<&[std::path::PathBuf]>,
 ) -> Vec<LargeFunctionEntry> {
     let dominated = vital_signs
         .unit_size_profile
@@ -1101,8 +1103,8 @@ fn collect_large_functions(
         {
             continue;
         }
-        if let Some(ws) = ws_root
-            && !path.starts_with(ws)
+        if let Some(ws) = ws_roots
+            && !ws.iter().any(|r| path.starts_with(r))
         {
             continue;
         }

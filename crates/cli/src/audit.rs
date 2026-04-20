@@ -58,7 +58,7 @@ pub struct AuditOptions<'a> {
     pub quiet: bool,
     pub changed_since: Option<&'a str>,
     pub production: bool,
-    pub workspace: Option<&'a str>,
+    pub workspace: Option<&'a [String]>,
     pub explain: bool,
     pub performance: bool,
     pub group_by: Option<crate::GroupBy>,

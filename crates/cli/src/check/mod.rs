@@ -15,7 +15,7 @@ mod output;
 mod rules;
 
 pub use filtering::get_changed_files;
-pub use filtering::resolve_workspace_filter;
+pub use filtering::resolve_workspace_filters;
 pub use rules::has_error_severity_issues;
 
 // ── Issue type filters ──────────────────────────────────────────
@@ -133,7 +133,7 @@ pub struct CheckOptions<'a> {
     pub save_baseline: Option<&'a std::path::Path>,
     pub sarif_file: Option<&'a std::path::Path>,
     pub production: bool,
-    pub workspace: Option<&'a str>,
+    pub workspace: Option<&'a [String]>,
     pub group_by: Option<crate::GroupBy>,
     pub include_dupes: bool,
     pub trace_opts: &'a TraceOptions,
@@ -193,10 +193,10 @@ pub fn execute_check(opts: &CheckOptions<'_>) -> Result<CheckResult, ExitCode> {
     }
 
     // Workspace filter resolution
-    let ws_root = if let Some(ws_name) = opts.workspace {
-        Some(filtering::resolve_workspace_filter(
+    let ws_roots = if let Some(patterns) = opts.workspace {
+        Some(filtering::resolve_workspace_filters(
             opts.root,
-            ws_name,
+            patterns,
             opts.output,
         )?)
     } else {
@@ -256,8 +256,8 @@ pub fn execute_check(opts: &CheckOptions<'_>) -> Result<CheckResult, ExitCode> {
     }
 
     // Workspace scoping
-    if let Some(ref ws_root) = ws_root {
-        filtering::filter_to_workspace(&mut results, ws_root);
+    if let Some(ref ws_roots) = ws_roots {
+        filtering::filter_to_workspaces(&mut results, ws_roots);
     }
 
     // Changed-file filtering

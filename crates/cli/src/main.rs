@@ -101,11 +101,20 @@ struct Cli {
     #[arg(long, global = true)]
     production: bool,
 
-    /// Scope output to a single workspace package (by package name).
-    /// The full cross-workspace graph is still built, but only issues within
-    /// the specified package are reported.
-    #[arg(short, long, global = true)]
-    workspace: Option<String>,
+    /// Scope output to one or more workspaces. Accepts exact package names, globs
+    /// (matched against the package name AND the workspace path relative to the repo
+    /// root), and `!`-prefixed negations. Values can be comma-separated or repeated.
+    /// The full cross-workspace graph is still built; only issues are filtered.
+    ///
+    /// Examples:
+    ///   -w web,admin
+    ///   -w 'apps/*'
+    ///   -w 'apps/*,!apps/legacy'
+    ///
+    /// Use single quotes around patterns with `!` or glob chars. In bash,
+    /// unquoted `!` triggers history expansion and double quotes are not enough.
+    #[arg(short, long, global = true, value_delimiter = ',')]
+    workspace: Option<Vec<String>>,
 
     /// Group output by owner (.github/CODEOWNERS) or by directory (no CODEOWNERS needed).
     /// Partitions all issues into labeled sections for team-level triage and dashboards.
@@ -943,10 +952,12 @@ fn validate_inputs(
     {
         return Err(emit_error(&e, 2, output));
     }
-    if let Some(ref ws) = cli.workspace
-        && let Err(e) = validate::validate_no_control_chars(ws, "--workspace")
-    {
-        return Err(emit_error(&e, 2, output));
+    if let Some(ref ws_patterns) = cli.workspace {
+        for ws in ws_patterns {
+            if let Err(e) = validate::validate_no_control_chars(ws, "--workspace") {
+                return Err(emit_error(&e, 2, output));
+            }
+        }
     }
     if let Some(ref git_ref) = cli.changed_since
         && let Err(e) = validate::validate_no_control_chars(git_ref, "--changed-since")

@@ -93,10 +93,10 @@ pub(super) fn is_excluded_from_hotspots(
     path: &std::path::Path,
     root: &std::path::Path,
     ignore_set: &globset::GlobSet,
-    ws_root: Option<&std::path::Path>,
+    ws_roots: Option<&[std::path::PathBuf]>,
 ) -> bool {
-    if let Some(ws) = ws_root
-        && !path.starts_with(ws)
+    if let Some(ws) = ws_roots
+        && !ws.iter().any(|r| path.starts_with(r))
     {
         return true;
     }
@@ -138,7 +138,7 @@ pub(super) fn compute_hotspots(
     config: &fallow_config::ResolvedConfig,
     file_scores: &[FileHealthScore],
     ignore_set: &globset::GlobSet,
-    ws_root: Option<&std::path::Path>,
+    ws_roots: Option<&[std::path::PathBuf]>,
     churn_fetch: ChurnFetchResult,
 ) -> (Vec<HotspotEntry>, Option<HotspotSummary>) {
     let churn_result = churn_fetch.result;
@@ -210,7 +210,7 @@ pub(super) fn compute_hotspots(
     let mut files_excluded: usize = 0;
 
     for score in file_scores {
-        if is_excluded_from_hotspots(&score.path, &config.root, ignore_set, ws_root) {
+        if is_excluded_from_hotspots(&score.path, &config.root, ignore_set, ws_roots) {
             continue;
         }
 
@@ -325,14 +325,14 @@ mod tests {
     fn excluded_workspace_filter_mismatch() {
         let path = std::path::Path::new("/project/packages/b/src/foo.ts");
         let root = std::path::Path::new("/project");
-        let ws_root = std::path::Path::new("/project/packages/a");
+        let ws_roots = [std::path::PathBuf::from("/project/packages/a")];
         let ignore_set = globset::GlobSet::empty();
 
         assert!(is_excluded_from_hotspots(
             path,
             root,
             &ignore_set,
-            Some(ws_root)
+            Some(&ws_roots)
         ));
     }
 
@@ -340,14 +340,14 @@ mod tests {
     fn excluded_workspace_filter_match() {
         let path = std::path::Path::new("/project/packages/a/src/foo.ts");
         let root = std::path::Path::new("/project");
-        let ws_root = std::path::Path::new("/project/packages/a");
+        let ws_roots = [std::path::PathBuf::from("/project/packages/a")];
         let ignore_set = globset::GlobSet::empty();
 
         assert!(!is_excluded_from_hotspots(
             path,
             root,
             &ignore_set,
-            Some(ws_root)
+            Some(&ws_roots)
         ));
     }
 
@@ -814,7 +814,7 @@ mod tests {
         // File matches workspace but also matches ignore glob -> excluded
         let path = std::path::Path::new("/project/packages/a/src/generated/types.ts");
         let root = std::path::Path::new("/project");
-        let ws_root = std::path::Path::new("/project/packages/a");
+        let ws_roots = [std::path::PathBuf::from("/project/packages/a")];
         let mut builder = globset::GlobSetBuilder::new();
         builder.add(globset::Glob::new("**/generated/**").unwrap());
         let ignore_set = builder.build().unwrap();
@@ -823,7 +823,7 @@ mod tests {
             path,
             root,
             &ignore_set,
-            Some(ws_root)
+            Some(&ws_roots)
         ));
     }
 
@@ -832,7 +832,7 @@ mod tests {
         // File is in workspace and doesn't match ignore -> not excluded
         let path = std::path::Path::new("/project/packages/a/src/index.ts");
         let root = std::path::Path::new("/project");
-        let ws_root = std::path::Path::new("/project/packages/a");
+        let ws_roots = [std::path::PathBuf::from("/project/packages/a")];
         let mut builder = globset::GlobSetBuilder::new();
         builder.add(globset::Glob::new("**/generated/**").unwrap());
         let ignore_set = builder.build().unwrap();
@@ -841,7 +841,7 @@ mod tests {
             path,
             root,
             &ignore_set,
-            Some(ws_root)
+            Some(&ws_roots)
         ));
     }
 
