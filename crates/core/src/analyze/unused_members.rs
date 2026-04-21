@@ -147,13 +147,47 @@ pub fn find_unused_members(
 
     let mut class_heritage_by_export: FxHashMap<ExportKey, (Option<String>, Vec<String>)> =
         FxHashMap::default();
+    let mut class_heritage_by_file = FxHashMap::default();
     for module in modules {
+        class_heritage_by_file.insert(module.file_id, module.class_heritage.as_slice());
         class_heritage_by_export.extend(module.class_heritage.iter().map(|heritage| {
             (
                 ExportKey::new(module.file_id, heritage.export_name.clone()),
                 (heritage.super_class.clone(), heritage.implements.clone()),
             )
         }));
+    }
+
+    let mut interface_to_implementers: FxHashMap<ExportKey, Vec<ExportKey>> = FxHashMap::default();
+    for resolved in resolved_modules {
+        let Some(class_heritage) = class_heritage_by_file.get(&resolved.file_id) else {
+            continue;
+        };
+        if class_heritage.is_empty() {
+            continue;
+        }
+
+        let local_to_export_keys = build_local_to_export_keys(resolved);
+        for heritage in *class_heritage {
+            if heritage.implements.is_empty() {
+                continue;
+            }
+
+            let implementer_key = ExportKey::new(resolved.file_id, heritage.export_name.clone());
+            for interface_name in &heritage.implements {
+                let Some(interface_keys) = local_to_export_keys.get(interface_name.as_str()) else {
+                    continue;
+                };
+                for interface_key in interface_keys {
+                    let implementers = interface_to_implementers
+                        .entry(interface_key.clone())
+                        .or_default();
+                    if !implementers.contains(&implementer_key) {
+                        implementers.push(implementer_key.clone());
+                    }
+                }
+            }
+        }
     }
 
     // Map exported symbol identity -> set of member names that are accessed across all modules.
@@ -197,6 +231,27 @@ pub fn find_unused_members(
             if let Some(export_keys) = local_to_export_keys.get(local_name.as_str()) {
                 whole_object_used_exports.extend(export_keys.iter().cloned());
             }
+        }
+    }
+
+    if !interface_to_implementers.is_empty() {
+        let mut propagations: Vec<(ExportKey, Vec<String>)> = Vec::new();
+
+        for (interface_key, implementer_keys) in &interface_to_implementers {
+            let Some(interface_accesses) = accessed_members.get(interface_key) else {
+                continue;
+            };
+            let accesses: Vec<String> = interface_accesses.iter().cloned().collect();
+            for implementer_key in implementer_keys {
+                propagations.push((implementer_key.clone(), accesses.clone()));
+            }
+        }
+
+        for (implementer_key, accesses) in propagations {
+            accessed_members
+                .entry(implementer_key)
+                .or_default()
+                .extend(accesses);
         }
     }
 
@@ -1421,7 +1476,7 @@ mod tests {
         // `this.service = new MyService()` then `this.service.doWork()`
         // should recognize doWork as a used member of MyService.
         // The visitor emits MemberAccess { object: "MyService", member: "doWork" }
-        // after resolving the `this.service` binding via instance_binding_names.
+        // after resolving the `this.service` binding via binding_target_names.
         let mut graph = build_graph(&[("/src/main.ts", true), ("/src/service.ts", false)]);
         graph.modules[1].set_reachable(true);
         graph.modules[1].exports = vec![make_export_with_members(
@@ -1468,6 +1523,233 @@ mod tests {
         // Only unusedMethod should be flagged; doWork is used via this.service.doWork()
         assert_eq!(class_members.len(), 1);
         assert_eq!(class_members[0].member_name, "unusedMethod");
+    }
+
+    #[test]
+    fn interface_member_usage_propagates_to_implementers() {
+        let mut graph = build_graph(&[
+            ("/src/main.ts", true),
+            ("/src/scroll-strategy.interface.ts", false),
+            ("/src/fixed-size-strategy.ts", false),
+            ("/src/scroll-viewport.ts", false),
+        ]);
+        graph.modules[1].set_reachable(true);
+        graph.modules[2].set_reachable(true);
+        graph.modules[3].set_reachable(true);
+        graph.modules[1].exports = vec![make_export_with_members(
+            "VirtualScrollStrategy",
+            vec![],
+            Some(3),
+        )];
+        graph.modules[2].exports = vec![make_export_with_members(
+            "FixedSizeScrollStrategy",
+            vec![
+                make_member("attached", MemberKind::ClassProperty),
+                make_member("attach", MemberKind::ClassMethod),
+                make_member("detach", MemberKind::ClassMethod),
+                make_member("unusedHelper", MemberKind::ClassMethod),
+            ],
+            Some(0),
+        )];
+
+        let modules = vec![make_module_with_class_heritage(
+            2,
+            "FixedSizeScrollStrategy",
+            None,
+            &["VirtualScrollStrategy"],
+        )];
+
+        let resolved_modules = vec![
+            ResolvedModule {
+                file_id: FileId(2),
+                path: PathBuf::from("/src/fixed-size-strategy.ts"),
+                resolved_imports: vec![ResolvedImport {
+                    info: ImportInfo {
+                        source: "./scroll-strategy.interface".to_string(),
+                        imported_name: ImportedName::Named("VirtualScrollStrategy".to_string()),
+                        local_name: "VirtualScrollStrategy".to_string(),
+                        is_type_only: false,
+                        span: Span::new(0, 30),
+                        source_span: Span::default(),
+                    },
+                    target: ResolveResult::InternalModule(FileId(1)),
+                }],
+                ..Default::default()
+            },
+            ResolvedModule {
+                file_id: FileId(3),
+                path: PathBuf::from("/src/scroll-viewport.ts"),
+                resolved_imports: vec![ResolvedImport {
+                    info: ImportInfo {
+                        source: "./scroll-strategy.interface".to_string(),
+                        imported_name: ImportedName::Named("VirtualScrollStrategy".to_string()),
+                        local_name: "VirtualScrollStrategy".to_string(),
+                        is_type_only: false,
+                        span: Span::new(0, 30),
+                        source_span: Span::default(),
+                    },
+                    target: ResolveResult::InternalModule(FileId(1)),
+                }],
+                member_accesses: vec![
+                    MemberAccess {
+                        object: "VirtualScrollStrategy".to_string(),
+                        member: "attach".to_string(),
+                    },
+                    MemberAccess {
+                        object: "VirtualScrollStrategy".to_string(),
+                        member: "attached".to_string(),
+                    },
+                    MemberAccess {
+                        object: "VirtualScrollStrategy".to_string(),
+                        member: "detach".to_string(),
+                    },
+                ],
+                ..Default::default()
+            },
+        ];
+
+        let (_, class_members) = find_unused_members(
+            &graph,
+            &resolved_modules,
+            &modules,
+            &SuppressionContext::empty(),
+            &FxHashMap::default(),
+            &[],
+        );
+
+        let unused_names: FxHashSet<String> = class_members
+            .iter()
+            .map(|member| format!("{}.{}", member.parent_name, member.member_name))
+            .collect();
+
+        assert!(
+            !unused_names.contains("FixedSizeScrollStrategy.attach"),
+            "attach should be credited through interface usage: {unused_names:?}"
+        );
+        assert!(
+            !unused_names.contains("FixedSizeScrollStrategy.attached"),
+            "attached should be credited through interface usage: {unused_names:?}"
+        );
+        assert!(
+            !unused_names.contains("FixedSizeScrollStrategy.detach"),
+            "detach should be credited through interface usage: {unused_names:?}"
+        );
+        assert!(
+            unused_names.contains("FixedSizeScrollStrategy.unusedHelper"),
+            "unrelated members should still be reported: {unused_names:?}"
+        );
+    }
+
+    #[test]
+    fn same_named_interfaces_do_not_share_member_usage() {
+        let mut graph = build_graph(&[
+            ("/src/main.ts", true),
+            ("/src/one-interface.ts", false),
+            ("/src/two-interface.ts", false),
+            ("/src/one-impl.ts", false),
+            ("/src/two-impl.ts", false),
+            ("/src/consumer.ts", false),
+        ]);
+        graph.modules[1].set_reachable(true);
+        graph.modules[2].set_reachable(true);
+        graph.modules[3].set_reachable(true);
+        graph.modules[4].set_reachable(true);
+        graph.modules[5].set_reachable(true);
+        graph.modules[1].exports = vec![make_export_with_members("Strategy", vec![], Some(5))];
+        graph.modules[2].exports = vec![make_export_with_members("Strategy", vec![], Some(0))];
+        graph.modules[3].exports = vec![make_export_with_members(
+            "OneStrategy",
+            vec![make_member("attach", MemberKind::ClassMethod)],
+            Some(0),
+        )];
+        graph.modules[4].exports = vec![make_export_with_members(
+            "TwoStrategy",
+            vec![make_member("attach", MemberKind::ClassMethod)],
+            Some(0),
+        )];
+
+        let modules = vec![
+            make_module_with_class_heritage(3, "OneStrategy", None, &["Strategy"]),
+            make_module_with_class_heritage(4, "TwoStrategy", None, &["Strategy"]),
+        ];
+
+        let resolved_modules = vec![
+            ResolvedModule {
+                file_id: FileId(3),
+                path: PathBuf::from("/src/one-impl.ts"),
+                resolved_imports: vec![ResolvedImport {
+                    info: ImportInfo {
+                        source: "./one-interface".to_string(),
+                        imported_name: ImportedName::Named("Strategy".to_string()),
+                        local_name: "Strategy".to_string(),
+                        is_type_only: true,
+                        span: Span::new(0, 30),
+                        source_span: Span::default(),
+                    },
+                    target: ResolveResult::InternalModule(FileId(1)),
+                }],
+                ..Default::default()
+            },
+            ResolvedModule {
+                file_id: FileId(4),
+                path: PathBuf::from("/src/two-impl.ts"),
+                resolved_imports: vec![ResolvedImport {
+                    info: ImportInfo {
+                        source: "./two-interface".to_string(),
+                        imported_name: ImportedName::Named("Strategy".to_string()),
+                        local_name: "Strategy".to_string(),
+                        is_type_only: true,
+                        span: Span::new(0, 30),
+                        source_span: Span::default(),
+                    },
+                    target: ResolveResult::InternalModule(FileId(2)),
+                }],
+                ..Default::default()
+            },
+            ResolvedModule {
+                file_id: FileId(5),
+                path: PathBuf::from("/src/consumer.ts"),
+                resolved_imports: vec![ResolvedImport {
+                    info: ImportInfo {
+                        source: "./one-interface".to_string(),
+                        imported_name: ImportedName::Named("Strategy".to_string()),
+                        local_name: "Strategy".to_string(),
+                        is_type_only: true,
+                        span: Span::new(0, 30),
+                        source_span: Span::default(),
+                    },
+                    target: ResolveResult::InternalModule(FileId(1)),
+                }],
+                member_accesses: vec![MemberAccess {
+                    object: "Strategy".to_string(),
+                    member: "attach".to_string(),
+                }],
+                ..Default::default()
+            },
+        ];
+
+        let (_, class_members) = find_unused_members(
+            &graph,
+            &resolved_modules,
+            &modules,
+            &SuppressionContext::empty(),
+            &FxHashMap::default(),
+            &[],
+        );
+
+        let unused_names: FxHashSet<String> = class_members
+            .iter()
+            .map(|member| format!("{}.{}", member.parent_name, member.member_name))
+            .collect();
+
+        assert!(
+            !unused_names.contains("OneStrategy.attach"),
+            "OneStrategy.attach should be credited through its own interface export: {unused_names:?}"
+        );
+        assert!(
+            unused_names.contains("TwoStrategy.attach"),
+            "TwoStrategy.attach should remain unused when only the other interface export is used: {unused_names:?}"
+        );
     }
 
     #[test]

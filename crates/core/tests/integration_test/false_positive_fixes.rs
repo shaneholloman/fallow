@@ -120,3 +120,35 @@ fn broken_tsconfig_extends_does_not_poison_sibling_resolution() {
             .collect::<Vec<_>>()
     );
 }
+
+// ── Interface-mediated class member usage (issue #132) ──────
+
+#[test]
+fn interface_member_usage_does_not_flag_implementer_members() {
+    let root = fixture_path("interface-member-usage");
+    let config = create_config(root);
+    let results = fallow_core::analyze(&config).expect("analysis should succeed");
+
+    let unused_members: Vec<String> = results
+        .unused_class_members
+        .iter()
+        .map(|member| format!("{}.{}", member.parent_name, member.member_name))
+        .collect();
+
+    assert!(
+        !unused_members.contains(&"FixedSizeScrollStrategy.attached".to_string()),
+        "attached should be credited through interface-typed access: {unused_members:?}"
+    );
+    assert!(
+        !unused_members.contains(&"FixedSizeScrollStrategy.attach".to_string()),
+        "attach should be credited through interface-typed access: {unused_members:?}"
+    );
+    assert!(
+        !unused_members.contains(&"FixedSizeScrollStrategy.detach".to_string()),
+        "detach should be credited through interface-typed access: {unused_members:?}"
+    );
+    assert!(
+        unused_members.contains(&"FixedSizeScrollStrategy.unusedHelper".to_string()),
+        "unrelated members should still be reported: {unused_members:?}"
+    );
+}

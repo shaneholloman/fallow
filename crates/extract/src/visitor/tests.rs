@@ -695,6 +695,92 @@ fn this_field_chained_access_without_new_not_mapped() {
 }
 
 #[test]
+fn typed_variable_binding_maps_member_access() {
+    let info = parse(
+        r"
+            import { VirtualScrollStrategy } from './strategy';
+            const strategy: VirtualScrollStrategy = createStrategy();
+            strategy.attach();
+        ",
+    );
+    assert!(
+        info.member_accesses
+            .iter()
+            .any(|a| a.object == "VirtualScrollStrategy" && a.member == "attach"),
+        "typed variable binding should map strategy.attach() to VirtualScrollStrategy.attach, found: {:?}",
+        info.member_accesses
+    );
+}
+
+#[test]
+fn type_only_alias_binding_maps_member_access() {
+    let info = parse(
+        r"
+            import type { VirtualScrollStrategy as Strategy } from './strategy';
+            const strategy: Strategy = createStrategy();
+            strategy.attach();
+        ",
+    );
+    assert!(
+        info.member_accesses
+            .iter()
+            .any(|a| a.object == "Strategy" && a.member == "attach"),
+        "type-only aliased binding should map strategy.attach() to Strategy.attach, found: {:?}",
+        info.member_accesses
+    );
+}
+
+#[test]
+fn this_field_assignment_from_typed_parameter_maps_member_access() {
+    let info = parse(
+        r"
+            import { VirtualScrollStrategy } from './strategy';
+            class ScrollViewport {
+                private strategy: VirtualScrollStrategy;
+
+                constructor(strategy: VirtualScrollStrategy) {
+                    this.strategy = strategy;
+                }
+
+                initialize() {
+                    this.strategy.attach();
+                }
+            }
+        ",
+    );
+    assert!(
+        info.member_accesses
+            .iter()
+            .any(|a| a.object == "VirtualScrollStrategy" && a.member == "attach"),
+        "typed field assignment should map this.strategy.attach() to VirtualScrollStrategy.attach, found: {:?}",
+        info.member_accesses
+    );
+}
+
+#[test]
+fn parameter_property_maps_this_field_member_access() {
+    let info = parse(
+        r"
+            import { VirtualScrollStrategy } from './strategy';
+            class ScrollViewport {
+                constructor(private strategy: VirtualScrollStrategy) {}
+
+                initialize() {
+                    this.strategy.attach();
+                }
+            }
+        ",
+    );
+    assert!(
+        info.member_accesses
+            .iter()
+            .any(|a| a.object == "VirtualScrollStrategy" && a.member == "attach"),
+        "parameter property should map this.strategy.attach() to VirtualScrollStrategy.attach, found: {:?}",
+        info.member_accesses
+    );
+}
+
+#[test]
 fn this_field_builtin_constructor_not_tracked() {
     let info = parse(
         r"

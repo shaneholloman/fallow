@@ -4,7 +4,7 @@
 
 use oxc_ast::ast::{
     Argument, ArrayExpressionElement, BinaryExpression, Class, ClassElement, Expression,
-    ObjectPropertyKind, Statement, TSTypeName,
+    ObjectPropertyKind, Statement, TSType, TSTypeAnnotation, TSTypeName,
 };
 
 use crate::{MemberInfo, MemberKind};
@@ -368,6 +368,22 @@ pub fn extract_implemented_interface_names(class: &Class<'_>) -> Vec<String> {
         .iter()
         .filter_map(|item| extract_type_name(&item.expression))
         .collect()
+}
+
+/// Extract a simple referenced type name from a type annotation.
+#[must_use]
+pub fn extract_type_annotation_name(type_annotation: &TSTypeAnnotation<'_>) -> Option<String> {
+    extract_type_reference_name(&type_annotation.type_annotation)
+}
+
+/// Extract a simple referenced type name from a TypeScript type node.
+#[must_use]
+pub fn extract_type_reference_name(ty: &TSType<'_>) -> Option<String> {
+    match ty {
+        TSType::TSTypeReference(type_ref) => extract_type_name(&type_ref.type_name),
+        TSType::TSParenthesizedType(paren) => extract_type_reference_name(&paren.type_annotation),
+        _ => None,
+    }
 }
 
 fn extract_static_expression_name(expr: &Expression<'_>) -> Option<String> {

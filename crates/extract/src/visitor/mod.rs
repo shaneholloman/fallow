@@ -45,10 +45,10 @@ pub(crate) struct ModuleInfoExtractor {
     /// (e.g., `import * as ns`, `const mod = require(...)`, `const mod = await import(...)`).
     /// Used to detect destructuring patterns like `const { a, b } = ns`.
     namespace_binding_names: Vec<String>,
-    /// Local names bound to `new ClassName()` expressions.
-    /// Maps local_name -> class_name so that `x.method()` member accesses
-    /// on an instance `const x = new Foo()` count against `Foo`'s members.
-    instance_binding_names: FxHashMap<String, String>,
+    /// Local bindings and `this.<field>` aliases resolved to a target symbol name.
+    /// Used so `x.method()` or `this.service.method()` can be mapped back to the
+    /// imported/exported class or interface that owns the member.
+    binding_target_names: FxHashMap<String, String>,
     /// Nesting depth inside `TSModuleDeclaration` (namespace) bodies.
     /// When > 0, inner `export` declarations are collected as namespace members
     /// instead of being extracted as top-level module exports.
@@ -132,23 +132,23 @@ impl ModuleInfoExtractor {
         }
     }
 
-    /// Map instance member accesses to class member accesses.
+    /// Map bound member accesses to their target symbol member accesses.
     ///
-    /// When `const x = new Foo()` and later `x.bar()`, emit an additional
-    /// `MemberAccess { object: "Foo", member: "bar" }` so the analysis layer
-    /// can track it as usage of Foo's class member. Same for whole-object uses.
-    fn resolve_instance_member_accesses(&mut self) {
-        if self.instance_binding_names.is_empty() {
+    /// When `const x = new Foo()` and later `x.bar()`, or `const x: Service`
+    /// and later `x.bar()`, emit an additional `MemberAccess` against the
+    /// resolved symbol name so the analysis layer can track the member usage.
+    fn resolve_bound_member_accesses(&mut self) {
+        if self.binding_target_names.is_empty() {
             return;
         }
         let additional_accesses: Vec<MemberAccess> = self
             .member_accesses
             .iter()
             .filter_map(|access| {
-                self.instance_binding_names
+                self.binding_target_names
                     .get(&access.object)
-                    .map(|class_name| MemberAccess {
-                        object: class_name.clone(),
+                    .map(|target_name| MemberAccess {
+                        object: target_name.clone(),
                         member: access.member.clone(),
                     })
             })
@@ -156,7 +156,7 @@ impl ModuleInfoExtractor {
         let additional_whole: Vec<String> = self
             .whole_object_uses
             .iter()
-            .filter_map(|name| self.instance_binding_names.get(name).cloned())
+            .filter_map(|name| self.binding_target_names.get(name).cloned())
             .collect();
         self.member_accesses.extend(additional_accesses);
         self.whole_object_uses.extend(additional_whole);
@@ -183,7 +183,7 @@ impl ModuleInfoExtractor {
         suppressions: Vec<Suppression>,
     ) -> ModuleInfo {
         self.enrich_local_class_exports();
-        self.resolve_instance_member_accesses();
+        self.resolve_bound_member_accesses();
         ModuleInfo {
             file_id,
             exports: self.exports,
@@ -208,7 +208,7 @@ impl ModuleInfoExtractor {
     /// Merge this extractor's fields into an existing `ModuleInfo`.
     pub(crate) fn merge_into(mut self, info: &mut ModuleInfo) {
         self.enrich_local_class_exports();
-        self.resolve_instance_member_accesses();
+        self.resolve_bound_member_accesses();
         info.imports.extend(self.imports);
         info.exports.extend(self.exports);
         info.re_exports.extend(self.re_exports);

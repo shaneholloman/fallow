@@ -19,8 +19,8 @@ use crate::html::is_remote_url;
 
 use super::helpers::{
     extract_angular_component_metadata, extract_class_members, extract_concat_parts,
-    extract_implemented_interface_names, extract_super_class_name, has_angular_class_decorator,
-    is_meta_url_arg, regex_pattern_to_suffix,
+    extract_implemented_interface_names, extract_super_class_name, extract_type_annotation_name,
+    has_angular_class_decorator, is_meta_url_arg, regex_pattern_to_suffix,
 };
 use super::{
     ModuleInfoExtractor, try_extract_arrow_wrapped_import, try_extract_dynamic_import,
@@ -28,6 +28,43 @@ use super::{
 };
 
 impl<'a> Visit<'a> for ModuleInfoExtractor {
+    fn visit_formal_parameter(&mut self, param: &FormalParameter<'a>) {
+        if let BindingPattern::BindingIdentifier(id) = &param.pattern
+            && let Some(type_annotation) = param.type_annotation.as_deref()
+            && let Some(type_name) = extract_type_annotation_name(type_annotation)
+        {
+            self.binding_target_names
+                .insert(id.name.to_string(), type_name.clone());
+            if param.accessibility.is_some() {
+                self.binding_target_names
+                    .insert(format!("this.{}", id.name), type_name);
+            }
+        }
+
+        walk::walk_formal_parameter(self, param);
+    }
+
+    fn visit_property_definition(&mut self, prop: &PropertyDefinition<'a>) {
+        if let Some(name) = prop.key.static_name() {
+            if let Some(type_annotation) = prop.type_annotation.as_deref()
+                && let Some(type_name) = extract_type_annotation_name(type_annotation)
+            {
+                self.binding_target_names
+                    .insert(format!("this.{name}"), type_name);
+            }
+
+            if let Some(Expression::NewExpression(new_expr)) = &prop.value
+                && let Expression::Identifier(callee) = &new_expr.callee
+                && !super::helpers::is_builtin_constructor(callee.name.as_str())
+            {
+                self.binding_target_names
+                    .insert(format!("this.{name}"), callee.name.to_string());
+            }
+        }
+
+        walk::walk_property_definition(self, prop);
+    }
+
     fn visit_block_statement(&mut self, stmt: &BlockStatement<'a>) {
         self.block_depth += 1;
         walk::walk_block_statement(self, stmt);
@@ -360,6 +397,14 @@ impl<'a> Visit<'a> for ModuleInfoExtractor {
 
     fn visit_variable_declaration(&mut self, decl: &VariableDeclaration<'a>) {
         for declarator in &decl.declarations {
+            if let BindingPattern::BindingIdentifier(id) = &declarator.id
+                && let Some(type_annotation) = declarator.type_annotation.as_deref()
+                && let Some(type_name) = extract_type_annotation_name(type_annotation)
+            {
+                self.binding_target_names
+                    .insert(id.name.to_string(), type_name);
+            }
+
             let Some(init) = &declarator.init else {
                 continue;
             };
@@ -378,7 +423,7 @@ impl<'a> Visit<'a> for ModuleInfoExtractor {
                 && let BindingPattern::BindingIdentifier(id) = &declarator.id
                 && !super::helpers::is_builtin_constructor(callee.name.as_str())
             {
-                self.instance_binding_names
+                self.binding_target_names
                     .insert(id.name.to_string(), callee.name.to_string());
                 // No `continue` — falls through to dynamic import detection (which
                 // won't match NewExpression) and then the loop continues.
@@ -394,7 +439,7 @@ impl<'a> Visit<'a> for ModuleInfoExtractor {
                 && let Some(class_name) =
                     super::helpers::try_extract_factory_new_class(&call.arguments)
             {
-                self.instance_binding_names
+                self.binding_target_names
                     .insert(id.name.to_string(), class_name);
             }
 
@@ -633,18 +678,24 @@ impl<'a> Visit<'a> for ModuleInfoExtractor {
                     object: "this".to_string(),
                     member: member.property.name.to_string(),
                 });
-                // Track `this.field = new ClassName(...)` for chained member access
-                // resolution. Enables `this.field.method()` to count as usage of
-                // `ClassName.method`. Uses the `instance_binding_names` map with a
-                // synthetic `"this.field"` key (safe: dots are invalid in identifiers).
+                // Track `this.field = new ClassName(...)` and `this.field = local`
+                // for chained member access resolution. This lets
+                // `this.field.method()` count as usage of the resolved target
+                // symbol via the synthetic `"this.field"` binding key.
                 if let Expression::NewExpression(new_expr) = &expr.right
                     && let Expression::Identifier(callee) = &new_expr.callee
                     && !super::helpers::is_builtin_constructor(callee.name.as_str())
                 {
-                    self.instance_binding_names.insert(
+                    self.binding_target_names.insert(
                         format!("this.{}", member.property.name),
                         callee.name.to_string(),
                     );
+                } else if let Expression::Identifier(ident) = &expr.right
+                    && let Some(target_name) =
+                        self.binding_target_names.get(ident.name.as_str()).cloned()
+                {
+                    self.binding_target_names
+                        .insert(format!("this.{}", member.property.name), target_name);
                 }
             }
         }
@@ -668,7 +719,7 @@ impl<'a> Visit<'a> for ModuleInfoExtractor {
         }
         // Capture `this.field.member` patterns — chained access through a class field.
         // Recorded as `MemberAccess { object: "this.field", member }` which is later
-        // resolved via `instance_binding_names` when `this.field = new ClassName(...)`.
+        // resolved via `binding_target_names` when the field points at a known symbol.
         if let Expression::StaticMemberExpression(inner) = &expr.object
             && matches!(inner.object, Expression::ThisExpression(_))
         {
