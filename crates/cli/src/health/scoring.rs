@@ -338,20 +338,44 @@ pub(super) struct IstanbulFileCoverage {
 impl IstanbulFileCoverage {
     /// Look up coverage for a function by name and start line.
     ///
-    /// Tries exact (name, line) match first. If that fails, tries matching
-    /// by name alone (for small line-number differences due to formatting).
+    /// Resolution order:
+    /// 1. Exact `(name, line)` match.
+    /// 2. Name-only fuzzy match within ±2 lines (tolerates formatter drift).
+    /// 3. Anonymous fallback: if exactly one Istanbul entry with an
+    ///    `(anonymous_N)` name starts within ±2 lines, use it.
+    ///
+    /// Step 3 covers arrow-function exports where fallow extracts the binding
+    /// identifier (`const myHandler = () => {...}` yields `myHandler`) while
+    /// Istanbul records the function as anonymous. The single-candidate guard
+    /// keeps the match unambiguous so we never silently attribute the wrong
+    /// coverage to a function. See issue #155.
     fn lookup(&self, name: &str, line: u32) -> Option<f64> {
-        // Exact match
+        // 1. Exact match.
         if let Some(&pct) = self.functions.get(&(name.to_string(), line)) {
             return Some(pct);
         }
-        // Fuzzy: match by name, pick the closest line within offset of 2.
+        // 2. Fuzzy: match by name, pick the closest line within offset of 2.
         // Uses min_by_key for determinism (FxHashMap iteration order is arbitrary).
-        self.functions
+        if let Some(pct) = self
+            .functions
             .iter()
             .filter(|((n, l), _)| n == name && l.abs_diff(line) <= 2)
             .min_by_key(|((_, l), _)| l.abs_diff(line))
             .map(|(_, &pct)| pct)
+        {
+            return Some(pct);
+        }
+        // 3. Anonymous-by-line fallback: exactly one `(anonymous_N)` entry
+        // within ±2 lines. Multiple candidates would be ambiguous, so bail.
+        let mut anonymous_near = self
+            .functions
+            .iter()
+            .filter(|((n, l), _)| n.starts_with("(anonymous_") && l.abs_diff(line) <= 2);
+        let first = anonymous_near.next()?;
+        if anonymous_near.next().is_some() {
+            return None;
+        }
+        Some(*first.1)
     }
 }
 
@@ -2955,6 +2979,51 @@ mod tests {
         // Either match is acceptable since both are distance 2
         let pct = result.unwrap();
         assert!((pct - 60.0).abs() < f64::EPSILON || (pct - 90.0).abs() < f64::EPSILON);
+    }
+
+    // Regression tests for issue #155: arrow-function exports where Istanbul
+    // stores `(anonymous_N)` but fallow extracts the binding identifier name.
+
+    #[test]
+    fn istanbul_lookup_anonymous_fallback_single_candidate() {
+        let mut functions = rustc_hash::FxHashMap::default();
+        functions.insert(("(anonymous_0)".to_string(), 28), 75.0);
+        let fc = IstanbulFileCoverage { functions };
+        // fallow asks for `myHandler` at line 28; no name match, but exactly
+        // one anonymous entry within ±2 lines, so fall back to it.
+        assert!((fc.lookup("myHandler", 28).unwrap() - 75.0).abs() < f64::EPSILON);
+        assert!((fc.lookup("myHandler", 30).unwrap() - 75.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn istanbul_lookup_anonymous_fallback_ambiguous_returns_none() {
+        let mut functions = rustc_hash::FxHashMap::default();
+        // Two anonymous entries within ±2 lines of 28: ambiguous, bail out.
+        functions.insert(("(anonymous_0)".to_string(), 28), 75.0);
+        functions.insert(("(anonymous_1)".to_string(), 29), 50.0);
+        let fc = IstanbulFileCoverage { functions };
+        assert!(fc.lookup("myHandler", 28).is_none());
+    }
+
+    #[test]
+    fn istanbul_lookup_anonymous_fallback_outside_offset() {
+        let mut functions = rustc_hash::FxHashMap::default();
+        functions.insert(("(anonymous_0)".to_string(), 28), 75.0);
+        let fc = IstanbulFileCoverage { functions };
+        // Line 31 is 3 away from 28, outside the ±2 window.
+        assert!(fc.lookup("myHandler", 31).is_none());
+    }
+
+    #[test]
+    fn istanbul_lookup_named_match_beats_nearby_anonymous() {
+        let mut functions = rustc_hash::FxHashMap::default();
+        // A real name match at line 10 and an anonymous entry at line 11.
+        // The name match must win; the anonymous fallback only fires when
+        // no name-based match exists.
+        functions.insert(("handleClick".to_string(), 10), 90.0);
+        functions.insert(("(anonymous_7)".to_string(), 11), 10.0);
+        let fc = IstanbulFileCoverage { functions };
+        assert!((fc.lookup("handleClick", 10).unwrap() - 90.0).abs() < f64::EPSILON);
     }
 
     // --- build_test_referenced_exports ---
