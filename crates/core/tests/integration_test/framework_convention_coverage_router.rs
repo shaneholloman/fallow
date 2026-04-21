@@ -78,3 +78,140 @@ fn remix_root_and_client_data_exports_are_covered() {
         );
     }
 }
+
+#[test]
+fn react_router_route_config_discovers_modules_outside_routes_dir() {
+    let root = fixture_path("react-router-config-routes");
+    let config = create_config(root.clone());
+    let results = fallow_core::analyze(&config).expect("analysis should succeed");
+
+    let unused_files = collect_unused_files(&root, &results);
+    for expected_used_file in [
+        "app/routes.ts",
+        "app/root.tsx",
+        "app/marketing/home.tsx",
+        "app/account/layout.tsx",
+        "app/account/login.tsx",
+    ] {
+        assert!(
+            !unused_files.iter().any(|path| path == expected_used_file),
+            "{expected_used_file} should be treated as framework-used, unused files: {unused_files:?}"
+        );
+    }
+    assert!(
+        unused_files.iter().any(|path| path == "app/not-routed.tsx"),
+        "plain file outside the route config should stay unused, unused files: {unused_files:?}"
+    );
+
+    let unused_exports = collect_unused_exports(&root, &results);
+    for (path, export) in [
+        ("app/routes.ts", "default"),
+        ("app/root.tsx", "Layout"),
+        ("app/root.tsx", "HydrateFallback"),
+        ("app/marketing/home.tsx", "loader"),
+        ("app/account/layout.tsx", "handle"),
+        ("app/account/login.tsx", "action"),
+    ] {
+        assert!(
+            !has_unused_export(&unused_exports, path, export),
+            "{path}:{export} should be treated as framework-used, found: {unused_exports:?}"
+        );
+    }
+
+    for (path, export) in [
+        ("app/routes.ts", "unusedRouteConfigHelper"),
+        ("app/root.tsx", "unusedRootHelper"),
+        ("app/marketing/home.tsx", "unusedHomeHelper"),
+        ("app/account/layout.tsx", "unusedLayoutHelper"),
+        ("app/account/login.tsx", "unusedLoginHelper"),
+    ] {
+        assert!(
+            has_unused_export(&unused_exports, path, export),
+            "{path}:{export} should still be reported as unused, found: {unused_exports:?}"
+        );
+    }
+}
+
+#[test]
+fn react_router_custom_app_directory_keeps_src_routes_alive() {
+    let root = fixture_path("react-router-src-app");
+    let config = create_config(root.clone());
+    let results = fallow_core::analyze(&config).expect("analysis should succeed");
+
+    let unused_files = collect_unused_files(&root, &results);
+    for expected_used_file in [
+        "react-router.config.ts",
+        "src/routes.ts",
+        "src/root.tsx",
+        "src/marketing/home.tsx",
+        "src/account/layout.tsx",
+        "src/account/login.tsx",
+    ] {
+        assert!(
+            !unused_files.iter().any(|path| path == expected_used_file),
+            "{expected_used_file} should be treated as framework-used, unused files: {unused_files:?}"
+        );
+    }
+
+    let unused_exports = collect_unused_exports(&root, &results);
+    for (path, export) in [
+        ("src/routes.ts", "default"),
+        ("src/root.tsx", "Layout"),
+        ("src/marketing/home.tsx", "loader"),
+        ("src/account/layout.tsx", "handle"),
+        ("src/account/login.tsx", "action"),
+    ] {
+        assert!(
+            !has_unused_export(&unused_exports, path, export),
+            "{path}:{export} should be treated as framework-used, found: {unused_exports:?}"
+        );
+    }
+
+    for (path, export) in [
+        ("src/routes.ts", "unusedRouteConfigHelper"),
+        ("src/root.tsx", "unusedRootHelper"),
+        ("src/marketing/home.tsx", "unusedHomeHelper"),
+        ("src/account/layout.tsx", "unusedLayoutHelper"),
+        ("src/account/login.tsx", "unusedLoginHelper"),
+    ] {
+        assert!(
+            has_unused_export(&unused_exports, path, export),
+            "{path}:{export} should still be reported as unused, found: {unused_exports:?}"
+        );
+    }
+}
+
+#[test]
+fn react_router_flat_routes_custom_root_is_framework_used() {
+    let root = fixture_path("react-router-flat-routes-root");
+    let config = create_config(root.clone());
+    let results = fallow_core::analyze(&config).expect("analysis should succeed");
+
+    let unused_files = collect_unused_files(&root, &results);
+    assert!(
+        !unused_files
+            .iter()
+            .any(|path| path == "app/file-routes/home.tsx"),
+        "custom flat-routes root should keep route modules alive, unused files: {unused_files:?}"
+    );
+
+    let unused_exports = collect_unused_exports(&root, &results);
+    for (path, export) in [
+        ("app/routes.ts", "default"),
+        ("app/file-routes/home.tsx", "loader"),
+    ] {
+        assert!(
+            !has_unused_export(&unused_exports, path, export),
+            "{path}:{export} should be treated as framework-used, found: {unused_exports:?}"
+        );
+    }
+    for (path, export) in [
+        ("app/routes.ts", "unusedRouteConfigHelper"),
+        ("app/file-routes/home.tsx", "unusedHomeHelper"),
+    ] {
+        assert!(
+            has_unused_export(&unused_exports, path, export),
+            "{path}:{export} should still be reported as unused, found: {unused_exports:?}"
+        );
+    }
+}
