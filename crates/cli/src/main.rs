@@ -194,6 +194,14 @@ struct Cli {
     #[arg(long, value_delimiter = ',')]
     skip: Vec<AnalysisKind>,
 
+    /// Override duplication detection mode in combined mode.
+    #[arg(long = "dupes-mode", global = true)]
+    dupes_mode: Option<DupesMode>,
+
+    /// Override duplication threshold in combined mode.
+    #[arg(long = "dupes-threshold", global = true)]
+    dupes_threshold: Option<f64>,
+
     /// Compute health score (0-100 with letter grade) in combined mode.
     /// Use with `--trend` to show score deltas in PR comments.
     #[arg(long)]
@@ -1417,6 +1425,8 @@ fn dispatch_bare_command(
         run_check,
         run_dupes,
         run_health,
+        dupes_mode: cli.dupes_mode,
+        dupes_threshold: cli.dupes_threshold,
         score: cli.score || cli.trend,
         trend: cli.trend,
         save_snapshot: cli.save_snapshot.as_ref(),

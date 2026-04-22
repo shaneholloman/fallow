@@ -126,6 +126,20 @@ describe("Fallow VS Code extension", () => {
     assert.equal(result.check.unused_files.length, 1);
     assert.equal(result.check.unused_exports.length, 0);
     assert.equal(result.dupes.clone_groups.length, 1);
+
+    const analysisCalls = readCliLog();
+    assert.ok(analysisCalls.length >= 1, "expected at least one CLI analysis call");
+    assert.ok(
+      analysisCalls.every((entry) => entry.command === "combined"),
+      "analysis should use combined mode only"
+    );
+    assert.ok(
+      analysisCalls.every((entry) =>
+        entry.args.join(" ") ===
+        "--format json --quiet --skip health --dupes-mode mild --dupes-threshold 5"
+      ),
+      "combined analysis should pass the expected arguments"
+    );
   });
 
   it("navigates to the selected dry-run fix even when labels collide", async () => {

@@ -6,7 +6,7 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import { getLspPath, getProduction, getDuplicationMode, getDuplicationThreshold, getIssueTypes } from "./config.js";
 import { findBinaryInPath, findLocalBinary, getExecutableExtension } from "./binary-utils.js";
-import { getInstalledBinaryPath } from "./download.js";
+import { getInstalledCliPath } from "./download.js";
 import {
   buildFixArgs,
   createFixPreviewItems,
@@ -14,6 +14,7 @@ import {
 } from "./fix-utils.js";
 import type {
   FallowCheckResult,
+  FallowCombinedResult,
   FallowDupesResult,
   FallowFixResult,
   FixAction,
@@ -39,13 +40,9 @@ const findCliBinary = (context: vscode.ExtensionContext): string | null => {
     return inPath;
   }
 
-  const installed = getInstalledBinaryPath(context);
+  const installed = getInstalledCliPath(context);
   if (installed) {
-    const dir = path.dirname(installed);
-    const cliPath = path.join(dir, `fallow${getExecutableExtension()}`);
-    if (fs.existsSync(cliPath)) {
-      return cliPath;
-    }
+    return installed;
   }
 
   return null;
@@ -63,24 +60,45 @@ const execFallow = (
       return;
     }
 
-    // Using execFile (not exec) to avoid shell injection
-    child_process.execFile(
-      binary,
-      [...args],
-      { cwd, maxBuffer: 50 * 1024 * 1024 },
-      (error, stdout, stderr) => {
-        if (error) {
-          // Exit code 1 means issues found (expected), only reject on real errors.
-          // child_process.ExecException.code is the numeric exit code.
-          const exitCode = (error as child_process.ExecException).code;
-          if (exitCode !== 1) {
-            reject(new Error(stderr || error.message));
-            return;
-          }
-        }
-        resolve(stdout);
+    const child = child_process.spawn(binary, [...args], {
+      cwd,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout?.setEncoding("utf8");
+    child.stdout?.on("data", (chunk: string) => {
+      stdout += chunk;
+    });
+
+    child.stderr?.setEncoding("utf8");
+    child.stderr?.on("data", (chunk: string) => {
+      stderr += chunk;
+    });
+
+    child.on("error", (error) => {
+      reject(error);
+    });
+
+    child.on("close", (code, signal) => {
+      if (signal) {
+        reject(new Error(`fallow exited via signal ${signal}`));
+        return;
       }
-    );
+
+      if (code !== null && code !== 0 && code !== 1) {
+        reject(
+          new Error(
+            stderr.trim() || `fallow exited with code ${code}`
+          )
+        );
+        return;
+      }
+
+      resolve(stdout);
+    });
   });
 
 /** Filter check results based on the user's issueTypes configuration. */
@@ -211,30 +229,22 @@ export const runAnalysis = async (
   let dupes: FallowDupesResult | null = null;
 
   try {
-    const checkArgs = ["dead-code", "--format", "json", "--quiet"];
+    const analysisArgs = ["--format", "json", "--quiet", "--skip", "health"];
     if (getProduction()) {
-      checkArgs.push("--production");
+      analysisArgs.push("--production");
     }
 
-    const dupesArgs = ["dupes", "--format", "json", "--quiet"];
-    dupesArgs.push("--mode", getDuplicationMode());
-    dupesArgs.push("--threshold", String(getDuplicationThreshold()));
+    analysisArgs.push("--dupes-mode", getDuplicationMode());
+    analysisArgs.push("--dupes-threshold", String(getDuplicationThreshold()));
 
-    const [checkOutput, dupesOutput] = await Promise.all([
-      execFallow(context, checkArgs, root),
-      execFallow(context, dupesArgs, root),
-    ]);
+    const output = await execFallow(context, analysisArgs, root);
 
     try {
-      check = filterCheckResult(JSON.parse(checkOutput) as FallowCheckResult);
+      const result = JSON.parse(output) as FallowCombinedResult;
+      check = result.check ? filterCheckResult(result.check) : null;
+      dupes = result.dupes ?? null;
     } catch {
-      // Check output may be empty or non-JSON on error
-    }
-
-    try {
-      dupes = JSON.parse(dupesOutput) as FallowDupesResult;
-    } catch {
-      // Dupes output may be empty or non-JSON on error
+      // Output may be empty or non-JSON on error
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

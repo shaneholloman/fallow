@@ -286,7 +286,7 @@ Configure defaults in `.fallowrc.json` under `audit.deadCodeBaseline` / `audit.h
 
 # GitLab CI -- include the template and extend
 include:
-  - remote: 'https://raw.githubusercontent.com/fallow-rs/fallow/main/ci/gitlab-ci.yml'
+  - remote: 'https://raw.githubusercontent.com/fallow-rs/fallow/vX.Y.Z/ci/gitlab-ci.yml'
 fallow:
   extends: .fallow
 
@@ -325,17 +325,20 @@ The GitLab CI template can post rich comments directly on merge requests -- summ
 | `FALLOW_COMMENT` | `"false"` | Post a summary comment on the MR with collapsible sections per analysis |
 | `FALLOW_REVIEW` | `"false"` | Post inline MR discussions at the relevant lines, with `suggestion` blocks for unused exports |
 | `FALLOW_MAX_COMMENTS` | `"50"` | Maximum number of inline review comments |
+| `FALLOW_SCRIPTS_REF` | `""` | Pinned tag or commit for remote MR-integration scripts; leave empty to prefer vendored local `ci/` + `action/` scripts |
 
 In MR pipelines, `--changed-since` is set automatically to scope analysis to changed files. Previous fallow comments are cleaned up on re-runs.
 
 The comment merging pipeline groups unused exports per file and deduplicates clone reports, keeping MR threads readable.
+
+For remote includes, pin the template to a release tag and keep `FALLOW_SCRIPTS_REF` on the same tag or commit. When you vendor `ci/` and `action/` into your repo, the template now prefers those local scripts and skips the remote fetch path entirely.
 
 A `GITLAB_TOKEN` (PAT with `api` scope) is recommended for full features (suggestion blocks, cleanup of previous comments). `CI_JOB_TOKEN` works for posting but cannot delete comments from prior runs.
 
 ```yaml
 # .gitlab-ci.yml -- full example with rich MR comments
 include:
-  - remote: 'https://raw.githubusercontent.com/fallow-rs/fallow/main/ci/gitlab-ci.yml'
+  - remote: 'https://raw.githubusercontent.com/fallow-rs/fallow/vX.Y.Z/ci/gitlab-ci.yml'
 
 fallow:
   extends: .fallow
@@ -343,6 +346,7 @@ fallow:
     FALLOW_COMMENT: "true"       # Summary comment with collapsible sections
     FALLOW_REVIEW: "true"        # Inline discussions with suggestion blocks
     FALLOW_MAX_COMMENTS: "30"    # Cap inline comments (default: 50)
+    FALLOW_SCRIPTS_REF: "vX.Y.Z" # Match the pinned template ref when using remote scripts
     FALLOW_FAIL_ON_ISSUES: "true"
 ```
 

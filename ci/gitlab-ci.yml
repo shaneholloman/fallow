@@ -6,7 +6,7 @@
 # Usage — add to your .gitlab-ci.yml:
 #
 #   include:
-#     - remote: 'https://raw.githubusercontent.com/fallow-rs/fallow/main/ci/gitlab-ci.yml'
+#     - remote: 'https://raw.githubusercontent.com/fallow-rs/fallow/vX.Y.Z/ci/gitlab-ci.yml'
 #
 #   fallow:
 #     extends: .fallow
@@ -142,8 +142,9 @@ variables:
   FALLOW_ONLY: ""               # Comma-separated: check,dupes,health
   FALLOW_SKIP: ""
 
-  # Advanced: pin scripts to a specific ref (branch, tag, or commit)
-  FALLOW_SCRIPTS_REF: "main"
+  # Advanced: pin remote MR-integration scripts to a specific tag or commit.
+  # Leave empty to prefer vendored local ci/ + action/ scripts when present.
+  FALLOW_SCRIPTS_REF: ""
 
 # ---------------------------------------------------------------------------
 # Template job — extend this in your pipeline
@@ -180,47 +181,80 @@ variables:
         npm install -g "fallow@${FALLOW_VERSION}" || { echo "ERROR: Failed to install fallow@${FALLOW_VERSION}"; exit 2; }
       fi
       echo "Installed fallow $(fallow --version 2>/dev/null || echo 'unknown')"
-    # Download jq scripts and bash scripts for MR integration
+    # Prepare jq scripts and bash scripts for MR integration
     - |
-      if ! echo "$FALLOW_SCRIPTS_REF" | grep -qE '^[a-zA-Z0-9._/-]+$'; then
-        echo "ERROR: Invalid FALLOW_SCRIPTS_REF: ${FALLOW_SCRIPTS_REF}"; exit 2
-      fi
-      FALLOW_SCRIPTS_BASE="https://raw.githubusercontent.com/fallow-rs/fallow/${FALLOW_SCRIPTS_REF}"
       export FALLOW_JQ_DIR="/tmp/fallow-jq"
       export FALLOW_SHARED_JQ_DIR="/tmp/fallow-shared-jq"
       FALLOW_SCRIPTS_DIR="/tmp/fallow-scripts"
       mkdir -p "$FALLOW_JQ_DIR" "$FALLOW_SHARED_JQ_DIR" "$FALLOW_SCRIPTS_DIR"
 
       if [ "$FALLOW_COMMENT" = "true" ] || [ "$FALLOW_REVIEW" = "true" ]; then
-        echo "Downloading MR integration scripts..."
-
         DOWNLOAD_FAILURES=0
+        if [ -d "ci/jq" ] && [ -d "action/jq" ] && [ -d "ci/scripts" ]; then
+          echo "Using vendored MR integration scripts from the repository checkout..."
 
-        # GitLab-specific jq scripts
-        for f in summary-check.jq summary-health.jq summary-combined.jq review-comments-dupes.jq; do
-          curl -sf "${FALLOW_SCRIPTS_BASE}/ci/jq/${f}" -o "${FALLOW_JQ_DIR}/${f}" 2>/dev/null || {
-            echo "  WARNING: Failed to download ci/jq/${f}"
-            DOWNLOAD_FAILURES=$((DOWNLOAD_FAILURES + 1))
-          }
-        done
+          for f in summary-check.jq summary-health.jq summary-combined.jq review-comments-dupes.jq; do
+            cp "ci/jq/${f}" "${FALLOW_JQ_DIR}/${f}" 2>/dev/null || {
+              echo "  WARNING: Failed to copy ci/jq/${f}"
+              DOWNLOAD_FAILURES=$((DOWNLOAD_FAILURES + 1))
+            }
+          done
 
-        # Shared (platform-agnostic) jq scripts from action/jq/
-        for f in summary-dupes.jq summary-fix.jq review-comments-check.jq review-comments-health.jq review-body.jq merge-comments.jq filter-changed.jq; do
-          curl -sf "${FALLOW_SCRIPTS_BASE}/action/jq/${f}" -o "${FALLOW_SHARED_JQ_DIR}/${f}" 2>/dev/null || {
-            echo "  WARNING: Failed to download action/jq/${f}"
-            DOWNLOAD_FAILURES=$((DOWNLOAD_FAILURES + 1))
-          }
-        done
+          for f in summary-dupes.jq summary-fix.jq review-comments-check.jq review-comments-health.jq review-body.jq merge-comments.jq filter-changed.jq; do
+            cp "action/jq/${f}" "${FALLOW_SHARED_JQ_DIR}/${f}" 2>/dev/null || {
+              echo "  WARNING: Failed to copy action/jq/${f}"
+              DOWNLOAD_FAILURES=$((DOWNLOAD_FAILURES + 1))
+            }
+          done
 
-        # GitLab bash scripts
-        for f in comment.sh review.sh; do
-          if curl -sf "${FALLOW_SCRIPTS_BASE}/ci/scripts/${f}" -o "${FALLOW_SCRIPTS_DIR}/${f}" 2>/dev/null; then
-            chmod +x "${FALLOW_SCRIPTS_DIR}/${f}"
-          else
-            echo "  WARNING: Failed to download ci/scripts/${f}"
-            DOWNLOAD_FAILURES=$((DOWNLOAD_FAILURES + 1))
+          for f in comment.sh review.sh; do
+            if cp "ci/scripts/${f}" "${FALLOW_SCRIPTS_DIR}/${f}" 2>/dev/null; then
+              chmod +x "${FALLOW_SCRIPTS_DIR}/${f}"
+            else
+              echo "  WARNING: Failed to copy ci/scripts/${f}"
+              DOWNLOAD_FAILURES=$((DOWNLOAD_FAILURES + 1))
+            fi
+          done
+        else
+          if [ -z "$FALLOW_SCRIPTS_REF" ] && [ "$FALLOW_VERSION" != "latest" ]; then
+            FALLOW_SCRIPTS_REF="v${FALLOW_VERSION}"
           fi
-        done
+
+          if [ -z "$FALLOW_SCRIPTS_REF" ]; then
+            echo "ERROR: FALLOW_COMMENT/FALLOW_REVIEW require vendored ci/ + action/ scripts or a pinned FALLOW_SCRIPTS_REF when FALLOW_VERSION=latest."
+            exit 2
+          fi
+
+          if ! echo "$FALLOW_SCRIPTS_REF" | grep -qE '^[a-zA-Z0-9._/-]+$'; then
+            echo "ERROR: Invalid FALLOW_SCRIPTS_REF: ${FALLOW_SCRIPTS_REF}"; exit 2
+          fi
+
+          FALLOW_SCRIPTS_BASE="https://raw.githubusercontent.com/fallow-rs/fallow/${FALLOW_SCRIPTS_REF}"
+          echo "Downloading MR integration scripts pinned to ${FALLOW_SCRIPTS_REF}..."
+
+          for f in summary-check.jq summary-health.jq summary-combined.jq review-comments-dupes.jq; do
+            curl -sf "${FALLOW_SCRIPTS_BASE}/ci/jq/${f}" -o "${FALLOW_JQ_DIR}/${f}" 2>/dev/null || {
+              echo "  WARNING: Failed to download ci/jq/${f}"
+              DOWNLOAD_FAILURES=$((DOWNLOAD_FAILURES + 1))
+            }
+          done
+
+          for f in summary-dupes.jq summary-fix.jq review-comments-check.jq review-comments-health.jq review-body.jq merge-comments.jq filter-changed.jq; do
+            curl -sf "${FALLOW_SCRIPTS_BASE}/action/jq/${f}" -o "${FALLOW_SHARED_JQ_DIR}/${f}" 2>/dev/null || {
+              echo "  WARNING: Failed to download action/jq/${f}"
+              DOWNLOAD_FAILURES=$((DOWNLOAD_FAILURES + 1))
+            }
+          done
+
+          for f in comment.sh review.sh; do
+            if curl -sf "${FALLOW_SCRIPTS_BASE}/ci/scripts/${f}" -o "${FALLOW_SCRIPTS_DIR}/${f}" 2>/dev/null; then
+              chmod +x "${FALLOW_SCRIPTS_DIR}/${f}"
+            else
+              echo "  WARNING: Failed to download ci/scripts/${f}"
+              DOWNLOAD_FAILURES=$((DOWNLOAD_FAILURES + 1))
+            fi
+          done
+        fi
 
         if [ "$DOWNLOAD_FAILURES" -gt 0 ]; then
           echo "WARNING: ${DOWNLOAD_FAILURES} script(s) failed to download — MR comments/review may be limited"

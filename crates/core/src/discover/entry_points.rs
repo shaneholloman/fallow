@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use super::parse_scripts::extract_script_file_refs;
 use super::walk::SOURCE_EXTENSIONS;
@@ -98,28 +98,19 @@ pub fn resolve_entry_path(
         return None;
     }
 
-    let resolved = base.join(entry);
-    // Security: ensure resolved path stays within the allowed root
-    let canonical_resolved = dunce::canonicalize(&resolved).unwrap_or_else(|_| resolved.clone());
-    if !canonical_resolved.starts_with(canonical_root) {
-        tracing::warn!(path = %entry, "Skipping entry point outside project root");
+    if entry_has_parent_dir(entry) {
+        tracing::warn!(path = %entry, "Skipping entry point containing parent directory traversal");
         return None;
     }
+
+    let resolved = base.join(entry);
 
     // If the path is in an output directory (dist/, build/, etc.), try mapping to src/ first.
     // This handles exports map targets like `./dist/utils.js` → `./src/utils.ts`.
     // We check this BEFORE the exists() check because even if the dist file exists,
     // fallow ignores dist/ by default, so we need the source file instead.
     if let Some(source_path) = try_output_to_source_path(base, entry) {
-        // Security: ensure the mapped source path stays within the project root
-        if let Ok(canonical_source) = dunce::canonicalize(&source_path)
-            && canonical_source.starts_with(canonical_root)
-        {
-            return Some(EntryPoint {
-                path: source_path,
-                source,
-            });
-        }
+        return validated_entry_point(&source_path, canonical_root, entry, source);
     }
 
     // When the entry lives under an output directory but has no direct src/ mirror
@@ -131,37 +122,67 @@ pub fn resolve_entry_path(
     // and leaves the entire src/ tree unreachable. See issue #102.
     if is_entry_in_output_dir(entry)
         && let Some(source_path) = try_source_index_fallback(base)
-        && let Ok(canonical_source) = dunce::canonicalize(&source_path)
-        && canonical_source.starts_with(canonical_root)
     {
         tracing::info!(
             entry = %entry,
             fallback = %source_path.display(),
             "package.json entry resolves to an ignored output directory; falling back to source index"
         );
-        return Some(EntryPoint {
-            path: source_path,
-            source,
-        });
+        return validated_entry_point(&source_path, canonical_root, entry, source);
     }
 
-    if resolved.exists() {
-        return Some(EntryPoint {
-            path: resolved,
-            source,
-        });
+    if resolved.is_file() {
+        return validated_entry_point(&resolved, canonical_root, entry, source);
     }
+
     // Try with source extensions
     for ext in SOURCE_EXTENSIONS {
         let with_ext = resolved.with_extension(ext);
-        if with_ext.exists() {
-            return Some(EntryPoint {
-                path: with_ext,
-                source,
-            });
+        if with_ext.is_file() {
+            return validated_entry_point(&with_ext, canonical_root, entry, source);
         }
     }
     None
+}
+
+fn entry_has_parent_dir(entry: &str) -> bool {
+    Path::new(entry)
+        .components()
+        .any(|component| matches!(component, Component::ParentDir))
+}
+
+fn validated_entry_point(
+    candidate: &Path,
+    canonical_root: &Path,
+    entry: &str,
+    source: EntryPointSource,
+) -> Option<EntryPoint> {
+    let canonical_candidate = match dunce::canonicalize(candidate) {
+        Ok(path) => path,
+        Err(err) => {
+            tracing::warn!(
+                path = %candidate.display(),
+                %entry,
+                error = %err,
+                "Skipping entry point that could not be canonicalized"
+            );
+            return None;
+        }
+    };
+
+    if !canonical_candidate.starts_with(canonical_root) {
+        tracing::warn!(
+            path = %candidate.display(),
+            %entry,
+            "Skipping entry point outside project root"
+        );
+        return None;
+    }
+
+    Some(EntryPoint {
+        path: candidate.to_path_buf(),
+        source,
+    })
 }
 
 /// Try to map an entry path from an output directory to its source equivalent.
@@ -1221,6 +1242,56 @@ mod tests {
             assert!(
                 matches!(result.unwrap().source, EntryPointSource::PackageJsonScript),
                 "should preserve the source kind"
+            );
+        }
+
+        #[test]
+        fn rejects_parent_dir_escape_for_exact_file() {
+            let sandbox = tempfile::tempdir().expect("create sandbox");
+            let root = sandbox.path().join("project");
+            std::fs::create_dir_all(&root).unwrap();
+            std::fs::write(
+                sandbox.path().join("escape.ts"),
+                "export const escape = true;",
+            )
+            .unwrap();
+
+            let canonical = dunce::canonicalize(&root).unwrap();
+            let result = resolve_entry_path(
+                &root,
+                "../escape.ts",
+                &canonical,
+                EntryPointSource::PackageJsonMain,
+            );
+
+            assert!(
+                result.is_none(),
+                "should reject exact paths that escape the root"
+            );
+        }
+
+        #[test]
+        fn rejects_parent_dir_escape_via_extension_fallback() {
+            let sandbox = tempfile::tempdir().expect("create sandbox");
+            let root = sandbox.path().join("project");
+            std::fs::create_dir_all(&root).unwrap();
+            std::fs::write(
+                sandbox.path().join("escape.ts"),
+                "export const escape = true;",
+            )
+            .unwrap();
+
+            let canonical = dunce::canonicalize(&root).unwrap();
+            let result = resolve_entry_path(
+                &root,
+                "../escape",
+                &canonical,
+                EntryPointSource::PackageJsonMain,
+            );
+
+            assert!(
+                result.is_none(),
+                "should reject extension fallback paths that escape the root"
             );
         }
     }

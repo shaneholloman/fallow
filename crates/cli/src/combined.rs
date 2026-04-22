@@ -33,6 +33,8 @@ pub struct CombinedOptions<'a> {
     pub run_check: bool,
     pub run_dupes: bool,
     pub run_health: bool,
+    pub dupes_mode: Option<DupesMode>,
+    pub dupes_threshold: Option<f64>,
     pub score: bool,
     pub trend: bool,
     pub save_snapshot: Option<&'a Option<String>>,
@@ -130,10 +132,12 @@ pub fn run_combined(opts: &CombinedOptions<'_>) -> ExitCode {
             no_cache: opts.no_cache,
             threads: opts.threads,
             quiet: opts.quiet,
-            mode: DupesMode::from(dupes_cfg.mode),
+            mode: opts
+                .dupes_mode
+                .unwrap_or_else(|| DupesMode::from(dupes_cfg.mode)),
             min_tokens: dupes_cfg.min_tokens,
             min_lines: dupes_cfg.min_lines,
-            threshold: dupes_cfg.threshold,
+            threshold: opts.dupes_threshold.unwrap_or(dupes_cfg.threshold),
             skip_local: dupes_cfg.skip_local,
             cross_language: dupes_cfg.cross_language,
             ignore_imports: dupes_cfg.ignore_imports,

@@ -199,29 +199,63 @@ jobs:
           name: fallow-${{ matrix.target }}
           path: fallow-${{ matrix.target }}.*
 
-      - name: Rename LSP and MCP binaries with target identifier (unix)
+      - name: Rename CLI, LSP, and MCP binaries with target identifier (unix)
         if: runner.os != 'Windows'
         run: |
+          cp target/${{ matrix.target }}/release/${{ matrix.binary }} fallow-${{ matrix.npm_dir }}
           cp target/${{ matrix.target }}/release/${{ matrix.lsp_binary }} fallow-lsp-${{ matrix.npm_dir }}
           cp target/${{ matrix.target }}/release/${{ matrix.mcp_binary }} fallow-mcp-${{ matrix.npm_dir }}
 
-      - name: Rename LSP and MCP binaries with target identifier (windows)
+      - name: Rename CLI, LSP, and MCP binaries with target identifier (windows)
         if: runner.os == 'Windows'
         run: |
+          cp target/${{ matrix.target }}/release/${{ matrix.binary }} fallow-${{ matrix.npm_dir }}.exe
           cp target/${{ matrix.target }}/release/${{ matrix.lsp_binary }} fallow-lsp-${{ matrix.npm_dir }}.exe
           cp target/${{ matrix.target }}/release/${{ matrix.mcp_binary }} fallow-mcp-${{ matrix.npm_dir }}.exe
+
+      - name: Sign raw binaries
+        shell: bash
+        env:
+          ED25519_BINARY_SIGNING_PRIVATE_KEY: ${{ secrets.ED25519_BINARY_SIGNING_PRIVATE_KEY }}
+          ED25519_BINARY_SIGNING_PUBLIC_KEY: ${{ vars.ED25519_BINARY_SIGNING_PUBLIC_KEY }}
+        run: |
+          ext=""
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            ext=".exe"
+          fi
+
+          for bin in \
+            "fallow-${{ matrix.npm_dir }}${ext}" \
+            "fallow-lsp-${{ matrix.npm_dir }}${ext}" \
+            "fallow-mcp-${{ matrix.npm_dir }}${ext}"
+          do
+            node .github/scripts/sign-binary.mjs "$bin" "${bin}.sig"
+            node .github/scripts/verify-binary.mjs "$bin" "${bin}.sig"
+          done
+
+      - name: Upload CLI artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: fallow-cli-${{ matrix.npm_dir }}
+          path: |
+            fallow-${{ matrix.npm_dir }}${{ runner.os == 'Windows' && '.exe' || '' }}
+            fallow-${{ matrix.npm_dir }}${{ runner.os == 'Windows' && '.exe' || '' }}.sig
 
       - name: Upload LSP artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: fallow-lsp-${{ matrix.npm_dir }}
-          path: fallow-lsp-${{ matrix.npm_dir }}${{ runner.os == 'Windows' && '.exe' || '' }}
+          path: |
+            fallow-lsp-${{ matrix.npm_dir }}${{ runner.os == 'Windows' && '.exe' || '' }}
+            fallow-lsp-${{ matrix.npm_dir }}${{ runner.os == 'Windows' && '.exe' || '' }}.sig
 
       - name: Upload MCP artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: fallow-mcp-${{ matrix.npm_dir }}
-          path: fallow-mcp-${{ matrix.npm_dir }}${{ runner.os == 'Windows' && '.exe' || '' }}
+          path: |
+            fallow-mcp-${{ matrix.npm_dir }}${{ runner.os == 'Windows' && '.exe' || '' }}
+            fallow-mcp-${{ matrix.npm_dir }}${{ runner.os == 'Windows' && '.exe' || '' }}.sig
 
       - name: Upload npm binary
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

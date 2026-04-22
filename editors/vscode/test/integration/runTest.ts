@@ -76,11 +76,56 @@ const createFakeCli = (binDir: string): void => {
     `#!/usr/bin/env node
 const fs = require("node:fs");
 const args = process.argv.slice(2);
-const command = args[0];
+const command = args[0] && !args[0].startsWith("-") ? args[0] : "combined";
 const logPath = ${JSON.stringify(logPath)};
 fs.appendFileSync(logPath, JSON.stringify({ command, args }) + "\\n");
 
 const outputs = {
+  "combined": {
+    schema_version: 3,
+    version: "2.45.0",
+    elapsed_ms: 12,
+    check: {
+      unused_files: [{ path: "src/orphan.ts" }],
+      unused_exports: [{ path: "src/index.ts", export_name: "unusedExport", line: 3, col: 1 }],
+      unused_types: [],
+      unused_dependencies: [],
+      unused_dev_dependencies: [],
+      unused_enum_members: [],
+      unused_class_members: [],
+      unresolved_imports: [],
+      unlisted_dependencies: [],
+      duplicate_exports: [],
+      type_only_dependencies: [],
+      circular_dependencies: [],
+    },
+    dupes: {
+      clone_groups: [{
+        instances: [{
+          file: "src/index.ts",
+          start_line: 1,
+          end_line: 3,
+          start_col: 1,
+          end_col: 1,
+          fragment: "const value = 1;",
+        }],
+        token_count: 8,
+        line_count: 3,
+      }],
+      clone_families: [],
+      stats: {
+        total_files: 1,
+        files_with_clones: 1,
+        total_lines: 3,
+        duplicated_lines: 3,
+        total_tokens: 8,
+        duplicated_tokens: 8,
+        clone_groups: 1,
+        clone_instances: 1,
+        duplication_percentage: 100,
+      },
+    },
+  },
   "dead-code": {
     unused_files: [{ path: "src/orphan.ts" }],
     unused_exports: [{ path: "src/index.ts", export_name: "unusedExport", line: 3, col: 1 }],

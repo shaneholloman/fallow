@@ -95,6 +95,14 @@ export interface FallowDupesResult {
   readonly stats: DupesStats;
 }
 
+export interface FallowCombinedResult {
+  readonly schema_version?: number;
+  readonly version?: string;
+  readonly elapsed_ms?: number;
+  readonly check?: FallowCheckResult;
+  readonly dupes?: FallowDupesResult;
+}
+
 export interface CloneGroup {
   readonly instances: ReadonlyArray<CloneInstance>;
   readonly token_count: number;
