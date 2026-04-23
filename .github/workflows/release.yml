@@ -325,6 +325,12 @@ jobs:
       id-token: write
     env:
       TAG_REF: ${{ github.ref }}
+      # Bootstrap fallback. When NPM_TOKEN is present in repo secrets,
+      # setup-node writes it to .npmrc and `npm publish` authenticates
+      # with it. When the secret is absent (steady state, once every
+      # package has a trusted publisher registered), this stays empty
+      # and OIDC / trusted publishing handles auth exactly like today.
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
