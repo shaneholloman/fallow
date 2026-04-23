@@ -1,0 +1,21 @@
+{
+  "name": "@fallow-cli/win32-arm64-msvc",
+  "version": "2.45.1",
+  "description": "Fallow CLI binary for Windows ARM64 (MSVC)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fallow-rs/fallow.git"
+  },
+  "os": [
+    "win32"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "files": [
+    "fallow.exe",
+    "fallow-lsp.exe",
+    "fallow-mcp.exe"
+  ]
+}

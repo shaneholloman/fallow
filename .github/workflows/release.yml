@@ -142,6 +142,12 @@ jobs:
             lsp_binary: fallow-lsp.exe
             mcp_binary: fallow-mcp.exe
             npm_dir: win32-x64-msvc
+          - target: aarch64-pc-windows-msvc
+            os: windows-11-arm
+            binary: fallow.exe
+            lsp_binary: fallow-lsp.exe
+            mcp_binary: fallow-mcp.exe
+            npm_dir: win32-arm64-msvc
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -426,7 +432,7 @@ jobs:
         run: |
           VERSION="${TAG_REF#refs/tags/v}"
           FAILED=0
-          for dir in ./npm/darwin-arm64 ./npm/darwin-x64 ./npm/linux-x64-gnu ./npm/linux-arm64-gnu ./npm/linux-x64-musl ./npm/linux-arm64-musl ./npm/win32-x64-msvc; do
+          for dir in ./npm/darwin-arm64 ./npm/darwin-x64 ./npm/linux-x64-gnu ./npm/linux-arm64-gnu ./npm/linux-x64-musl ./npm/linux-arm64-musl ./npm/win32-x64-msvc ./npm/win32-arm64-msvc; do
             PKG_NAME=$(node -e "console.log(require('$dir/package.json').name)")
             echo "Publishing $PKG_NAME@$VERSION..."
             if npm view "$PKG_NAME@$VERSION" version >/dev/null 2>&1; then
@@ -459,7 +465,7 @@ jobs:
         run: |
           VERSION="${TAG_REF#refs/tags/v}"
           FAILED=0
-          for dir in ./crates/napi/npm/darwin-arm64 ./crates/napi/npm/darwin-x64 ./crates/napi/npm/linux-x64-gnu ./crates/napi/npm/linux-arm64-gnu ./crates/napi/npm/linux-x64-musl ./crates/napi/npm/linux-arm64-musl ./crates/napi/npm/win32-x64-msvc; do
+          for dir in ./crates/napi/npm/darwin-arm64 ./crates/napi/npm/darwin-x64 ./crates/napi/npm/linux-x64-gnu ./crates/napi/npm/linux-arm64-gnu ./crates/napi/npm/linux-x64-musl ./crates/napi/npm/linux-arm64-musl ./crates/napi/npm/win32-x64-msvc ./crates/napi/npm/win32-arm64-msvc; do
             PKG_NAME=$(node -e "console.log(require('$dir/package.json').name)")
             echo "Publishing $PKG_NAME@$VERSION..."
             if npm view "$PKG_NAME@$VERSION" version >/dev/null 2>&1; then

@@ -35,18 +35,22 @@ interface GithubRelease {
 
 const REQUEST_HEADERS = { "User-Agent": "fallow-vscode" };
 
-const getPlatformTarget = (): string | null => {
-  const arch = os.arch();
-  const platform = os.platform();
-
+export const platformTargetFor = (
+  platform: NodeJS.Platform,
+  arch: string
+): string | null => {
   if (platform === "darwin" && arch === "arm64") return "darwin-arm64";
   if (platform === "darwin" && arch === "x64") return "darwin-x64";
   if (platform === "linux" && arch === "x64") return "linux-x64-gnu";
   if (platform === "linux" && arch === "arm64") return "linux-arm64-gnu";
+  if (platform === "win32" && arch === "arm64") return "win32-arm64-msvc";
   if (platform === "win32" && arch === "x64") return "win32-x64-msvc";
 
   return null;
 };
+
+const getPlatformTarget = (): string | null =>
+  platformTargetFor(os.platform(), os.arch());
 
 const withRedirects = <T>(
   url: string,

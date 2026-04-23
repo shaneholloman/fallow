@@ -62,6 +62,7 @@ import {
   getInstalledBinaryPath,
   getInstalledCliPath,
   getBinaryVersion,
+  platformTargetFor,
   readVersionMarker,
   verifyBinaryDigest,
   verifyBinarySignature,
@@ -180,6 +181,21 @@ describe("verifyBinaryDigest", () => {
     mockFiles[lspPath] = binaryBytes;
 
     expect(verifyBinaryDigest(lspPath, "0".repeat(64))).toBe(false);
+  });
+});
+
+describe("platformTargetFor", () => {
+  it("maps Windows arm64 to the MSVC target", () => {
+    expect(platformTargetFor("win32", "arm64")).toBe("win32-arm64-msvc");
+  });
+
+  it("keeps existing Windows x64 mapping", () => {
+    expect(platformTargetFor("win32", "x64")).toBe("win32-x64-msvc");
+  });
+
+  it("returns null for unsupported targets", () => {
+    expect(platformTargetFor("win32", "ia32")).toBeNull();
+    expect(platformTargetFor("freebsd", "x64")).toBeNull();
   });
 });
 

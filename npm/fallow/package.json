@@ -35,7 +35,8 @@
     "README.md"
   ],
   "scripts": {
-    "postinstall": "node scripts/postinstall.js"
+    "postinstall": "node scripts/postinstall.js",
+    "test:platform": "node --test scripts/platform-package.test.js"
   },
   "dependencies": {
     "detect-libc": "2.1.2"
@@ -47,6 +48,7 @@
     "@fallow-cli/linux-arm64-gnu": "2.47.0",
     "@fallow-cli/linux-x64-musl": "2.47.0",
     "@fallow-cli/linux-arm64-musl": "2.47.0",
+    "@fallow-cli/win32-arm64-msvc": "2.47.0",
     "@fallow-cli/win32-x64-msvc": "2.47.0"
   }
 }

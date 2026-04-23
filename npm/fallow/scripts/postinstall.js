@@ -1,28 +1,17 @@
-// Verify the correct platform-specific package was installed
-function getPlatformPackage() {
-  const platform = process.platform;
-  const arch = process.arch;
+const { getPlatformPackage } = require('./platform-package');
 
-  if (platform === 'win32' && arch === 'x64') {
-    return '@fallow-cli/win32-x64-msvc';
-  }
-  if (platform === 'darwin') {
-    return `@fallow-cli/darwin-${arch}`;
-  }
-  if (platform === 'linux') {
-    try {
-      const { familySync } = require('detect-libc');
-      const libc = familySync() === 'musl' ? 'musl' : 'gnu';
-      return `@fallow-cli/linux-${arch}-${libc}`;
-    } catch {
-      return `@fallow-cli/linux-${arch}-gnu`;
-    }
+const pkg = (() => {
+  if (process.platform !== 'linux') {
+    return getPlatformPackage(process.platform, process.arch);
   }
 
-  return null;
-}
-
-const pkg = getPlatformPackage();
+  try {
+    const { familySync } = require('detect-libc');
+    return getPlatformPackage(process.platform, process.arch, familySync());
+  } catch {
+    return getPlatformPackage(process.platform, process.arch);
+  }
+})();
 
 if (!pkg) {
   console.warn(

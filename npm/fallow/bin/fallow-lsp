@@ -3,32 +3,21 @@
 const { execFileSync } = require('child_process');
 const { join } = require('path');
 const { existsSync } = require('fs');
+const { getPlatformPackage } = require('../scripts/platform-package');
 
-function getPlatformPackage() {
-  const platform = process.platform;
-  const arch = process.arch;
-
-  if (platform === 'win32' && arch === 'x64') {
-    return '@fallow-cli/win32-x64-msvc';
-  }
-  if (platform === 'darwin') {
-    return `@fallow-cli/darwin-${arch}`;
-  }
-  if (platform === 'linux') {
-    try {
-      const { familySync } = require('detect-libc');
-      const libc = familySync() === 'musl' ? 'musl' : 'gnu';
-      return `@fallow-cli/linux-${arch}-${libc}`;
-    } catch {
-      // musl binaries are statically linked and work on both glibc and musl systems
-      return `@fallow-cli/linux-${arch}-musl`;
-    }
+const pkg = (() => {
+  if (process.platform !== 'linux') {
+    return getPlatformPackage(process.platform, process.arch);
   }
 
-  return null;
-}
-
-const pkg = getPlatformPackage();
+  try {
+    const { familySync } = require('detect-libc');
+    return getPlatformPackage(process.platform, process.arch, familySync());
+  } catch {
+    // musl binaries are statically linked and work on both glibc and musl systems
+    return getPlatformPackage(process.platform, process.arch, 'musl');
+  }
+})();
 
 if (!pkg) {
   console.error(`Unsupported platform: ${process.platform}-${process.arch}`);
