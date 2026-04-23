@@ -153,10 +153,6 @@ pub(in crate::report) fn print_human(
 ///
 /// Each section (unused files, exports, etc.) produces a header line followed by
 /// detail lines. Empty sections are omitted entirely.
-#[expect(
-    clippy::too_many_lines,
-    reason = "report builder formatting all issue types"
-)]
 pub(in crate::report) fn build_human_lines(
     results: &AnalysisResults,
     root: &Path,
@@ -168,14 +164,110 @@ pub(in crate::report) fn build_human_lines(
     let total_issues = results.total_issues();
     let mut lines = Vec::new();
 
-    // Build set of unused file paths to suppress double-counting
-    let unused_file_set: FxHashSet<&std::path::Path> = results
+    build_unused_code_section(
+        &mut lines,
+        results,
+        root,
+        rules,
+        max_items,
+        max_grouped_files,
+        total_issues,
+    );
+    build_dependencies_section(
+        &mut lines,
+        results,
+        root,
+        rules,
+        max_items,
+        max_grouped_files,
+        total_issues,
+    );
+    build_structure_section(&mut lines, results, root, rules, total_issues);
+    build_maintenance_section(&mut lines, results, root, rules, total_issues);
+
+    lines
+}
+
+/// `── Label ───...` header followed by a blank line, dimmed.
+/// Matches the pre-refactor literal byte-for-byte: 2 leading bars, the
+/// space-wrapped label, then exactly 37 trailing bars.
+fn push_category_header(lines: &mut Vec<String>, label: &str) {
+    let mut header = String::from("\u{2500}\u{2500} ");
+    header.push_str(label);
+    header.push(' ');
+    for _ in 0..37 {
+        header.push('\u{2500}');
+    }
+    lines.push(header.dimmed().to_string());
+    lines.push(String::new());
+}
+
+/// Insert "(N more in files already reported as unused)" note before the
+/// trailing blank line of a section (so any test/src split annotation stays
+/// last). No-op when `suppressed` is zero.
+fn push_suppressed_count_note(lines: &mut Vec<String>, suppressed: usize) {
+    if suppressed == 0 {
+        return;
+    }
+    let pos = if lines.last().is_some_and(String::is_empty) {
+        lines.len() - 1
+    } else {
+        lines.len()
+    };
+    lines.insert(
+        pos,
+        format!(
+            "  {}",
+            format!("({suppressed} more in files already reported as unused)").dimmed()
+        ),
+    );
+}
+
+fn format_unused_export(e: &UnusedExport) -> String {
+    let tag = if e.is_re_export {
+        " (re-export)".dimmed().to_string()
+    } else {
+        String::new()
+    };
+    format!(
+        "{} {}{}",
+        format!(":{}", e.line).dimmed(),
+        e.export_name.bold(),
+        tag
+    )
+}
+
+fn format_unused_member(m: &UnusedMember) -> String {
+    format!(
+        "{} {}",
+        format!(":{}", m.line).dimmed(),
+        format!("{}.{}", m.parent_name, m.member_name).bold()
+    )
+}
+
+fn format_dep_with_pkg(name: &str, pkg_path: &Path, root: &Path) -> String {
+    let pkg_label = relative_path(pkg_path, root).display().to_string();
+    if pkg_label == "package.json" {
+        format!("{}", name.bold())
+    } else {
+        format!("{} ({})", name.bold(), pkg_label.dimmed())
+    }
+}
+
+fn build_unused_code_section(
+    lines: &mut Vec<String>,
+    results: &AnalysisResults,
+    root: &Path,
+    rules: &RulesConfig,
+    max_items: usize,
+    max_grouped_files: usize,
+    total_issues: usize,
+) {
+    let unused_file_set: FxHashSet<&Path> = results
         .unused_files
         .iter()
         .map(|f| f.path.as_path())
         .collect();
-
-    // Filter exports/types: suppress items from files already reported as unused
     let filtered_exports: Vec<UnusedExport> = results
         .unused_exports
         .iter()
@@ -191,58 +283,21 @@ pub(in crate::report) fn build_human_lines(
     let suppressed_exports = results.unused_exports.len() - filtered_exports.len();
     let suppressed_types = results.unused_types.len() - filtered_types.len();
 
-    let format_export = |e: &UnusedExport| -> String {
-        let tag = if e.is_re_export {
-            " (re-export)".dimmed().to_string()
-        } else {
-            String::new()
-        };
-        format!(
-            "{} {}{}",
-            format!(":{}", e.line).dimmed(),
-            e.export_name.bold(),
-            tag
-        )
-    };
-
-    let format_member = |m: &UnusedMember| -> String {
-        format!(
-            "{} {}",
-            format!(":{}", m.line).dimmed(),
-            format!("{}.{}", m.parent_name, m.member_name).bold()
-        )
-    };
-
-    let format_dep = |name: &str, pkg_path: &Path| -> String {
-        let pkg_label = relative_path(pkg_path, root).display().to_string();
-        if pkg_label == "package.json" {
-            format!("{}", name.bold())
-        } else {
-            format!("{} ({})", name.bold(), pkg_label.dimmed())
-        }
-    };
-
-    // ── Unused Code ──
     let has_unused_code = !results.unused_files.is_empty()
         || !filtered_exports.is_empty()
         || !filtered_types.is_empty()
         || !results.unused_enum_members.is_empty()
         || !results.unused_class_members.is_empty();
-    if has_unused_code {
-        lines.push(
-            "\u{2500}\u{2500} Unused Code \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}"
-                .dimmed()
-                .to_string(),
-        );
-        lines.push(String::new());
+    if !has_unused_code {
+        return;
     }
+    push_category_header(lines, "Unused Code");
 
     if results.unused_files.len() > DIR_ROLLUP_THRESHOLD {
-        // Directory rollup for large unused file counts
-        build_dir_rollup_section(&mut lines, &results.unused_files, root, rules, total_issues);
+        build_dir_rollup_section(lines, &results.unused_files, root, rules, total_issues);
     } else {
         build_human_section_ex(
-            &mut lines,
+            lines,
             &results.unused_files,
             "Unused files",
             severity_to_level(rules.unused_files),
@@ -254,85 +309,65 @@ pub(in crate::report) fn build_human_lines(
             },
         );
     }
-    // Test/src breakdown when test paths dominate
-    insert_test_src_split(&mut lines, &results.unused_files, |f| &f.path);
+    insert_test_src_split(lines, &results.unused_files, |f| &f.path);
 
     build_human_grouped_section(
-        &mut lines,
+        lines,
         &filtered_exports,
         "Unused exports",
         severity_to_level(rules.unused_exports),
         root,
         max_grouped_files,
         |e| e.path.as_path(),
-        &format_export,
+        &format_unused_export,
     );
-    if suppressed_exports > 0 {
-        // Insert before the trailing blank line so test/src split annotation stays last
-        let pos = if lines.last().is_some_and(String::is_empty) {
-            lines.len() - 1
-        } else {
-            lines.len()
-        };
-        lines.insert(
-            pos,
-            format!(
-                "  {}",
-                format!("({suppressed_exports} more in files already reported as unused)").dimmed()
-            ),
-        );
-    }
-    insert_test_src_split(&mut lines, &filtered_exports, |e| &e.path);
+    push_suppressed_count_note(lines, suppressed_exports);
+    insert_test_src_split(lines, &filtered_exports, |e| &e.path);
 
     build_human_grouped_section(
-        &mut lines,
+        lines,
         &filtered_types,
         "Unused type exports",
         severity_to_level(rules.unused_types),
         root,
         max_grouped_files,
         |e| e.path.as_path(),
-        &format_export,
+        &format_unused_export,
     );
-    if suppressed_types > 0 {
-        // Insert before the trailing blank line so test/src split annotation stays last
-        let pos = if lines.last().is_some_and(String::is_empty) {
-            lines.len() - 1
-        } else {
-            lines.len()
-        };
-        lines.insert(
-            pos,
-            format!(
-                "  {}",
-                format!("({suppressed_types} more in files already reported as unused)").dimmed()
-            ),
-        );
-    }
+    push_suppressed_count_note(lines, suppressed_types);
 
     build_human_grouped_section(
-        &mut lines,
+        lines,
         &results.unused_enum_members,
         "Unused enum members",
         severity_to_level(rules.unused_enum_members),
         root,
         max_grouped_files,
         |m| m.path.as_path(),
-        &format_member,
+        &format_unused_member,
     );
 
     build_human_grouped_section(
-        &mut lines,
+        lines,
         &results.unused_class_members,
         "Unused class members",
         severity_to_level(rules.unused_class_members),
         root,
         max_grouped_files,
         |m| m.path.as_path(),
-        &format_member,
+        &format_unused_member,
     );
+}
 
-    // ── Dependencies ──
+fn build_dependencies_section(
+    lines: &mut Vec<String>,
+    results: &AnalysisResults,
+    root: &Path,
+    rules: &RulesConfig,
+    max_items: usize,
+    max_grouped_files: usize,
+    total_issues: usize,
+) {
     let has_dependencies = !results.unused_dependencies.is_empty()
         || !results.unused_dev_dependencies.is_empty()
         || !results.unused_optional_dependencies.is_empty()
@@ -340,47 +375,55 @@ pub(in crate::report) fn build_human_lines(
         || !results.unlisted_dependencies.is_empty()
         || !results.type_only_dependencies.is_empty()
         || !results.test_only_dependencies.is_empty();
-    if has_dependencies {
-        lines.push(
-            "\u{2500}\u{2500} Dependencies \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}"
-                .dimmed()
-                .to_string(),
-        );
-        lines.push(String::new());
+    if !has_dependencies {
+        return;
     }
+    push_category_header(lines, "Dependencies");
 
     build_human_section_ex(
-        &mut lines,
+        lines,
         &results.unused_dependencies,
         "Unused dependencies",
         severity_to_level(rules.unused_dependencies),
         max_items,
         total_issues,
-        |dep| vec![format!("  {}", format_dep(&dep.package_name, &dep.path))],
+        |dep| {
+            vec![format!(
+                "  {}",
+                format_dep_with_pkg(&dep.package_name, &dep.path, root)
+            )]
+        },
     );
-
     build_human_section_ex(
-        &mut lines,
+        lines,
         &results.unused_dev_dependencies,
         "Unused devDependencies",
         severity_to_level(rules.unused_dev_dependencies),
         max_items,
         total_issues,
-        |dep| vec![format!("  {}", format_dep(&dep.package_name, &dep.path))],
+        |dep| {
+            vec![format!(
+                "  {}",
+                format_dep_with_pkg(&dep.package_name, &dep.path, root)
+            )]
+        },
     );
-
     build_human_section_ex(
-        &mut lines,
+        lines,
         &results.unused_optional_dependencies,
         "Unused optionalDependencies",
         severity_to_level(rules.unused_optional_dependencies),
         max_items,
         total_issues,
-        |dep| vec![format!("  {}", format_dep(&dep.package_name, &dep.path))],
+        |dep| {
+            vec![format!(
+                "  {}",
+                format_dep_with_pkg(&dep.package_name, &dep.path, root)
+            )]
+        },
     );
-
     build_human_grouped_section(
-        &mut lines,
+        lines,
         &results.unresolved_imports,
         "Unresolved imports",
         severity_to_level(rules.unresolved_imports),
@@ -389,9 +432,8 @@ pub(in crate::report) fn build_human_lines(
         |i| i.path.as_path(),
         &|i| format!("{} {}", format!(":{}", i.line).dimmed(), i.specifier.bold()),
     );
-
     build_human_section_ex(
-        &mut lines,
+        lines,
         &results.unlisted_dependencies,
         "Unlisted dependencies",
         severity_to_level(rules.unlisted_dependencies),
@@ -399,83 +441,93 @@ pub(in crate::report) fn build_human_lines(
         total_issues,
         |dep| vec![format!("  {}", dep.package_name.bold())],
     );
-
     build_human_section_ex(
-        &mut lines,
+        lines,
         &results.type_only_dependencies,
         "Type-only dependencies (consider moving to devDependencies)",
         severity_to_level(rules.type_only_dependencies),
         max_items,
         total_issues,
-        |dep| vec![format!("  {}", format_dep(&dep.package_name, &dep.path))],
+        |dep| {
+            vec![format!(
+                "  {}",
+                format_dep_with_pkg(&dep.package_name, &dep.path, root)
+            )]
+        },
     );
-
     build_human_section_ex(
-        &mut lines,
+        lines,
         &results.test_only_dependencies,
         "Test-only production dependencies (consider moving to devDependencies)",
         severity_to_level(rules.test_only_dependencies),
         max_items,
         total_issues,
-        |dep| vec![format!("  {}", format_dep(&dep.package_name, &dep.path))],
+        |dep| {
+            vec![format!(
+                "  {}",
+                format_dep_with_pkg(&dep.package_name, &dep.path, root)
+            )]
+        },
     );
+}
 
-    // ── Structure ──
+fn build_structure_section(
+    lines: &mut Vec<String>,
+    results: &AnalysisResults,
+    root: &Path,
+    rules: &RulesConfig,
+    total_issues: usize,
+) {
     let has_structure = !results.duplicate_exports.is_empty()
         || !results.circular_dependencies.is_empty()
         || !results.boundary_violations.is_empty();
-    if has_structure {
-        lines.push(
-            "\u{2500}\u{2500} Structure \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}"
-                .dimmed()
-                .to_string(),
-        );
-        lines.push(String::new());
+    if !has_structure {
+        return;
     }
+    push_category_header(lines, "Structure");
 
     build_duplicate_exports_section(
-        &mut lines,
+        lines,
         &results.duplicate_exports,
         severity_to_level(rules.duplicate_exports),
         root,
         total_issues,
     );
-
     build_circular_deps_section(
-        &mut lines,
+        lines,
         &results.circular_dependencies,
         severity_to_level(rules.circular_dependencies),
         root,
         total_issues,
     );
-
     build_boundary_violations_section(
-        &mut lines,
+        lines,
         &results.boundary_violations,
         severity_to_level(rules.boundary_violation),
         root,
         total_issues,
     );
+}
 
-    // ── Maintenance ──
-    if !results.stale_suppressions.is_empty() {
-        lines.push(
-            "\u{2500}\u{2500} Maintenance \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}"
-                .dimmed()
-                .to_string(),
-        );
-        lines.push(String::new());
+fn build_maintenance_section(
+    lines: &mut Vec<String>,
+    results: &AnalysisResults,
+    root: &Path,
+    rules: &RulesConfig,
+    total_issues: usize,
+) {
+    if results.stale_suppressions.is_empty() {
+        return;
     }
+    push_category_header(lines, "Maintenance");
 
     build_stale_suppressions_section(
-        &mut lines,
+        lines,
         &results.stale_suppressions,
         severity_to_level(rules.stale_suppressions),
         root,
         total_issues,
     );
-
-    lines
 }
 
 /// Directory-grouped rollup for large unused file counts.
