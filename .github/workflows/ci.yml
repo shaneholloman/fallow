@@ -27,6 +27,7 @@ jobs:
     outputs:
       rust: ${{ steps.filter.outputs.rust }}
       vscode: ${{ steps.filter.outputs.vscode }}
+      zed: ${{ steps.filter.outputs.zed }}
       actions: ${{ steps.filter.outputs.actions }}
       miri: ${{ steps.filter.outputs.miri }}
       ci-scripts: ${{ steps.filter.outputs.ci-scripts }}
@@ -46,6 +47,8 @@ jobs:
               - 'rust-toolchain.toml'
             vscode:
               - 'editors/vscode/**'
+            zed:
+              - 'editors/zed/**'
             actions:
               - '.github/**'
             miri:
@@ -147,6 +150,31 @@ jobs:
       - run: cd editors/vscode && pnpm build
       - run: cd editors/vscode && pnpm test:unit
       - run: cd editors/vscode && pnpm package
+
+  zed:
+    name: Zed Extension (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.zed == 'true' || github.event_name == 'push'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: ./.github/actions/setup-rust
+        with:
+          components: rustfmt
+          targets: wasm32-wasip2
+      - name: Run tests
+        run: cargo test --manifest-path editors/zed/Cargo.toml
+      - name: Build wasm extension
+        run: cargo build --target wasm32-wasip2 --manifest-path editors/zed/Cargo.toml
+      - name: Format
+        run: cargo fmt --check --manifest-path editors/zed/Cargo.toml
 
   test-gitlab-ci:
     name: Test GitLab CI scripts
