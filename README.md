@@ -422,6 +422,7 @@ Benchmarked on real open-source projects (median of 5 runs with 2 warmups, Apple
 | [zod](https://github.com/colinhacks/zod) | 174 | **25ms** | 650ms | 330ms | 26x | 13x |
 | [fastify](https://github.com/fastify/fastify) | 286 | **27ms** | 933ms | 222ms | 34x | 8x |
 | [preact](https://github.com/preactjs/preact) | 244 | **200ms** | 911ms | 2.15s | 5x | 11x |
+| [vue/core](https://github.com/vuejs/core) | 522 | **68ms** | ---* | ---* | --- | --- |
 | [TanStack/query](https://github.com/TanStack/query) | 901 | **330ms** | 2.66s | 1.08s | 8x | 3.3x |
 | [vite](https://github.com/vitejs/vite) | 1,420 | **378ms** | ---* | ---* | --- | --- |
 | [svelte](https://github.com/sveltejs/svelte) | 3,337 | **363ms** | 1.95s | 714ms | 5x | 2x |

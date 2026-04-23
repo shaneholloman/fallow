@@ -98,7 +98,7 @@ function firstDiagnosticLine(text) {
 }
 
 function parseJsonReport(stdout) {
-  const trimmed = stdout.trim();
+  const trimmed = stdout.replace(/^\uFEFF/, '').trim();
   if (!trimmed) return { ok: false, reason: 'no JSON output' };
   try {
     const data = JSON.parse(trimmed);
