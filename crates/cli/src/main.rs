@@ -326,13 +326,24 @@ enum Command {
         yes: bool,
     },
 
-    /// Initialize a .fallowrc.json configuration file
+    /// Initialize a .fallowrc.json configuration file (optionally a git
+    /// pre-commit hook).
+    ///
+    /// `--hooks` scaffolds a shell-level Git pre-commit hook under
+    /// `.git/hooks/` that runs fallow on changed files. This is the HUMAN /
+    /// git-level enforcement path. For the AI-agent-level enforcement (a
+    /// Claude Code `PreToolUse` hook that gates `git commit` / `git push`),
+    /// see `fallow setup-hooks` instead. The two commands target different
+    /// surfaces and can be used together.
     Init {
         /// Generate TOML instead of JSONC
         #[arg(long)]
         toml: bool,
 
-        /// Scaffold a pre-commit git hook that runs fallow on changed files
+        /// Scaffold a shell-level pre-commit git hook in `.git/hooks/` that
+        /// runs fallow on changed files. For a Claude Code PreToolUse gate
+        /// that feeds audit findings back to the agent, use
+        /// `fallow setup-hooks` instead.
         #[arg(long)]
         hooks: bool,
 
@@ -661,25 +672,30 @@ enum Command {
         subcommand: CoverageCli,
     },
 
-    /// Generate a Claude Code PreToolUse hook that gates `git commit` /
-    /// `git push` on `fallow audit`, so the agent cleans findings before
-    /// the command runs.
+    /// Install or remove a Claude Code PreToolUse hook that gates
+    /// `git commit` / `git push` on `fallow audit`, so the agent cleans
+    /// findings before the command runs.
     ///
-    /// Writes `.claude/settings.json` + `.claude/hooks/fallow-gate.sh` by
-    /// default. When an `AGENTS.md` or `.codex/` directory is present,
-    /// also maintains a Codex fallback block in `AGENTS.md` (experimental
-    /// Codex hooks are deliberately not used yet). See
-    /// `/integrations/claude-hooks` in the docs.
+    /// This is the AGENT-level enforcement surface. It writes into
+    /// `.claude/settings.json` + `.claude/hooks/fallow-gate.sh` (and
+    /// optionally an `AGENTS.md` managed block for Codex). For a
+    /// shell-level Git pre-commit hook in `.git/hooks/`, see
+    /// `fallow init --hooks` instead. Both commands can be used together:
+    /// git hooks catch human commits, the setup-hooks gate catches agent
+    /// commits.
+    ///
+    /// See `/integrations/claude-hooks` in the docs for the full recipe.
     SetupHooks {
         /// Target a specific agent surface (default: auto-detect).
         #[arg(long, value_enum)]
         agent: Option<setup_hooks::HookAgentArg>,
 
-        /// Print what would be written without touching the filesystem.
+        /// Print what would be written or removed without touching the filesystem.
         #[arg(long)]
         dry_run: bool,
 
-        /// Overwrite an existing hook script or invalid settings.json.
+        /// Overwrite a user-edited hook script, invalid settings.json, or
+        /// remove a user-edited script during uninstall.
         #[arg(long)]
         force: bool,
 
@@ -690,6 +706,12 @@ enum Command {
         /// Append `.claude/` to the project's `.gitignore`.
         #[arg(long)]
         gitignore_claude: bool,
+
+        /// Remove the fallow-gate handler, hook script, and AGENTS.md
+        /// managed block instead of installing them. Idempotent: reports
+        /// "unchanged" when nothing to remove.
+        #[arg(long)]
+        uninstall: bool,
     },
 }
 
@@ -1841,6 +1863,7 @@ fn dispatch_subcommand(
             force,
             user,
             gitignore_claude,
+            uninstall,
         } => setup_hooks::run_setup_hooks(&setup_hooks::SetupHooksOptions {
             root,
             agent,
@@ -1848,6 +1871,7 @@ fn dispatch_subcommand(
             force,
             user,
             gitignore_claude,
+            uninstall,
         }),
     }
 }
