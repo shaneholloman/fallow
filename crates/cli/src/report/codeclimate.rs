@@ -101,22 +101,14 @@ fn push_dep_cc_issues(
     }
 }
 
-/// Build CodeClimate JSON array from dead-code analysis results.
-#[must_use]
-#[expect(
-    clippy::too_many_lines,
-    reason = "report builder mapping all issue types to CodeClimate format"
-)]
-pub fn build_codeclimate(
-    results: &AnalysisResults,
+fn push_unused_file_issues(
+    issues: &mut Vec<serde_json::Value>,
+    files: &[fallow_core::results::UnusedFile],
     root: &Path,
-    rules: &RulesConfig,
-) -> serde_json::Value {
-    let mut issues = Vec::new();
-
-    // Unused files
-    let level = severity_to_codeclimate(rules.unused_files);
-    for file in &results.unused_files {
+    severity: Severity,
+) {
+    let level = severity_to_codeclimate(severity);
+    for file in files {
         let path = cc_path(&file.path, root);
         let fp = fingerprint_hash(&["fallow/unused-file", &path]);
         issues.push(cc_issue(
@@ -129,25 +121,34 @@ pub fn build_codeclimate(
             &fp,
         ));
     }
+}
 
-    // Unused exports
-    let level = severity_to_codeclimate(rules.unused_exports);
-    for export in &results.unused_exports {
+/// Push CodeClimate issues for unused exports or unused types.
+///
+/// `direct_label` / `re_export_label` let the same helper produce the right
+/// prose for both `unused-export` (Export / Re-export) and `unused-type`
+/// (Type export / Type re-export) rule ids.
+fn push_unused_export_issues(
+    issues: &mut Vec<serde_json::Value>,
+    exports: &[fallow_core::results::UnusedExport],
+    root: &Path,
+    rule_id: &str,
+    direct_label: &str,
+    re_export_label: &str,
+    severity: Severity,
+) {
+    let level = severity_to_codeclimate(severity);
+    for export in exports {
         let path = cc_path(&export.path, root);
         let kind = if export.is_re_export {
-            "Re-export"
+            re_export_label
         } else {
-            "Export"
+            direct_label
         };
         let line_str = export.line.to_string();
-        let fp = fingerprint_hash(&[
-            "fallow/unused-export",
-            &path,
-            &line_str,
-            &export.export_name,
-        ]);
+        let fp = fingerprint_hash(&[rule_id, &path, &line_str, &export.export_name]);
         issues.push(cc_issue(
-            "fallow/unused-export",
+            rule_id,
             &format!(
                 "{kind} '{}' is never imported by other modules",
                 export.export_name
@@ -159,61 +160,16 @@ pub fn build_codeclimate(
             &fp,
         ));
     }
+}
 
-    // Unused types
-    let level = severity_to_codeclimate(rules.unused_types);
-    for export in &results.unused_types {
-        let path = cc_path(&export.path, root);
-        let kind = if export.is_re_export {
-            "Type re-export"
-        } else {
-            "Type export"
-        };
-        let line_str = export.line.to_string();
-        let fp = fingerprint_hash(&["fallow/unused-type", &path, &line_str, &export.export_name]);
-        issues.push(cc_issue(
-            "fallow/unused-type",
-            &format!(
-                "{kind} '{}' is never imported by other modules",
-                export.export_name
-            ),
-            level,
-            "Bug Risk",
-            &path,
-            Some(export.line),
-            &fp,
-        ));
-    }
-
-    // Unused dependencies
-    push_dep_cc_issues(
-        &mut issues,
-        &results.unused_dependencies,
-        root,
-        "fallow/unused-dependency",
-        "dependencies",
-        rules.unused_dependencies,
-    );
-    push_dep_cc_issues(
-        &mut issues,
-        &results.unused_dev_dependencies,
-        root,
-        "fallow/unused-dev-dependency",
-        "devDependencies",
-        rules.unused_dev_dependencies,
-    );
-    push_dep_cc_issues(
-        &mut issues,
-        &results.unused_optional_dependencies,
-        root,
-        "fallow/unused-optional-dependency",
-        "optionalDependencies",
-        rules.unused_optional_dependencies,
-    );
-
-    // Type-only dependencies
-    let level = severity_to_codeclimate(rules.type_only_dependencies);
-    for dep in &results.type_only_dependencies {
+fn push_type_only_dep_issues(
+    issues: &mut Vec<serde_json::Value>,
+    deps: &[fallow_core::results::TypeOnlyDependency],
+    root: &Path,
+    severity: Severity,
+) {
+    let level = severity_to_codeclimate(severity);
+    for dep in deps {
         let path = cc_path(&dep.path, root);
         let line = if dep.line > 0 { Some(dep.line) } else { None };
         let fp = fingerprint_hash(&["fallow/type-only-dependency", &dep.package_name]);
@@ -230,10 +186,16 @@ pub fn build_codeclimate(
             &fp,
         ));
     }
+}
 
-    // Test-only dependencies
-    let level = severity_to_codeclimate(rules.test_only_dependencies);
-    for dep in &results.test_only_dependencies {
+fn push_test_only_dep_issues(
+    issues: &mut Vec<serde_json::Value>,
+    deps: &[fallow_core::results::TestOnlyDependency],
+    root: &Path,
+    severity: Severity,
+) {
+    let level = severity_to_codeclimate(severity);
+    for dep in deps {
         let path = cc_path(&dep.path, root);
         let line = if dep.line > 0 { Some(dep.line) } else { None };
         let fp = fingerprint_hash(&["fallow/test-only-dependency", &dep.package_name]);
@@ -250,23 +212,35 @@ pub fn build_codeclimate(
             &fp,
         ));
     }
+}
 
-    // Unused enum members
-    let level = severity_to_codeclimate(rules.unused_enum_members);
-    for member in &results.unused_enum_members {
+/// Push CodeClimate issues for unused enum or class members.
+///
+/// `entity_label` is `"Enum"` or `"Class"` so the rendered description reads
+/// "Enum member ..." or "Class member ..." accordingly.
+fn push_unused_member_issues(
+    issues: &mut Vec<serde_json::Value>,
+    members: &[fallow_core::results::UnusedMember],
+    root: &Path,
+    rule_id: &str,
+    entity_label: &str,
+    severity: Severity,
+) {
+    let level = severity_to_codeclimate(severity);
+    for member in members {
         let path = cc_path(&member.path, root);
         let line_str = member.line.to_string();
         let fp = fingerprint_hash(&[
-            "fallow/unused-enum-member",
+            rule_id,
             &path,
             &line_str,
             &member.parent_name,
             &member.member_name,
         ]);
         issues.push(cc_issue(
-            "fallow/unused-enum-member",
+            rule_id,
             &format!(
-                "Enum member '{}.{}' is never referenced",
+                "{entity_label} member '{}.{}' is never referenced",
                 member.parent_name, member.member_name
             ),
             level,
@@ -276,36 +250,16 @@ pub fn build_codeclimate(
             &fp,
         ));
     }
+}
 
-    // Unused class members
-    let level = severity_to_codeclimate(rules.unused_class_members);
-    for member in &results.unused_class_members {
-        let path = cc_path(&member.path, root);
-        let line_str = member.line.to_string();
-        let fp = fingerprint_hash(&[
-            "fallow/unused-class-member",
-            &path,
-            &line_str,
-            &member.parent_name,
-            &member.member_name,
-        ]);
-        issues.push(cc_issue(
-            "fallow/unused-class-member",
-            &format!(
-                "Class member '{}.{}' is never referenced",
-                member.parent_name, member.member_name
-            ),
-            level,
-            "Bug Risk",
-            &path,
-            Some(member.line),
-            &fp,
-        ));
-    }
-
-    // Unresolved imports
-    let level = severity_to_codeclimate(rules.unresolved_imports);
-    for import in &results.unresolved_imports {
+fn push_unresolved_import_issues(
+    issues: &mut Vec<serde_json::Value>,
+    imports: &[fallow_core::results::UnresolvedImport],
+    root: &Path,
+    severity: Severity,
+) {
+    let level = severity_to_codeclimate(severity);
+    for import in imports {
         let path = cc_path(&import.path, root);
         let line_str = import.line.to_string();
         let fp = fingerprint_hash(&[
@@ -324,10 +278,16 @@ pub fn build_codeclimate(
             &fp,
         ));
     }
+}
 
-    // Unlisted dependencies — one issue per import site
-    let level = severity_to_codeclimate(rules.unlisted_dependencies);
-    for dep in &results.unlisted_dependencies {
+fn push_unlisted_dep_issues(
+    issues: &mut Vec<serde_json::Value>,
+    deps: &[fallow_core::results::UnlistedDependency],
+    root: &Path,
+    severity: Severity,
+) {
+    let level = severity_to_codeclimate(severity);
+    for dep in deps {
         for site in &dep.imported_from {
             let path = cc_path(&site.path, root);
             let line_str = site.line.to_string();
@@ -351,10 +311,16 @@ pub fn build_codeclimate(
             ));
         }
     }
+}
 
-    // Duplicate exports — one issue per location
-    let level = severity_to_codeclimate(rules.duplicate_exports);
-    for dup in &results.duplicate_exports {
+fn push_duplicate_export_issues(
+    issues: &mut Vec<serde_json::Value>,
+    dups: &[fallow_core::results::DuplicateExport],
+    root: &Path,
+    severity: Severity,
+) {
+    let level = severity_to_codeclimate(severity);
+    for dup in dups {
         for loc in &dup.locations {
             let path = cc_path(&loc.path, root);
             let line_str = loc.line.to_string();
@@ -375,10 +341,16 @@ pub fn build_codeclimate(
             ));
         }
     }
+}
 
-    // Circular dependencies
-    let level = severity_to_codeclimate(rules.circular_dependencies);
-    for cycle in &results.circular_dependencies {
+fn push_circular_dep_issues(
+    issues: &mut Vec<serde_json::Value>,
+    cycles: &[fallow_core::results::CircularDependency],
+    root: &Path,
+    severity: Severity,
+) {
+    let level = severity_to_codeclimate(severity);
+    for cycle in cycles {
         let Some(first) = cycle.files.first() else {
             continue;
         };
@@ -409,10 +381,16 @@ pub fn build_codeclimate(
             &fp,
         ));
     }
+}
 
-    // Boundary violations
-    let level = severity_to_codeclimate(rules.boundary_violation);
-    for v in &results.boundary_violations {
+fn push_boundary_violation_issues(
+    issues: &mut Vec<serde_json::Value>,
+    violations: &[fallow_core::results::BoundaryViolation],
+    root: &Path,
+    severity: Severity,
+) {
+    let level = severity_to_codeclimate(severity);
+    for v in violations {
         let path = cc_path(&v.from_path, root);
         let to = cc_path(&v.to_path, root);
         let fp = fingerprint_hash(&["fallow/boundary-violation", &path, &to]);
@@ -430,10 +408,16 @@ pub fn build_codeclimate(
             &fp,
         ));
     }
+}
 
-    // Stale suppressions
-    let level = severity_to_codeclimate(rules.stale_suppressions);
-    for s in &results.stale_suppressions {
+fn push_stale_suppression_issues(
+    issues: &mut Vec<serde_json::Value>,
+    suppressions: &[fallow_core::results::StaleSuppression],
+    root: &Path,
+    severity: Severity,
+) {
+    let level = severity_to_codeclimate(severity);
+    for s in suppressions {
         let path = cc_path(&s.path, root);
         let line_str = s.line.to_string();
         let fp = fingerprint_hash(&["fallow/stale-suppression", &path, &line_str]);
@@ -447,6 +431,124 @@ pub fn build_codeclimate(
             &fp,
         ));
     }
+}
+
+/// Build CodeClimate JSON array from dead-code analysis results.
+#[must_use]
+pub fn build_codeclimate(
+    results: &AnalysisResults,
+    root: &Path,
+    rules: &RulesConfig,
+) -> serde_json::Value {
+    let mut issues = Vec::new();
+
+    push_unused_file_issues(&mut issues, &results.unused_files, root, rules.unused_files);
+    push_unused_export_issues(
+        &mut issues,
+        &results.unused_exports,
+        root,
+        "fallow/unused-export",
+        "Export",
+        "Re-export",
+        rules.unused_exports,
+    );
+    push_unused_export_issues(
+        &mut issues,
+        &results.unused_types,
+        root,
+        "fallow/unused-type",
+        "Type export",
+        "Type re-export",
+        rules.unused_types,
+    );
+    push_dep_cc_issues(
+        &mut issues,
+        &results.unused_dependencies,
+        root,
+        "fallow/unused-dependency",
+        "dependencies",
+        rules.unused_dependencies,
+    );
+    push_dep_cc_issues(
+        &mut issues,
+        &results.unused_dev_dependencies,
+        root,
+        "fallow/unused-dev-dependency",
+        "devDependencies",
+        rules.unused_dev_dependencies,
+    );
+    push_dep_cc_issues(
+        &mut issues,
+        &results.unused_optional_dependencies,
+        root,
+        "fallow/unused-optional-dependency",
+        "optionalDependencies",
+        rules.unused_optional_dependencies,
+    );
+    push_type_only_dep_issues(
+        &mut issues,
+        &results.type_only_dependencies,
+        root,
+        rules.type_only_dependencies,
+    );
+    push_test_only_dep_issues(
+        &mut issues,
+        &results.test_only_dependencies,
+        root,
+        rules.test_only_dependencies,
+    );
+    push_unused_member_issues(
+        &mut issues,
+        &results.unused_enum_members,
+        root,
+        "fallow/unused-enum-member",
+        "Enum",
+        rules.unused_enum_members,
+    );
+    push_unused_member_issues(
+        &mut issues,
+        &results.unused_class_members,
+        root,
+        "fallow/unused-class-member",
+        "Class",
+        rules.unused_class_members,
+    );
+    push_unresolved_import_issues(
+        &mut issues,
+        &results.unresolved_imports,
+        root,
+        rules.unresolved_imports,
+    );
+    push_unlisted_dep_issues(
+        &mut issues,
+        &results.unlisted_dependencies,
+        root,
+        rules.unlisted_dependencies,
+    );
+    push_duplicate_export_issues(
+        &mut issues,
+        &results.duplicate_exports,
+        root,
+        rules.duplicate_exports,
+    );
+    push_circular_dep_issues(
+        &mut issues,
+        &results.circular_dependencies,
+        root,
+        rules.circular_dependencies,
+    );
+    push_boundary_violation_issues(
+        &mut issues,
+        &results.boundary_violations,
+        root,
+        rules.boundary_violation,
+    );
+    push_stale_suppression_issues(
+        &mut issues,
+        &results.stale_suppressions,
+        root,
+        rules.stale_suppressions,
+    );
 
     serde_json::Value::Array(issues)
 }
