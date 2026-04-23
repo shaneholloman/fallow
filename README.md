@@ -137,6 +137,8 @@ npx fallow audit --format json
 npx fallow fix --dry-run --format json
 ```
 
+For full adoption instead of one-off review, see the [Fallow compliance happy path](https://github.com/fallow-rs/fallow/blob/main/docs/fallow-compliance.md). It defines the end state clearly: repo-wide dead code and duplication findings are fixed or explicitly documented, `fallow health` reaches `Above threshold: 0` for the repo's chosen thresholds, and `fallow audit` becomes the change-set gate once adoption is wired in. It also includes a copy-paste agent onboarding prompt.
+
 See [Agent integration](https://docs.fallow.tools/integrations/mcp) for MCP setup and the full list of structured tools.
 
 ## More static commands
@@ -265,18 +267,18 @@ Returns a verdict: **pass** (exit 0), **warn** (exit 0, warn-severity only), or 
 
 ```bash
 # Save once from a clean ref
-fallow dead-code --save-baseline .fallow/dead-code-baseline.json
-fallow health    --save-baseline .fallow/health-baseline.json
-fallow dupes     --save-baseline .fallow/dupes-baseline.json
+fallow dead-code --save-baseline .fallow-dead-code-baseline.json
+fallow health    --save-baseline .fallow-health-baseline.json
+fallow dupes     --save-baseline .fallow-dupes-baseline.json
 
 # Feed into audit on every PR
 fallow audit \
-  --dead-code-baseline .fallow/dead-code-baseline.json \
-  --health-baseline    .fallow/health-baseline.json \
-  --dupes-baseline     .fallow/dupes-baseline.json
+  --dead-code-baseline .fallow-dead-code-baseline.json \
+  --health-baseline    .fallow-health-baseline.json \
+  --dupes-baseline     .fallow-dupes-baseline.json
 ```
 
-Configure defaults in `.fallowrc.json` under `audit.deadCodeBaseline` / `audit.healthBaseline` / `audit.dupesBaseline` so CI stays one command (`fallow audit`). CLI flags override config.
+Keep committed baselines outside `.fallow/`; that directory is for cache and local data and is typically gitignored. Configure defaults in `.fallowrc.json` under `audit.deadCodeBaseline` / `audit.healthBaseline` / `audit.dupesBaseline` so CI stays one command (`fallow audit`). CLI flags override config.
 
 ## CI integration
 
@@ -458,6 +460,7 @@ fallow uses syntactic analysis -- no type information. This is what makes it fas
 - [Configuration reference](https://docs.fallow.tools/configuration/overview)
 - [CI integration guide](https://docs.fallow.tools/integrations/ci)
 - [Migrating from knip](https://docs.fallow.tools/migration/from-knip)
+- [Fallow compliance happy path](https://github.com/fallow-rs/fallow/blob/main/docs/fallow-compliance.md)
 - [Plugin authoring guide](https://github.com/fallow-rs/fallow/blob/main/docs/plugin-authoring.md)
 
 ## Contributing
