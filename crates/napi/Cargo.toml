@@ -24,7 +24,6 @@ fallow-cli = { workspace = true }
 napi = { version = "3", features = ["serde-json", "tokio_rt"] }
 napi-derive = "3"
 serde_json = { workspace = true }
-tokio = { workspace = true }
 
 [build-dependencies]
 napi-build = "2"

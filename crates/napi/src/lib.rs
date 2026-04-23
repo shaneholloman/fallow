@@ -185,6 +185,15 @@ fn parse_ownership_email_mode(
     }
 }
 
+fn narrow_to_u16(field: &str, value: u32) -> napi::Result<u16> {
+    u16::try_from(value).map_err(|_| {
+        napi::Error::new(
+            Status::InvalidArg,
+            format!("`{field}` must be between 0 and {}", u16::MAX),
+        )
+    })
+}
+
 fn parse_target_effort(value: Option<String>) -> napi::Result<Option<programmatic::TargetEffort>> {
     let Some(value) = value else {
         return Ok(None);
@@ -246,6 +255,7 @@ impl TryFrom<DuplicationOptions> for programmatic::DuplicationOptions {
     type Error = napi::Error;
 
     fn try_from(value: DuplicationOptions) -> Result<Self, Self::Error> {
+        let defaults = programmatic::DuplicationOptions::default();
         Ok(Self {
             analysis: map_common_options(
                 value.root,
@@ -259,12 +269,12 @@ impl TryFrom<DuplicationOptions> for programmatic::DuplicationOptions {
                 value.explain,
             )?,
             mode: parse_duplication_mode(value.mode)?,
-            min_tokens: value.min_tokens.unwrap_or(50) as usize,
-            min_lines: value.min_lines.unwrap_or(5) as usize,
-            threshold: value.threshold.unwrap_or(0.0),
-            skip_local: value.skip_local.unwrap_or(false),
-            cross_language: value.cross_language.unwrap_or(false),
-            ignore_imports: value.ignore_imports.unwrap_or(false),
+            min_tokens: value.min_tokens.map_or(defaults.min_tokens, |n| n as usize),
+            min_lines: value.min_lines.map_or(defaults.min_lines, |n| n as usize),
+            threshold: value.threshold.unwrap_or(defaults.threshold),
+            skip_local: value.skip_local.unwrap_or(defaults.skip_local),
+            cross_language: value.cross_language.unwrap_or(defaults.cross_language),
+            ignore_imports: value.ignore_imports.unwrap_or(defaults.ignore_imports),
             top: value.top.map(|n| n as usize),
         })
     }
@@ -286,8 +296,14 @@ impl TryFrom<ComplexityOptions> for programmatic::ComplexityOptions {
                 value.changed_workspaces,
                 value.explain,
             )?,
-            max_cyclomatic: value.max_cyclomatic.map(|n| n as u16),
-            max_cognitive: value.max_cognitive.map(|n| n as u16),
+            max_cyclomatic: value
+                .max_cyclomatic
+                .map(|n| narrow_to_u16("maxCyclomatic", n))
+                .transpose()?,
+            max_cognitive: value
+                .max_cognitive
+                .map(|n| narrow_to_u16("maxCognitive", n))
+                .transpose()?,
             max_crap: value.max_crap,
             top: value.top.map(|n| n as usize),
             sort: parse_complexity_sort(value.sort)?,
