@@ -1,6 +1,6 @@
 {
   "name": "fallow",
-  "version": "2.45.1",
+  "version": "2.46.0",
   "description": "Codebase intelligence for TypeScript and JavaScript. Finds unused code, duplication, circular dependencies, complexity hotspots, and architecture drift. Optional runtime intelligence layer (Fallow Runtime) adds production execution evidence. Rust-native, sub-second, 90 framework plugins.",
   "license": "MIT",
   "repository": {
@@ -41,12 +41,12 @@
     "detect-libc": "2.1.2"
   },
   "optionalDependencies": {
-    "@fallow-cli/darwin-arm64": "2.45.1",
-    "@fallow-cli/darwin-x64": "2.45.1",
-    "@fallow-cli/linux-x64-gnu": "2.45.1",
-    "@fallow-cli/linux-arm64-gnu": "2.45.1",
-    "@fallow-cli/linux-x64-musl": "2.45.1",
-    "@fallow-cli/linux-arm64-musl": "2.45.1",
-    "@fallow-cli/win32-x64-msvc": "2.45.1"
+    "@fallow-cli/darwin-arm64": "2.46.0",
+    "@fallow-cli/darwin-x64": "2.46.0",
+    "@fallow-cli/linux-x64-gnu": "2.46.0",
+    "@fallow-cli/linux-arm64-gnu": "2.46.0",
+    "@fallow-cli/linux-x64-musl": "2.46.0",
+    "@fallow-cli/linux-arm64-musl": "2.46.0",
+    "@fallow-cli/win32-x64-msvc": "2.46.0"
   }
 }

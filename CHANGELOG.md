@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.46.0] - 2026-04-23
+
+### Added
+
+- **`fallow setup-hooks` generates a Claude Code `PreToolUse` gate** that intercepts Claude's `git commit` / `git push` Bash tool calls, runs `fallow audit --format json --quiet --explain`, and blocks with exit 2 + JSON-to-stderr on `verdict: "fail"`. The agent reads the full audit envelope (including `_meta.docs` links and `actions` arrays on every finding), fixes the code, and retries. Runtime errors fail open with a single stderr notice so skips stay visible rather than silently trusting a missing gate. Writes project-level `.claude/settings.json` + `.claude/hooks/fallow-gate.sh` (chmod 755 on Unix), and optionally maintains an idempotent managed block in `AGENTS.md` between `<!-- fallow:setup-hooks:start/end -->` markers as a Codex fallback while Codex hooks stabilise. Flags: `--agent claude|codex`, `--dry-run`, `--force`, `--user` (installs globally under `~/.claude/` with a `$HOME`-based handler command), `--gitignore-claude`, `--uninstall`. The uninstall path removes the fallow handler while preserving any non-fallow handlers in the same matcher group, deletes the hook script if it still carries the generator marker, and strips the managed AGENTS.md block; idempotent on repeat runs. Re-running the installer upgrades handlers written by earlier manual setups (absolute paths, `~/`-based paths, Windows drive paths) to the canonical `"$CLAUDE_PROJECT_DIR"` form without leaving duplicates. See <https://docs.fallow.tools/integrations/claude-hooks>.
+- **Zed editor extension.** Thanks [@williameckert1](https://github.com/williameckert1) ([#164](https://github.com/fallow-rs/fallow/pull/164)).
+
+### Fixed
+
+- **Health baselines survive line-number churn.** The health baseline keyed on `file + function + line_start`, so any refactor that shifted lines invalidated every entry and reported the same findings as "new." The key now uses `file + function + qualified_name` (line-stable), mirroring the dead-code and duplication baselines. Closes [#169](https://github.com/fallow-rs/fallow/issues/169).
+- **`fallow --save-baseline <path>` auto-creates the parent directory.** Copy-pasting the `fallow-baselines/dead-code.json` example into a fresh repo used to error with "No such file or directory" because the baseline writer never ran `mkdir -p`. Applies to `dead-code`, `health`, and `dupes` save-baseline paths.
+- **Shallow nested package scripts are discovered again.** The package-script walker stopped descending into `workspaces/*/package.json` entries that lived one directory below the root, silently dropping nested script declarations from the entry-point graph. The walker now follows shallow nesting the same way it follows deep nesting. Thanks [@M-Hassan-Raza](https://github.com/M-Hassan-Raza).
+
 ## [2.45.1] - 2026-04-22
 
 ### Fixed
@@ -1564,6 +1577,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cross-workspace resolution for npm/yarn/pnpm workspaces
 
 [Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.45.1...HEAD
+[2.46.0]: https://github.com/fallow-rs/fallow/compare/v2.45.1...v2.46.0
 [2.45.1]: https://github.com/fallow-rs/fallow/compare/v2.45.0...v2.45.1
 [2.45.0]: https://github.com/fallow-rs/fallow/compare/v2.44.2...v2.45.0
 [2.44.2]: https://github.com/fallow-rs/fallow/compare/v2.44.1...v2.44.2
