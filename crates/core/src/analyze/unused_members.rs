@@ -129,9 +129,103 @@ fn build_local_to_export_keys(resolved: &ResolvedModule) -> FxHashMap<&str, Vec<
     local_to_export_keys
 }
 
+/// Build `parent_export -> [child_export, ...]` from each exported class's
+/// `extends` clause (resolved through the importing module's
+/// `local_to_export_keys`). Output is deduplicated per-parent.
+fn build_parent_to_children(
+    resolved_modules: &[ResolvedModule],
+) -> FxHashMap<ExportKey, Vec<ExportKey>> {
+    let mut parent_to_children: FxHashMap<ExportKey, Vec<ExportKey>> = FxHashMap::default();
+
+    for resolved in resolved_modules {
+        let local_to_export_keys = build_local_to_export_keys(resolved);
+
+        for export in &resolved.exports {
+            if let Some(super_local) = &export.super_class {
+                let Some(parent_keys) = local_to_export_keys.get(super_local.as_str()) else {
+                    continue;
+                };
+                let child_key = ExportKey::new(resolved.file_id, export.name.to_string());
+
+                for parent_key in parent_keys {
+                    let children = parent_to_children.entry(parent_key.clone()).or_default();
+                    if !children.contains(&child_key) {
+                        children.push(child_key.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    parent_to_children
+}
+
+/// Propagate member accesses through `extends` chains in both directions.
+///
+/// - Parent `this.*` accesses flow down to child files, so a base class method
+///   calling `this.getArea()` credits `Circle.getArea()` / `Rectangle.getArea()`.
+/// - External accesses on a parent export flow down to every child export.
+/// - External accesses on any child export flow up to the parent export.
+///
+/// Self-access propagations are computed on a snapshot first and applied after
+/// the external-access loop so the mutable borrows stay disjoint.
+fn propagate_class_inheritance(
+    resolved_modules: &[ResolvedModule],
+    accessed_members: &mut FxHashMap<ExportKey, FxHashSet<String>>,
+    self_accessed_members: &mut FxHashMap<FileId, FxHashSet<String>>,
+) {
+    let parent_to_children = build_parent_to_children(resolved_modules);
+    if parent_to_children.is_empty() {
+        return;
+    }
+
+    let mut propagations: Vec<(FileId, Vec<String>)> = Vec::new();
+
+    for (parent_key, children) in &parent_to_children {
+        if let Some(parent_self_accesses) = self_accessed_members.get(&parent_key.file_id) {
+            let accesses: Vec<String> = parent_self_accesses.iter().cloned().collect();
+            for child_key in children {
+                propagations.push((child_key.file_id, accesses.clone()));
+            }
+        }
+
+        let parent_accesses = accessed_members.get(parent_key).cloned();
+        let mut child_accesses_to_propagate: FxHashSet<String> = FxHashSet::default();
+
+        for child_key in children {
+            if let Some(child_accesses) = accessed_members.get(child_key) {
+                child_accesses_to_propagate.extend(child_accesses.iter().cloned());
+            }
+        }
+
+        if let Some(ref parent_acc) = parent_accesses {
+            for child_key in children {
+                accessed_members
+                    .entry(child_key.clone())
+                    .or_default()
+                    .extend(parent_acc.iter().cloned());
+            }
+        }
+
+        if !child_accesses_to_propagate.is_empty() {
+            accessed_members
+                .entry(parent_key.clone())
+                .or_default()
+                .extend(child_accesses_to_propagate);
+        }
+    }
+
+    for (file_id, members) in propagations {
+        let entry = self_accessed_members.entry(file_id).or_default();
+        for member in members {
+            entry.insert(member);
+        }
+    }
+}
+
 #[expect(
     clippy::too_many_lines,
-    reason = "member tracking requires many graph traversal steps; split candidate for sig-audit-loop"
+    reason = "member tracking requires many graph traversal steps; further splitting is possible but not yet a priority"
 )]
 pub fn find_unused_members(
     graph: &ModuleGraph,
@@ -255,91 +349,11 @@ pub fn find_unused_members(
         }
     }
 
-    // ── Inheritance propagation ────────────────────────────────────────────
-    //
-    // Build an inheritance map from `extends` clauses, then propagate member
-    // accesses through the hierarchy. This prevents false positives where:
-    // - A parent class method accesses `this.member` (credits child overrides)
-    // - A child class override is flagged unused when the parent method is used
-    //
-    // parent_to_children: BaseShape@file_a → [Circle@file_b, Rectangle@file_c]
-    let mut parent_to_children: FxHashMap<ExportKey, Vec<ExportKey>> = FxHashMap::default();
-
-    for resolved in resolved_modules {
-        let local_to_export_keys = build_local_to_export_keys(resolved);
-
-        for export in &resolved.exports {
-            if let Some(super_local) = &export.super_class {
-                let Some(parent_keys) = local_to_export_keys.get(super_local.as_str()) else {
-                    continue;
-                };
-                let child_key = ExportKey::new(resolved.file_id, export.name.to_string());
-
-                for parent_key in parent_keys {
-                    let children = parent_to_children.entry(parent_key.clone()).or_default();
-                    if !children.contains(&child_key) {
-                        children.push(child_key.clone());
-                    }
-                }
-            }
-        }
-    }
-
-    // Propagate `this.member` accesses from parent files to child files.
-    // When BaseShape.describe() calls `this.getArea()`, that should credit
-    // Circle.getArea() and Rectangle.getArea() as used.
-    if !parent_to_children.is_empty() {
-        // Collect propagations first to avoid borrow conflicts
-        let mut propagations: Vec<(FileId, Vec<String>)> = Vec::new();
-
-        for (parent_key, children) in &parent_to_children {
-            // Propagate parent's this.* accesses to child files
-            if let Some(parent_self_accesses) = self_accessed_members.get(&parent_key.file_id) {
-                let accesses: Vec<String> = parent_self_accesses.iter().cloned().collect();
-                for child_key in children {
-                    propagations.push((child_key.file_id, accesses.clone()));
-                }
-            }
-
-            // Also propagate accessed_members bidirectionally:
-            // If parent's member is externally accessed, credit all children
-            // If child's member is externally accessed, credit the parent
-            let parent_accesses = accessed_members.get(parent_key).cloned();
-            let mut child_accesses_to_propagate: FxHashSet<String> = FxHashSet::default();
-
-            for child_key in children {
-                if let Some(child_accesses) = accessed_members.get(child_key) {
-                    child_accesses_to_propagate.extend(child_accesses.iter().cloned());
-                }
-            }
-
-            // Parent → children
-            if let Some(ref parent_acc) = parent_accesses {
-                for child_key in children {
-                    accessed_members
-                        .entry(child_key.clone())
-                        .or_default()
-                        .extend(parent_acc.iter().cloned());
-                }
-            }
-
-            // Children → parent
-            if !child_accesses_to_propagate.is_empty() {
-                accessed_members
-                    .entry(parent_key.clone())
-                    .or_default()
-                    .extend(child_accesses_to_propagate);
-            }
-        }
-
-        // Apply self_accessed_members propagations
-        for (file_id, members) in propagations {
-            let entry = self_accessed_members.entry(file_id).or_default();
-            for member in members {
-                entry.insert(member);
-            }
-        }
-    }
+    propagate_class_inheritance(
+        resolved_modules,
+        &mut accessed_members,
+        &mut self_accessed_members,
+    );
 
     // Bridge Angular template member refs to their owning components.
     //

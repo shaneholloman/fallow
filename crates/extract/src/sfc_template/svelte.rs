@@ -156,7 +156,7 @@ fn strip_non_template_content(source: &str) -> String {
 
 #[expect(
     clippy::too_many_lines,
-    reason = "Svelte tag dispatch is inherently branchy; split candidate for sig-audit-loop"
+    reason = "Svelte tag dispatch is inherently branchy; each tag kind is handled in-place for locality"
 )]
 fn apply_tag(
     tag: &str,

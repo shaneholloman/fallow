@@ -416,7 +416,7 @@ pub fn analyze_with_parse_result(
 )]
 #[expect(
     clippy::too_many_lines,
-    reason = "main pipeline function; split candidate for sig-audit-loop"
+    reason = "main pipeline function; sequential phases are held together for clarity"
 )]
 fn analyze_full(
     config: &ResolvedConfig,

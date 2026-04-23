@@ -83,7 +83,7 @@ fn is_cross_package_cycle(
 /// Find all dead code, with optional resolved module data, plugin context, and workspace info.
 #[expect(
     clippy::too_many_lines,
-    reason = "orchestration function calling all detectors; split candidate for sig-audit-loop"
+    reason = "orchestration function calling all detectors; each call is one-line and the sequence is easier to follow in one place"
 )]
 pub fn find_dead_code_full(
     graph: &ModuleGraph,
