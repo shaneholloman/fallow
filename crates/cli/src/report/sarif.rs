@@ -3,7 +3,11 @@ use std::process::ExitCode;
 
 use fallow_config::{RulesConfig, Severity};
 use fallow_core::duplicates::DuplicationReport;
-use fallow_core::results::{AnalysisResults, UnusedDependency, UnusedExport, UnusedMember};
+use fallow_core::results::{
+    AnalysisResults, BoundaryViolation, CircularDependency, DuplicateExport, StaleSuppression,
+    TestOnlyDependency, TypeOnlyDependency, UnlistedDependency, UnresolvedImport, UnusedDependency,
+    UnusedExport, UnusedFile, UnusedMember,
+};
 
 use super::grouping::{self, OwnershipResolver};
 use super::{emit_json, relative_uri};
@@ -172,6 +176,193 @@ fn sarif_member_fields(
     }
 }
 
+fn sarif_unused_file_fields(file: &UnusedFile, root: &Path, level: &'static str) -> SarifFields {
+    SarifFields {
+        rule_id: "fallow/unused-file",
+        level,
+        message: "File is not reachable from any entry point".to_string(),
+        uri: relative_uri(&file.path, root),
+        region: None,
+        properties: None,
+    }
+}
+
+fn sarif_type_only_dep_fields(
+    dep: &TypeOnlyDependency,
+    root: &Path,
+    level: &'static str,
+) -> SarifFields {
+    SarifFields {
+        rule_id: "fallow/type-only-dependency",
+        level,
+        message: format!(
+            "Package '{}' is only imported via type-only imports (consider moving to devDependencies)",
+            dep.package_name
+        ),
+        uri: relative_uri(&dep.path, root),
+        region: if dep.line > 0 {
+            Some((dep.line, 1))
+        } else {
+            None
+        },
+        properties: None,
+    }
+}
+
+fn sarif_test_only_dep_fields(
+    dep: &TestOnlyDependency,
+    root: &Path,
+    level: &'static str,
+) -> SarifFields {
+    SarifFields {
+        rule_id: "fallow/test-only-dependency",
+        level,
+        message: format!(
+            "Package '{}' is only imported by test files (consider moving to devDependencies)",
+            dep.package_name
+        ),
+        uri: relative_uri(&dep.path, root),
+        region: if dep.line > 0 {
+            Some((dep.line, 1))
+        } else {
+            None
+        },
+        properties: None,
+    }
+}
+
+fn sarif_unresolved_import_fields(
+    import: &UnresolvedImport,
+    root: &Path,
+    level: &'static str,
+) -> SarifFields {
+    SarifFields {
+        rule_id: "fallow/unresolved-import",
+        level,
+        message: format!("Import '{}' could not be resolved", import.specifier),
+        uri: relative_uri(&import.path, root),
+        region: Some((import.line, import.col + 1)),
+        properties: None,
+    }
+}
+
+fn sarif_circular_dep_fields(
+    cycle: &CircularDependency,
+    root: &Path,
+    level: &'static str,
+) -> SarifFields {
+    let chain: Vec<String> = cycle.files.iter().map(|p| relative_uri(p, root)).collect();
+    let mut display_chain = chain.clone();
+    if let Some(first) = chain.first() {
+        display_chain.push(first.clone());
+    }
+    let first_uri = chain.first().map_or_else(String::new, Clone::clone);
+    SarifFields {
+        rule_id: "fallow/circular-dependency",
+        level,
+        message: format!(
+            "Circular dependency{}: {}",
+            if cycle.is_cross_package {
+                " (cross-package)"
+            } else {
+                ""
+            },
+            display_chain.join(" \u{2192} ")
+        ),
+        uri: first_uri,
+        region: if cycle.line > 0 {
+            Some((cycle.line, cycle.col + 1))
+        } else {
+            None
+        },
+        properties: None,
+    }
+}
+
+fn sarif_boundary_violation_fields(
+    violation: &BoundaryViolation,
+    root: &Path,
+    level: &'static str,
+) -> SarifFields {
+    let from_uri = relative_uri(&violation.from_path, root);
+    let to_uri = relative_uri(&violation.to_path, root);
+    SarifFields {
+        rule_id: "fallow/boundary-violation",
+        level,
+        message: format!(
+            "Import from zone '{}' to zone '{}' is not allowed ({})",
+            violation.from_zone, violation.to_zone, to_uri,
+        ),
+        uri: from_uri,
+        region: if violation.line > 0 {
+            Some((violation.line, violation.col + 1))
+        } else {
+            None
+        },
+        properties: None,
+    }
+}
+
+fn sarif_stale_suppression_fields(
+    suppression: &StaleSuppression,
+    root: &Path,
+    level: &'static str,
+) -> SarifFields {
+    SarifFields {
+        rule_id: "fallow/stale-suppression",
+        level,
+        message: suppression.description(),
+        uri: relative_uri(&suppression.path, root),
+        region: Some((suppression.line, suppression.col + 1)),
+        properties: None,
+    }
+}
+
+/// Unlisted deps fan out to one SARIF result per import site, so they do not
+/// fit `push_sarif_results`. Keep the nested-loop shape in its own helper.
+fn push_sarif_unlisted_deps(
+    sarif_results: &mut Vec<serde_json::Value>,
+    deps: &[UnlistedDependency],
+    root: &Path,
+    level: &'static str,
+) {
+    for dep in deps {
+        for site in &dep.imported_from {
+            sarif_results.push(sarif_result(
+                "fallow/unlisted-dependency",
+                level,
+                &format!(
+                    "Package '{}' is imported but not listed in package.json",
+                    dep.package_name
+                ),
+                &relative_uri(&site.path, root),
+                Some((site.line, site.col + 1)),
+            ));
+        }
+    }
+}
+
+/// Duplicate exports fan out to one SARIF result per location
+/// (SARIF 2.1.0 section 3.27.12), so they do not fit `push_sarif_results`.
+fn push_sarif_duplicate_exports(
+    sarif_results: &mut Vec<serde_json::Value>,
+    dups: &[DuplicateExport],
+    root: &Path,
+    level: &'static str,
+) {
+    for dup in dups {
+        for loc in &dup.locations {
+            sarif_results.push(sarif_result(
+                "fallow/duplicate-export",
+                level,
+                &format!("Export '{}' appears in multiple modules", dup.export_name),
+                &relative_uri(&loc.path, root),
+                Some((loc.line, loc.col + 1)),
+            ));
+        }
+    }
+}
+
 /// Build the SARIF rules list from the current rules configuration.
 fn build_sarif_rules(rules: &RulesConfig) -> Vec<serde_json::Value> {
     vec![
@@ -259,257 +450,131 @@ fn build_sarif_rules(rules: &RulesConfig) -> Vec<serde_json::Value> {
 }
 
 #[must_use]
-#[expect(
-    clippy::too_many_lines,
-    reason = "SARIF builder mapping all issue types to SARIF schema"
-)]
 pub fn build_sarif(
     results: &AnalysisResults,
     root: &Path,
     rules: &RulesConfig,
 ) -> serde_json::Value {
     let mut sarif_results = Vec::new();
+    let lvl_files = severity_to_sarif_level(rules.unused_files);
+    let lvl_exports = severity_to_sarif_level(rules.unused_exports);
+    let lvl_types = severity_to_sarif_level(rules.unused_types);
+    let lvl_deps = severity_to_sarif_level(rules.unused_dependencies);
+    let lvl_dev_deps = severity_to_sarif_level(rules.unused_dev_dependencies);
+    let lvl_opt_deps = severity_to_sarif_level(rules.unused_optional_dependencies);
+    let lvl_type_only = severity_to_sarif_level(rules.type_only_dependencies);
+    let lvl_test_only = severity_to_sarif_level(rules.test_only_dependencies);
+    let lvl_enum_members = severity_to_sarif_level(rules.unused_enum_members);
+    let lvl_class_members = severity_to_sarif_level(rules.unused_class_members);
+    let lvl_unresolved = severity_to_sarif_level(rules.unresolved_imports);
+    let lvl_unlisted = severity_to_sarif_level(rules.unlisted_dependencies);
+    let lvl_duplicate = severity_to_sarif_level(rules.duplicate_exports);
+    let lvl_circular = severity_to_sarif_level(rules.circular_dependencies);
+    let lvl_boundary = severity_to_sarif_level(rules.boundary_violation);
+    let lvl_stale = severity_to_sarif_level(rules.stale_suppressions);
 
-    push_sarif_results(&mut sarif_results, &results.unused_files, |file| {
-        SarifFields {
-            rule_id: "fallow/unused-file",
-            level: severity_to_sarif_level(rules.unused_files),
-            message: "File is not reachable from any entry point".to_string(),
-            uri: relative_uri(&file.path, root),
-            region: None,
-            properties: None,
-        }
+    push_sarif_results(&mut sarif_results, &results.unused_files, |f| {
+        sarif_unused_file_fields(f, root, lvl_files)
     });
-
-    push_sarif_results(&mut sarif_results, &results.unused_exports, |export| {
+    push_sarif_results(&mut sarif_results, &results.unused_exports, |e| {
         sarif_export_fields(
-            export,
+            e,
             root,
             "fallow/unused-export",
-            severity_to_sarif_level(rules.unused_exports),
+            lvl_exports,
             "Export",
             "Re-export",
         )
     });
-
-    push_sarif_results(&mut sarif_results, &results.unused_types, |export| {
+    push_sarif_results(&mut sarif_results, &results.unused_types, |e| {
         sarif_export_fields(
-            export,
+            e,
             root,
             "fallow/unused-type",
-            severity_to_sarif_level(rules.unused_types),
+            lvl_types,
             "Type export",
             "Type re-export",
         )
     });
-
-    push_sarif_results(&mut sarif_results, &results.unused_dependencies, |dep| {
+    push_sarif_results(&mut sarif_results, &results.unused_dependencies, |d| {
         sarif_dep_fields(
-            dep,
+            d,
             root,
             "fallow/unused-dependency",
-            severity_to_sarif_level(rules.unused_dependencies),
+            lvl_deps,
             "dependencies",
         )
     });
-
-    push_sarif_results(
-        &mut sarif_results,
-        &results.unused_dev_dependencies,
-        |dep| {
-            sarif_dep_fields(
-                dep,
-                root,
-                "fallow/unused-dev-dependency",
-                severity_to_sarif_level(rules.unused_dev_dependencies),
-                "devDependencies",
-            )
-        },
-    );
-
+    push_sarif_results(&mut sarif_results, &results.unused_dev_dependencies, |d| {
+        sarif_dep_fields(
+            d,
+            root,
+            "fallow/unused-dev-dependency",
+            lvl_dev_deps,
+            "devDependencies",
+        )
+    });
     push_sarif_results(
         &mut sarif_results,
         &results.unused_optional_dependencies,
-        |dep| {
+        |d| {
             sarif_dep_fields(
-                dep,
+                d,
                 root,
                 "fallow/unused-optional-dependency",
-                severity_to_sarif_level(rules.unused_optional_dependencies),
+                lvl_opt_deps,
                 "optionalDependencies",
             )
         },
     );
-
-    push_sarif_results(&mut sarif_results, &results.type_only_dependencies, |dep| {
-        SarifFields {
-            rule_id: "fallow/type-only-dependency",
-            level: severity_to_sarif_level(rules.type_only_dependencies),
-            message: format!(
-                "Package '{}' is only imported via type-only imports (consider moving to devDependencies)",
-                dep.package_name
-            ),
-            uri: relative_uri(&dep.path, root),
-            region: if dep.line > 0 {
-                Some((dep.line, 1))
-            } else {
-                None
-            },
-            properties: None,
-        }
+    push_sarif_results(&mut sarif_results, &results.type_only_dependencies, |d| {
+        sarif_type_only_dep_fields(d, root, lvl_type_only)
     });
-
-    push_sarif_results(&mut sarif_results, &results.test_only_dependencies, |dep| {
-        SarifFields {
-            rule_id: "fallow/test-only-dependency",
-            level: severity_to_sarif_level(rules.test_only_dependencies),
-            message: format!(
-                "Package '{}' is only imported by test files (consider moving to devDependencies)",
-                dep.package_name
-            ),
-            uri: relative_uri(&dep.path, root),
-            region: if dep.line > 0 {
-                Some((dep.line, 1))
-            } else {
-                None
-            },
-            properties: None,
-        }
+    push_sarif_results(&mut sarif_results, &results.test_only_dependencies, |d| {
+        sarif_test_only_dep_fields(d, root, lvl_test_only)
     });
-
-    push_sarif_results(&mut sarif_results, &results.unused_enum_members, |member| {
+    push_sarif_results(&mut sarif_results, &results.unused_enum_members, |m| {
         sarif_member_fields(
-            member,
+            m,
             root,
             "fallow/unused-enum-member",
-            severity_to_sarif_level(rules.unused_enum_members),
+            lvl_enum_members,
             "Enum",
         )
     });
-
-    push_sarif_results(
-        &mut sarif_results,
-        &results.unused_class_members,
-        |member| {
-            sarif_member_fields(
-                member,
-                root,
-                "fallow/unused-class-member",
-                severity_to_sarif_level(rules.unused_class_members),
-                "Class",
-            )
-        },
-    );
-
-    push_sarif_results(&mut sarif_results, &results.unresolved_imports, |import| {
-        SarifFields {
-            rule_id: "fallow/unresolved-import",
-            level: severity_to_sarif_level(rules.unresolved_imports),
-            message: format!("Import '{}' could not be resolved", import.specifier),
-            uri: relative_uri(&import.path, root),
-            region: Some((import.line, import.col + 1)),
-            properties: None,
-        }
+    push_sarif_results(&mut sarif_results, &results.unused_class_members, |m| {
+        sarif_member_fields(
+            m,
+            root,
+            "fallow/unused-class-member",
+            lvl_class_members,
+            "Class",
+        )
     });
-
-    // Unlisted deps: one result per importing file (SARIF points to the import site)
-    for dep in &results.unlisted_dependencies {
-        for site in &dep.imported_from {
-            sarif_results.push(sarif_result(
-                "fallow/unlisted-dependency",
-                severity_to_sarif_level(rules.unlisted_dependencies),
-                &format!(
-                    "Package '{}' is imported but not listed in package.json",
-                    dep.package_name
-                ),
-                &relative_uri(&site.path, root),
-                Some((site.line, site.col + 1)),
-            ));
-        }
-    }
-
-    // Duplicate exports: one result per location (SARIF 2.1.0 section 3.27.12)
-    for dup in &results.duplicate_exports {
-        for loc in &dup.locations {
-            sarif_results.push(sarif_result(
-                "fallow/duplicate-export",
-                severity_to_sarif_level(rules.duplicate_exports),
-                &format!("Export '{}' appears in multiple modules", dup.export_name),
-                &relative_uri(&loc.path, root),
-                Some((loc.line, loc.col + 1)),
-            ));
-        }
-    }
-
-    push_sarif_results(
+    push_sarif_results(&mut sarif_results, &results.unresolved_imports, |i| {
+        sarif_unresolved_import_fields(i, root, lvl_unresolved)
+    });
+    push_sarif_unlisted_deps(
         &mut sarif_results,
-        &results.circular_dependencies,
-        |cycle| {
-            let chain: Vec<String> = cycle.files.iter().map(|p| relative_uri(p, root)).collect();
-            let mut display_chain = chain.clone();
-            if let Some(first) = chain.first() {
-                display_chain.push(first.clone());
-            }
-            let first_uri = chain.first().map_or_else(String::new, Clone::clone);
-            SarifFields {
-                rule_id: "fallow/circular-dependency",
-                level: severity_to_sarif_level(rules.circular_dependencies),
-                message: format!(
-                    "Circular dependency{}: {}",
-                    if cycle.is_cross_package {
-                        " (cross-package)"
-                    } else {
-                        ""
-                    },
-                    display_chain.join(" \u{2192} ")
-                ),
-                uri: first_uri,
-                region: if cycle.line > 0 {
-                    Some((cycle.line, cycle.col + 1))
-                } else {
-                    None
-                },
-                properties: None,
-            }
-        },
+        &results.unlisted_dependencies,
+        root,
+        lvl_unlisted,
     );
-
-    push_sarif_results(
+    push_sarif_duplicate_exports(
         &mut sarif_results,
-        &results.boundary_violations,
-        |violation| {
-            let from_uri = relative_uri(&violation.from_path, root);
-            let to_uri = relative_uri(&violation.to_path, root);
-            SarifFields {
-                rule_id: "fallow/boundary-violation",
-                level: severity_to_sarif_level(rules.boundary_violation),
-                message: format!(
-                    "Import from zone '{}' to zone '{}' is not allowed ({})",
-                    violation.from_zone, violation.to_zone, to_uri,
-                ),
-                uri: from_uri,
-                region: if violation.line > 0 {
-                    Some((violation.line, violation.col + 1))
-                } else {
-                    None
-                },
-                properties: None,
-            }
-        },
+        &results.duplicate_exports,
+        root,
+        lvl_duplicate,
     );
-
-    push_sarif_results(
-        &mut sarif_results,
-        &results.stale_suppressions,
-        |suppression| SarifFields {
-            rule_id: "fallow/stale-suppression",
-            level: severity_to_sarif_level(rules.stale_suppressions),
-            message: suppression.description(),
-            uri: relative_uri(&suppression.path, root),
-            region: Some((suppression.line, suppression.col + 1)),
-            properties: None,
-        },
-    );
+    push_sarif_results(&mut sarif_results, &results.circular_dependencies, |c| {
+        sarif_circular_dep_fields(c, root, lvl_circular)
+    });
+    push_sarif_results(&mut sarif_results, &results.boundary_violations, |v| {
+        sarif_boundary_violation_fields(v, root, lvl_boundary)
+    });
+    push_sarif_results(&mut sarif_results, &results.stale_suppressions, |s| {
+        sarif_stale_suppression_fields(s, root, lvl_stale)
+    });
 
     serde_json::json!({
         "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
