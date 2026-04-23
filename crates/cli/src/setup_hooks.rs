@@ -1373,6 +1373,88 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn gate_blocks_stale_fallow_on_path() {
+        // End-to-end regression: the fix is a floor check that blocks a
+        // fallow on PATH older than the uncommitted-changes inclusion fix
+        // (aabb8e1b, v2.46.0). The sibling `rendered_script_*` tests cover
+        // substitution mechanics but would all still pass if the floor
+        // block were ripped out. This test exercises the actual bug: write
+        // the rendered script, prepend a fake fallow reporting v2.30.0 to
+        // PATH, pipe a `git commit` hook input, assert the gate exits 2
+        // with an upgrade hint instead of passing through.
+        use std::io::Write;
+        use std::os::unix::fs::PermissionsExt;
+
+        // The gate depends on jq for hook-input parsing. Skip cleanly on
+        // runners that lack it so CI stays green on stripped environments.
+        if std::process::Command::new("jq")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            eprintln!("skipping: jq not on PATH");
+            return;
+        }
+
+        let tmp = tempdir().unwrap();
+        let fake_bin = tmp.path().join("bin");
+        std::fs::create_dir_all(&fake_bin).unwrap();
+        let fallow_path = fake_bin.join("fallow");
+        // Fake reports v2.30.0 (below the 2.46.0 floor). No audit stub is
+        // needed because the floor check exits before audit is reached.
+        std::fs::write(
+            &fallow_path,
+            "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 'fallow 2.30.0'; exit 0; fi\nexit 0\n",
+        )
+        .unwrap();
+        let mut perms = std::fs::metadata(&fallow_path).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&fallow_path, perms).unwrap();
+
+        let script_path = tmp.path().join("fallow-gate.sh");
+        std::fs::write(&script_path, rendered_gate_script()).unwrap();
+        let mut perms = std::fs::metadata(&script_path).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&script_path, perms).unwrap();
+
+        // Prepend fake dir to PATH so `command -v fallow` finds the stale
+        // version first while jq / sort / head / grep still resolve normally.
+        let existing_path = std::env::var("PATH").unwrap_or_default();
+        let new_path = format!("{}:{existing_path}", fake_bin.display());
+        let hook_input = br#"{"tool_input":{"command":"git commit -m test"}}"#;
+
+        let mut child = std::process::Command::new("bash")
+            .arg(&script_path)
+            .env("PATH", &new_path)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("spawn bash");
+        child.stdin.as_mut().unwrap().write_all(hook_input).unwrap();
+        let output = child.wait_with_output().expect("wait");
+
+        assert_eq!(
+            output.status.code(),
+            Some(2),
+            "gate must block a fallow below the floor with exit 2. \
+             stdout={:?} stderr={:?}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("below required 2.46.0"),
+            "stderr must mention the required floor; got:\n{stderr}"
+        );
+        assert!(
+            stderr.contains("fallow 2.30.0"),
+            "stderr must name the stale version; got:\n{stderr}"
+        );
+    }
+
     #[test]
     fn agents_block_appends_once() {
         let tmp = tempdir().unwrap();

@@ -32,6 +32,7 @@ These interfaces are covered by semver — breaking changes only happen in major
 - **Audit flags**: `--max-crap` (forwarded to the health sub-analysis; mirrors `health.maxCrap` in config)
 - **Init flags**: `--toml`, `--hooks` (scaffold pre-commit git hook), `--branch` (base branch for hook)
 - **Environment variables**: `FALLOW_FORMAT`, `FALLOW_QUIET`, `FALLOW_BIN`, `FALLOW_TIMEOUT_SECS`, `FALLOW_EXTENDS_TIMEOUT_SECS`, `FALLOW_COVERAGE`
+- **Generated hook-script env vars**: `FALLOW_GATE_MIN_VERSION` (consumed by `.claude/hooks/fallow-gate.sh` written by `fallow setup-hooks`; controls the minimum fallow version the gate accepts, default `2.46.0`, empty string disables)
 
 ### External plugin format
 
