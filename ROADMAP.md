@@ -18,10 +18,6 @@ Production coverage ships the data; the review workflow on top of it does not ye
 
 Agents already query fallow via MCP, but the responses lack context agents need to make confident removal decisions: re-export chains, who imports this symbol, recent churn, duplicate siblings. Expand existing tool responses before adding new tools.
 
-### Pre-commit hook install
-
-`fallow check --changed` is fast enough to run on staged files. Ship a `fallow hooks install` command that wires it into husky, lefthook, or native `core.hooksPath`, scoped to unused exports and unresolved imports for sub-second feedback.
-
 ### Coverage sidecar ergonomics
 
 The coverage setup state machine works end to end, but the install handoff still depends on users trusting a download. Target: reproducible sidecar pinning, smoother framework recipe generation, clearer failure messages when the sidecar cannot attach.
@@ -57,7 +53,7 @@ Continuous work across releases.
 - **Incremental analysis** -- finer-grained caching for faster watch mode and CI on large monorepos
 - **Plugin ecosystem** -- more framework coverage, better external plugin authoring, community-contributed plugins
 - **Health intelligence** -- structured fix suggestions, HTML report cards, richer regression diffing
-- **Agent integration** -- Claude Code hooks, Cursor integration, agent skill packages, expanded MCP coverage
+- **Agent integration** -- Cursor integration, expanded MCP coverage, new editor surfaces beyond VS Code and Zed
 
 ---
 
