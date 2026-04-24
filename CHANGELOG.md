@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.48.3] - 2026-04-24
+
+### Fixed
+
+- **npm release pipeline recovery.** v2.48.2 shipped on crates.io and GitHub Releases but the `npm-publish` job failed at the pre-publish `npm ci` in `crates/napi/` because the canonical sync step's `npm install --package-lock-only` dropped the `packages.node_modules/@fallow-cli/fallow-node-*` entries (npm could not resolve the new platform-package versions pre-publish). v2.48.3 restores the lockfile's nested package entries pointing at the last-published platform version (2.48.1), leaving `optionalDependencies` at 2.48.3; npm ci is happy because the platform packages are optional. No user-visible behavior change relative to v2.48.2. See [`48a5947d`](https://github.com/fallow-rs/fallow/commit/48a5947d) for the prior manifestation of the same drift.
+
 ## [2.48.2] - 2026-04-24
 
 ### Added
@@ -1631,7 +1637,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--changed-since` and `--fail-on-issues` for CI
 - Cross-workspace resolution for npm/yarn/pnpm workspaces
 
-[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.48.2...HEAD
+[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.48.3...HEAD
+[2.48.3]: https://github.com/fallow-rs/fallow/compare/v2.48.2...v2.48.3
 [2.48.2]: https://github.com/fallow-rs/fallow/compare/v2.48.1...v2.48.2
 [2.48.1]: https://github.com/fallow-rs/fallow/compare/v2.48.0...v2.48.1
 [2.48.0]: https://github.com/fallow-rs/fallow/compare/v2.47.1...v2.48.0
