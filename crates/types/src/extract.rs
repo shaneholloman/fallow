@@ -271,6 +271,20 @@ pub struct ClassHeritageInfo {
     pub super_class: Option<String>,
     /// Interface names from the class `implements` clause.
     pub implements: Vec<String>,
+    /// Typed instance bindings on this class: pairs of `(local_name, type_name)`
+    /// from typed constructor parameters with accessibility modifiers
+    /// (`constructor(public svc: Svc)`) and non-private typed property
+    /// declarations (`svc: Svc`).
+    ///
+    /// Used by the analysis layer to resolve Angular template member-access
+    /// chains on external templates (`templateUrl`), where the HTML file is
+    /// parsed independently and cannot see the component's constructor types.
+    /// For `constructor(public dataService: DataService)` in a component that
+    /// uses an external template with `{{ dataService.getTotal() }}`, this
+    /// field carries `("dataService", "DataService")` so the bridge can credit
+    /// `DataService.getTotal` as used.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub instance_bindings: Vec<(String, String)>,
 }
 
 /// A member of an enum, class, or namespace.

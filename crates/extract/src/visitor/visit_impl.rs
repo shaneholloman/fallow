@@ -78,11 +78,18 @@ impl<'a> Visit<'a> for ModuleInfoExtractor {
             && let Declaration::ClassDeclaration(class) = decl
             && let Some(id) = class.id.as_ref()
         {
+            let is_angular = has_angular_class_decorator(class);
+            let instance_bindings = if is_angular {
+                super::helpers::extract_class_instance_bindings(class)
+            } else {
+                Vec::new()
+            };
             self.record_local_class_export(
                 id.name.to_string(),
-                extract_class_members(class, has_angular_class_decorator(class)),
+                extract_class_members(class, is_angular),
                 extract_super_class_name(class),
                 extract_implemented_interface_names(class),
+                instance_bindings,
             );
         }
 
@@ -263,15 +270,22 @@ impl<'a> Visit<'a> for ModuleInfoExtractor {
 
     fn visit_export_default_declaration(&mut self, decl: &ExportDefaultDeclaration<'a>) {
         // Extract members and super_class for default-exported classes
-        let (members, super_class, implemented_interfaces) =
+        let (members, super_class, implemented_interfaces, instance_bindings) =
             if let ExportDefaultDeclarationKind::ClassDeclaration(class) = &decl.declaration {
+                let is_angular = has_angular_class_decorator(class);
+                let bindings = if is_angular {
+                    super::helpers::extract_class_instance_bindings(class)
+                } else {
+                    Vec::new()
+                };
                 (
-                    extract_class_members(class, has_angular_class_decorator(class)),
+                    extract_class_members(class, is_angular),
                     extract_super_class_name(class),
                     extract_implemented_interface_names(class),
+                    bindings,
                 )
             } else {
-                (vec![], None, vec![])
+                (vec![], None, vec![], vec![])
             };
         let local_name =
             if let ExportDefaultDeclarationKind::ClassDeclaration(class) = &decl.declaration {
@@ -280,11 +294,15 @@ impl<'a> Visit<'a> for ModuleInfoExtractor {
                 None
             };
 
-        if super_class.is_some() || !implemented_interfaces.is_empty() {
+        if super_class.is_some()
+            || !implemented_interfaces.is_empty()
+            || !instance_bindings.is_empty()
+        {
             self.class_heritage.push(ClassHeritageInfo {
                 export_name: "default".to_string(),
                 super_class: super_class.clone(),
                 implements: implemented_interfaces,
+                instance_bindings,
             });
         }
 
@@ -848,15 +866,28 @@ impl<'a> Visit<'a> for ModuleInfoExtractor {
                 });
             }
 
-            // Scan inline template for member references
+            // Scan inline template for member references.
+            //
+            // Bare identifier refs are emitted as sentinel `MemberAccess` so
+            // the analysis phase credits them as members of the component's
+            // own class (via `self_accessed_members`).
+            //
+            // Static member-access chains (`dataService.getTotal`) are emitted
+            // as regular `MemberAccess` entries and resolved at end of visit
+            // by `resolve_bound_member_accesses`, which maps `dataService`
+            // through the class's typed constructor params or properties to
+            // the concrete type name (e.g. `DataService`). This credits the
+            // target class's member as used through the existing member-access
+            // pipeline, without any Angular-specific analysis code.
             if let Some(ref template) = meta.inline_template {
                 let refs = crate::sfc_template::angular::collect_angular_template_refs(template);
-                for name in refs {
+                for name in refs.identifiers {
                     self.member_accesses.push(MemberAccess {
                         object: crate::sfc_template::angular::ANGULAR_TPL_SENTINEL.to_string(),
                         member: name,
                     });
                 }
+                self.member_accesses.extend(refs.member_accesses);
             }
 
             // Emit sentinel accesses for host binding member references

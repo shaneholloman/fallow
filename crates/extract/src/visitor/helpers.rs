@@ -3,8 +3,9 @@
 //! These functions don't require visitor state and operate purely on AST nodes.
 
 use oxc_ast::ast::{
-    Argument, ArrayExpressionElement, BinaryExpression, Class, ClassElement, Expression,
-    ObjectPropertyKind, Statement, TSType, TSTypeAnnotation, TSTypeName,
+    Argument, ArrayExpressionElement, BinaryExpression, BindingPattern, Class, ClassElement,
+    Expression, MethodDefinitionKind, ObjectPropertyKind, Statement, TSAccessibility, TSType,
+    TSTypeAnnotation, TSTypeName,
 };
 
 use crate::{MemberInfo, MemberKind};
@@ -307,8 +308,7 @@ pub fn extract_class_members(class: &Class<'_>, is_angular_class: bool) -> Vec<M
                         && !matches!(
                             method.accessibility,
                             Some(
-                                oxc_ast::ast::TSAccessibility::Private
-                                    | oxc_ast::ast::TSAccessibility::Protected
+                                TSAccessibility::Private | oxc_ast::ast::TSAccessibility::Protected
                             )
                         )
                     {
@@ -325,10 +325,7 @@ pub fn extract_class_members(class: &Class<'_>, is_angular_class: bool) -> Vec<M
                 if let Some(name) = prop.key.static_name()
                     && !matches!(
                         prop.accessibility,
-                        Some(
-                            oxc_ast::ast::TSAccessibility::Private
-                                | oxc_ast::ast::TSAccessibility::Protected
-                        )
+                        Some(TSAccessibility::Private | oxc_ast::ast::TSAccessibility::Protected)
                     )
                 {
                     let has_decorator = !prop.decorators.is_empty()
@@ -374,6 +371,68 @@ pub fn extract_implemented_interface_names(class: &Class<'_>) -> Vec<String> {
 #[must_use]
 pub fn extract_type_annotation_name(type_annotation: &TSTypeAnnotation<'_>) -> Option<String> {
     extract_type_reference_name(&type_annotation.type_annotation)
+}
+
+/// Extract typed instance bindings from a class: pairs of
+/// `(local_name, type_name)` for non-private typed constructor parameters
+/// with accessibility modifiers and non-private typed property declarations.
+///
+/// Angular templates reference these bindings by their local name
+/// (`dataService.getTotal()` in the template maps to
+/// `this.dataService` -> `DataService`). Private bindings are excluded
+/// because they are not visible in Angular templates.
+#[must_use]
+pub fn extract_class_instance_bindings(class: &Class<'_>) -> Vec<(String, String)> {
+    let mut bindings: Vec<(String, String)> = Vec::new();
+    for element in &class.body.body {
+        match element {
+            ClassElement::MethodDefinition(method) => {
+                if !matches!(method.kind, MethodDefinitionKind::Constructor) {
+                    continue;
+                }
+                for param in &method.value.params.items {
+                    let Some(accessibility) = param.accessibility else {
+                        continue;
+                    };
+                    if matches!(accessibility, TSAccessibility::Private) {
+                        continue;
+                    }
+                    let BindingPattern::BindingIdentifier(id) = &param.pattern else {
+                        continue;
+                    };
+                    let Some(type_annotation) = param.type_annotation.as_deref() else {
+                        continue;
+                    };
+                    let Some(type_name) = extract_type_annotation_name(type_annotation) else {
+                        continue;
+                    };
+                    bindings.push((id.name.to_string(), type_name));
+                }
+            }
+            ClassElement::PropertyDefinition(prop) => {
+                if matches!(prop.accessibility, Some(TSAccessibility::Private)) {
+                    continue;
+                }
+                let Some(name) = prop.key.static_name() else {
+                    continue;
+                };
+                if let Some(type_annotation) = prop.type_annotation.as_deref()
+                    && let Some(type_name) = extract_type_annotation_name(type_annotation)
+                {
+                    bindings.push((name.to_string(), type_name));
+                    continue;
+                }
+                if let Some(Expression::NewExpression(new_expr)) = &prop.value
+                    && let Expression::Identifier(callee) = &new_expr.callee
+                    && !is_builtin_constructor(callee.name.as_str())
+                {
+                    bindings.push((name.to_string(), callee.name.to_string()));
+                }
+            }
+            _ => {}
+        }
+    }
+    bindings
 }
 
 /// Extract a simple referenced type name from a TypeScript type node.

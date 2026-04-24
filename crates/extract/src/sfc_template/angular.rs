@@ -16,7 +16,8 @@ use std::sync::LazyLock;
 
 use rustc_hash::FxHashSet;
 
-use crate::template_usage::{TemplateSnippetKind, collect_unresolved_refs};
+use crate::MemberAccess;
+use crate::template_usage::{TemplateSnippetKind, collect_unresolved_refs_and_accesses};
 
 use super::scanners::{scan_curly_section, scan_html_tag};
 
@@ -25,6 +26,47 @@ use super::scanners::{scan_curly_section, scan_html_tag};
 /// for entries with this sentinel and merges them into the component's
 /// `self_accessed_members` set.
 pub const ANGULAR_TPL_SENTINEL: &str = "__angular_tpl__";
+
+/// Result of scanning an Angular template for member references.
+#[derive(Debug, Default)]
+pub struct AngularTemplateRefs {
+    /// Top-level unresolved identifiers referenced in the template
+    /// (e.g., `title`, `dataService`, pipe names). Each identifier is a
+    /// potential component class member name.
+    pub identifiers: FxHashSet<String>,
+    /// Static member-access chains (`object.member`) where `object` is one
+    /// of the unresolved identifiers above. Used to resolve chains like
+    /// `dataService.getTotal()` through the component's typed instance
+    /// bindings to credit the correct class's member as used.
+    pub member_accesses: Vec<MemberAccess>,
+}
+
+impl AngularTemplateRefs {
+    fn add_member_access(&mut self, access: MemberAccess) {
+        let key = (&access.object, &access.member);
+        let already_present = self
+            .member_accesses
+            .iter()
+            .any(|existing| (&existing.object, &existing.member) == key);
+        if !already_present {
+            self.member_accesses.push(access);
+        }
+    }
+
+    /// Whether the given identifier appears in this template's unresolved refs.
+    #[cfg(test)]
+    #[must_use]
+    pub fn contains(&self, name: &str) -> bool {
+        self.identifiers.contains(name)
+    }
+
+    /// Whether this template produced no refs or member accesses at all.
+    #[cfg(test)]
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.identifiers.is_empty() && self.member_accesses.is_empty()
+    }
+}
 
 /// Regex to strip HTML comments before scanning.
 static HTML_COMMENT_RE: LazyLock<regex::Regex> =
@@ -45,16 +87,17 @@ static NG_FOR_OF_RE: LazyLock<regex::Regex> =
 static CONTROL_FOR_RE: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"(?s)^\s*(\w+)\s+of\s+(.+)$").expect("valid regex"));
 
-/// Scan an Angular HTML template and collect all referenced identifiers.
+/// Scan an Angular HTML template and collect all referenced identifiers and
+/// member-access chains.
 ///
-/// Returns a deduplicated set of identifier names that appear as unresolved
-/// references in template expressions. These represent potential component
-/// class member references.
-pub fn collect_angular_template_refs(source: &str) -> FxHashSet<String> {
+/// Returns a deduplicated set of top-level identifier names, plus static
+/// `obj.member` chains where `obj` is an unresolved identifier. Together these
+/// represent potential component class member references.
+pub fn collect_angular_template_refs(source: &str) -> AngularTemplateRefs {
     let stripped = HTML_COMMENT_RE.replace_all(source, "");
     let source = stripped.as_ref();
     let bytes = source.as_bytes();
-    let mut refs = FxHashSet::default();
+    let mut refs = AngularTemplateRefs::default();
     let mut scopes: Vec<Vec<String>> = vec![Vec::new()];
     let mut index = 0;
 
@@ -111,7 +154,7 @@ fn handle_control_flow(
     source: &str,
     start: usize,
     scopes: &mut Vec<Vec<String>>,
-    refs: &mut FxHashSet<String>,
+    refs: &mut AngularTemplateRefs,
 ) -> Option<usize> {
     let rest = &source[start + 1..]; // skip '@'
 
@@ -312,7 +355,7 @@ fn scan_parenthesized(source: &str, start: usize) -> Option<(&str, usize)> {
 
 /// Process an HTML tag, extracting Angular binding attributes.
 /// `*ngFor` bindings are added to the current scope so subsequent expressions see them.
-fn process_tag(tag: &str, scopes: &mut [Vec<String>], refs: &mut FxHashSet<String>) {
+fn process_tag(tag: &str, scopes: &mut [Vec<String>], refs: &mut AngularTemplateRefs) {
     let locals = current_locals(scopes);
 
     for caps in ATTR_RE.captures_iter(tag) {
@@ -383,7 +426,7 @@ fn handle_ng_for(
     value: &str,
     locals: &[String],
     scopes: &mut [Vec<String>],
-    refs: &mut FxHashSet<String>,
+    refs: &mut AngularTemplateRefs,
 ) {
     // Split on ';' to separate clauses
     let clauses: Vec<&str> = value.split(';').collect();
@@ -430,30 +473,38 @@ fn handle_ng_for(
 }
 
 /// Collect unresolved identifier references from an expression, handling Angular pipes.
-fn collect_expression_refs(expr: &str, locals: &[String], refs: &mut FxHashSet<String>) {
+fn collect_expression_refs(expr: &str, locals: &[String], refs: &mut AngularTemplateRefs) {
     if expr.is_empty() {
         return;
     }
 
     let (main_expr, pipe_names) = split_pipes(expr);
-    let unresolved = collect_unresolved_refs(main_expr, TemplateSnippetKind::Expression, locals);
-    refs.extend(unresolved);
+    let (unresolved, member_accesses) =
+        collect_unresolved_refs_and_accesses(main_expr, TemplateSnippetKind::Expression, locals);
+    refs.identifiers.extend(unresolved);
+    for access in member_accesses {
+        refs.add_member_access(access);
+    }
 
     // Pipe names are also references (to Angular pipe classes)
     for pipe_name in pipe_names {
         if !pipe_name.is_empty() {
-            refs.insert(pipe_name.to_string());
+            refs.identifiers.insert(pipe_name.to_string());
         }
     }
 }
 
 /// Collect unresolved identifier references from a statement (event handler).
-fn collect_statement_refs(stmt: &str, locals: &[String], refs: &mut FxHashSet<String>) {
+fn collect_statement_refs(stmt: &str, locals: &[String], refs: &mut AngularTemplateRefs) {
     if stmt.is_empty() {
         return;
     }
-    let unresolved = collect_unresolved_refs(stmt, TemplateSnippetKind::Statement, locals);
-    refs.extend(unresolved);
+    let (unresolved, member_accesses) =
+        collect_unresolved_refs_and_accesses(stmt, TemplateSnippetKind::Statement, locals);
+    refs.identifiers.extend(unresolved);
+    for access in member_accesses {
+        refs.add_member_access(access);
+    }
 }
 
 /// Split an Angular expression on top-level pipe operators (`|`).
@@ -803,5 +854,89 @@ mod tests {
         let (expr, pipes) = split_pipes("fn(a | b)");
         assert_eq!(expr, "fn(a | b)");
         assert!(pipes.is_empty());
+    }
+
+    // ── Member-access chains (issue #174) ───────────────────────
+
+    #[test]
+    fn interpolation_extracts_member_access_chain() {
+        let refs = collect_angular_template_refs("<p>{{ dataService.getTotal() }}</p>");
+        assert!(
+            refs.identifiers.contains("dataService"),
+            "top-level unresolved identifier must be captured"
+        );
+        let has_chain = refs
+            .member_accesses
+            .iter()
+            .any(|a| a.object == "dataService" && a.member == "getTotal");
+        assert!(
+            has_chain,
+            "member-access chain dataService.getTotal must be captured, got {:?}",
+            refs.member_accesses
+        );
+    }
+
+    #[test]
+    fn control_flow_if_extracts_member_access_chain() {
+        let refs =
+            collect_angular_template_refs(r"@if (!dataService.isEmpty()) { <div>Items</div> }");
+        assert!(refs.identifiers.contains("dataService"));
+        let has_chain = refs
+            .member_accesses
+            .iter()
+            .any(|a| a.object == "dataService" && a.member == "isEmpty");
+        assert!(
+            has_chain,
+            "@if condition chain must be captured, got {:?}",
+            refs.member_accesses
+        );
+    }
+
+    #[test]
+    fn control_flow_for_iterable_extracts_member_access_chain() {
+        let refs = collect_angular_template_refs(
+            r"@for (item of dataService.items; track item) { <li>{{ item }}</li> }",
+        );
+        assert!(refs.identifiers.contains("dataService"));
+        let has_chain = refs
+            .member_accesses
+            .iter()
+            .any(|a| a.object == "dataService" && a.member == "items");
+        assert!(
+            has_chain,
+            "@for iterable chain must be captured, got {:?}",
+            refs.member_accesses
+        );
+    }
+
+    #[test]
+    fn event_binding_extracts_member_access_chain() {
+        let refs =
+            collect_angular_template_refs(r#"<button (click)="svc.handleClick()">x</button>"#);
+        assert!(refs.identifiers.contains("svc"));
+        let has_chain = refs
+            .member_accesses
+            .iter()
+            .any(|a| a.object == "svc" && a.member == "handleClick");
+        assert!(
+            has_chain,
+            "event handler chain must be captured, got {:?}",
+            refs.member_accesses
+        );
+    }
+
+    #[test]
+    fn local_binding_does_not_emit_member_chain() {
+        // `item` is a local from *ngFor; `item.name` should NOT emit a chain
+        // because `item` is not an unresolved top-level identifier.
+        let refs =
+            collect_angular_template_refs(r#"<li *ngFor="let item of items">{{ item.name }}</li>"#);
+        assert!(refs.identifiers.contains("items"));
+        let has_local_chain = refs.member_accesses.iter().any(|a| a.object == "item");
+        assert!(
+            !has_local_chain,
+            "chain on local binding must not be emitted, got {:?}",
+            refs.member_accesses
+        );
     }
 }

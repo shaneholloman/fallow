@@ -15,8 +15,8 @@ use crate::{
 use fallow_types::extract::ClassHeritageInfo;
 
 use super::helpers::{
-    extract_class_members, extract_implemented_interface_names, extract_super_class_name,
-    has_angular_class_decorator,
+    extract_class_instance_bindings, extract_class_members, extract_implemented_interface_names,
+    extract_super_class_name, has_angular_class_decorator,
 };
 use super::{MemberAccess, ModuleInfoExtractor, extract_destructured_names};
 
@@ -55,14 +55,24 @@ impl ModuleInfoExtractor {
             }
             Declaration::ClassDeclaration(class) => {
                 if let Some(id) = class.id.as_ref() {
-                    let members = extract_class_members(class, has_angular_class_decorator(class));
+                    let is_angular = has_angular_class_decorator(class);
+                    let members = extract_class_members(class, is_angular);
                     let super_class = extract_super_class_name(class);
                     let implemented_interfaces = extract_implemented_interface_names(class);
-                    if super_class.is_some() || !implemented_interfaces.is_empty() {
+                    let instance_bindings = if is_angular {
+                        extract_class_instance_bindings(class)
+                    } else {
+                        Vec::new()
+                    };
+                    if super_class.is_some()
+                        || !implemented_interfaces.is_empty()
+                        || !instance_bindings.is_empty()
+                    {
                         self.class_heritage.push(ClassHeritageInfo {
                             export_name: id.name.to_string(),
                             super_class: super_class.clone(),
                             implements: implemented_interfaces,
+                            instance_bindings,
                         });
                     }
                     self.exports.push(ExportInfo {

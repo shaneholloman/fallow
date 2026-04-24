@@ -23,6 +23,7 @@ struct LocalClassExportInfo {
     members: Vec<MemberInfo>,
     super_class: Option<String>,
     implemented_interfaces: Vec<String>,
+    instance_bindings: Vec<(String, String)>,
 }
 
 /// AST visitor that extracts all import/export information in a single pass.
@@ -83,6 +84,7 @@ impl ModuleInfoExtractor {
         members: Vec<MemberInfo>,
         super_class: Option<String>,
         implemented_interfaces: Vec<String>,
+        instance_bindings: Vec<(String, String)>,
     ) {
         self.local_class_exports.insert(
             name,
@@ -90,6 +92,7 @@ impl ModuleInfoExtractor {
                 members,
                 super_class,
                 implemented_interfaces,
+                instance_bindings,
             },
         );
     }
@@ -121,12 +124,14 @@ impl ModuleInfoExtractor {
                 .any(|heritage| heritage.export_name == export_name);
             if !already_has_heritage
                 && (local_class.super_class.is_some()
-                    || !local_class.implemented_interfaces.is_empty())
+                    || !local_class.implemented_interfaces.is_empty()
+                    || !local_class.instance_bindings.is_empty())
             {
                 self.class_heritage.push(ClassHeritageInfo {
                     export_name,
                     super_class: local_class.super_class.clone(),
                     implements: local_class.implemented_interfaces.clone(),
+                    instance_bindings: local_class.instance_bindings.clone(),
                 });
             }
         }

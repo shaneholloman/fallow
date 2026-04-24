@@ -127,16 +127,27 @@ pub(crate) fn parse_html_to_module(file_id: FileId, source: &str, content_hash: 
     imports.dedup_by(|a, b| a.source == b.source);
 
     // Scan for Angular template syntax ({{ }}, [prop], (event), @if, etc.).
-    // Referenced identifiers are stored as MemberAccess entries with a sentinel
-    // object name so the analysis phase can bridge them to the component class.
+    //
+    // Bare identifier refs (e.g. `title`, `dataService`, pipe names) are stored
+    // as `MemberAccess` entries with a sentinel object name so the analysis
+    // phase can credit them as members of the component class.
+    //
+    // Static member-access chains (`dataService.getTotal`) where `dataService`
+    // is an unresolved identifier are stored as regular (non-sentinel)
+    // `MemberAccess` entries. The analysis phase resolves these through the
+    // importing component's typed instance bindings (from
+    // `ClassHeritageInfo.instance_bindings`) to credit the target class's
+    // member as used.
     let template_refs = angular::collect_angular_template_refs(source);
-    let member_accesses: Vec<MemberAccess> = template_refs
+    let mut member_accesses: Vec<MemberAccess> = template_refs
+        .identifiers
         .into_iter()
         .map(|name| MemberAccess {
             object: ANGULAR_TPL_SENTINEL.to_string(),
             member: name,
         })
         .collect();
+    member_accesses.extend(template_refs.member_accesses);
 
     ModuleInfo {
         file_id,

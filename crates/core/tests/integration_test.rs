@@ -88,6 +88,8 @@ mod scss_partials;
 #[path = "integration_test/super_method_calls.rs"]
 mod super_method_calls;
 
+#[path = "integration_test/angular_template_members.rs"]
+mod angular_template_members;
 #[path = "integration_test/arrow_wrapped_imports.rs"]
 mod arrow_wrapped_imports;
 #[path = "integration_test/bin_script_deps.rs"]

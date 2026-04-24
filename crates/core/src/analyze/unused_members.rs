@@ -164,6 +164,10 @@ fn build_parent_to_children(
 ///
 /// - Parent `this.*` accesses flow down to child files, so a base class method
 ///   calling `this.getArea()` credits `Circle.getArea()` / `Rectangle.getArea()`.
+/// - Child `this.*` accesses (and Angular template refs bridged into
+///   `self_accessed_members`) flow UP to parent files, so a child component
+///   template referencing an inherited method credits the base class's method
+///   as used.
 /// - External accesses on a parent export flow down to every child export.
 /// - External accesses on any child export flow up to the parent export.
 ///
@@ -187,6 +191,19 @@ fn propagate_class_inheritance(
             for child_key in children {
                 propagations.push((child_key.file_id, accesses.clone()));
             }
+        }
+
+        let mut child_self_accesses_for_parent: FxHashSet<String> = FxHashSet::default();
+        for child_key in children {
+            if let Some(child_self_accesses) = self_accessed_members.get(&child_key.file_id) {
+                child_self_accesses_for_parent.extend(child_self_accesses.iter().cloned());
+            }
+        }
+        if !child_self_accesses_for_parent.is_empty() {
+            propagations.push((
+                parent_key.file_id,
+                child_self_accesses_for_parent.into_iter().collect(),
+            ));
         }
 
         let parent_accesses = accessed_members.get(parent_key).cloned();
@@ -349,12 +366,6 @@ pub fn find_unused_members(
         }
     }
 
-    propagate_class_inheritance(
-        resolved_modules,
-        &mut accessed_members,
-        &mut self_accessed_members,
-    );
-
     // Bridge Angular template member refs to their owning components.
     //
     // Sentinel member accesses come from two sources:
@@ -363,6 +374,10 @@ pub fn find_unused_members(
     //    via the SideEffect import edge from @Component({ templateUrl }).
     // 2. Inline templates/host/inputs/outputs: sentinel accesses stored directly
     //    on the component's own ModuleInfo (same file as the class).
+    //
+    // Bridged BEFORE `propagate_class_inheritance` so child-template refs
+    // propagate up to base-class files, crediting inherited members used in a
+    // child component's external template.
     let angular_tpl_refs: FxHashMap<FileId, Vec<&str>> = resolved_modules
         .iter()
         .filter_map(|m| {
@@ -376,6 +391,33 @@ pub fn find_unused_members(
                 None
             } else {
                 Some((m.file_id, refs))
+            }
+        })
+        .collect();
+
+    // Non-sentinel member-access chains from HTML template scanners
+    // (`dataService.getTotal` where `dataService` is an unresolved top-level
+    // identifier). Keyed by the HTML file's id.
+    let angular_tpl_chain_accesses: FxHashMap<FileId, Vec<(&str, &str)>> = resolved_modules
+        .iter()
+        .filter_map(|m| {
+            let has_sentinel = m
+                .member_accesses
+                .iter()
+                .any(|a| a.object == ANGULAR_TPL_SENTINEL);
+            if !has_sentinel {
+                return None;
+            }
+            let chains: Vec<(&str, &str)> = m
+                .member_accesses
+                .iter()
+                .filter(|a| a.object != ANGULAR_TPL_SENTINEL && a.object != "this")
+                .map(|a| (a.object.as_str(), a.member.as_str()))
+                .collect();
+            if chains.is_empty() {
+                None
+            } else {
+                Some((m.file_id, chains))
             }
         })
         .collect();
@@ -402,6 +444,66 @@ pub fn find_unused_members(
             }
         }
     }
+
+    // Resolve HTML template chain accesses (`dataService.getTotal`) through
+    // the importing component's typed instance bindings to credit the target
+    // class's member as used.
+    //
+    // For inline templates, the chain accesses are stored on the component's
+    // own `member_accesses` and resolved via the visitor's
+    // `resolve_bound_member_accesses` at extract time -- so they flow through
+    // the regular member-access pipeline above and need no special handling
+    // here.
+    if !angular_tpl_chain_accesses.is_empty() {
+        for resolved in resolved_modules {
+            let Some(class_heritage) = class_heritage_by_file.get(&resolved.file_id) else {
+                continue;
+            };
+            if class_heritage.is_empty() {
+                continue;
+            }
+            let component_bindings: FxHashMap<&str, &str> = class_heritage
+                .iter()
+                .flat_map(|h| {
+                    h.instance_bindings
+                        .iter()
+                        .map(|(local, ty)| (local.as_str(), ty.as_str()))
+                })
+                .collect();
+            if component_bindings.is_empty() {
+                continue;
+            }
+            let local_to_export_keys = build_local_to_export_keys(resolved);
+            for import in &resolved.resolved_imports {
+                let ResolveResult::InternalModule(target_id) = &import.target else {
+                    continue;
+                };
+                let Some(chains) = angular_tpl_chain_accesses.get(target_id) else {
+                    continue;
+                };
+                for (object, member) in chains {
+                    let Some(type_name) = component_bindings.get(object) else {
+                        continue;
+                    };
+                    let Some(export_keys) = local_to_export_keys.get(type_name) else {
+                        continue;
+                    };
+                    for export_key in export_keys {
+                        accessed_members
+                            .entry(export_key.clone())
+                            .or_default()
+                            .insert((*member).to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    propagate_class_inheritance(
+        resolved_modules,
+        &mut accessed_members,
+        &mut self_accessed_members,
+    );
 
     for module in &graph.modules {
         if !module.is_reachable() || module.is_entry_point() {
@@ -638,6 +740,7 @@ mod tests {
                 export_name: export_name.to_string(),
                 super_class: super_class.map(str::to_string),
                 implements: implements.iter().map(ToString::to_string).collect(),
+                instance_bindings: Vec::new(),
             }],
         }
     }

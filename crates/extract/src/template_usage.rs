@@ -128,19 +128,23 @@ pub fn analyze_template_snippet(
     }
 }
 
-/// Collect all unresolved identifier references from a template snippet.
+/// Collect both unresolved identifier references AND static member-access chains
+/// (`obj.member`) where `obj` is unresolved.
 ///
 /// Unlike [`analyze_template_snippet`], this does NOT filter against imported bindings.
-/// Returns every identifier that is not locally scoped. Used for Angular external
-/// templates where unresolved identifiers are potential component class member refs.
-pub fn collect_unresolved_refs(
+/// Returns `(identifiers, member_accesses)`. Used by the Angular template scanner
+/// for external templates where unresolved identifiers are potential component
+/// class member refs and member-access chains (`dataService.getTotal()`) must
+/// be resolved against the component's constructor-injected type bindings to
+/// credit the target class's member as used.
+pub fn collect_unresolved_refs_and_accesses(
     snippet: &str,
     kind: TemplateSnippetKind,
     locals: &[String],
-) -> FxHashSet<String> {
+) -> (FxHashSet<String>, Vec<MemberAccess>) {
     let snippet = snippet.trim();
     if snippet.is_empty() {
-        return FxHashSet::default();
+        return (FxHashSet::default(), Vec::new());
     }
 
     let wrapped = wrap_snippet(snippet, kind, locals);
@@ -148,13 +152,29 @@ pub fn collect_unresolved_refs(
     let parser_return = Parser::new(&allocator, &wrapped, SourceType::ts()).parse();
     let semantic_ret = SemanticBuilder::new().build(&parser_return.program);
 
-    semantic_ret
+    let unresolved_names: FxHashSet<String> = semantic_ret
         .semantic
         .scoping()
         .root_unresolved_references()
         .keys()
         .map(|name| name.to_string())
-        .collect()
+        .collect();
+
+    if unresolved_names.is_empty() {
+        return (unresolved_names, Vec::new());
+    }
+
+    let mut extractor = ModuleInfoExtractor::new();
+    extractor.visit_program(&parser_return.program);
+    let member_accesses = dedup_member_accesses(
+        extractor
+            .member_accesses
+            .into_iter()
+            .filter(|access| unresolved_names.contains(&access.object))
+            .collect(),
+    );
+
+    (unresolved_names, member_accesses)
 }
 
 fn remap_object_name(
