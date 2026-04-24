@@ -392,6 +392,21 @@ pub struct HealthParams {
     /// set; silently ignored otherwise.
     pub min_invocations_hot: Option<u64>,
 
+    /// Minimum total trace volume before the sidecar may emit high-confidence
+    /// `safe_to_delete` or `review_required` verdicts. Below this threshold,
+    /// confidence is capped at `medium` to protect against overconfident
+    /// verdicts on new or low-traffic services. Inherits the sidecar default
+    /// (5000) when omitted. Takes effect only when `production_coverage` is
+    /// also set; silently ignored otherwise.
+    pub min_observation_volume: Option<u32>,
+
+    /// Fraction of `trace_count` below which an invoked function is
+    /// classified `low_traffic` rather than `active`. Expressed as a
+    /// decimal (0.001 = 0.1%). Inherits the sidecar default (0.001) when
+    /// omitted. Takes effect only when `production_coverage` is also set;
+    /// silently ignored otherwise.
+    pub low_traffic_threshold: Option<f64>,
+
     /// Group health findings by CODEOWNERS ownership, directory, workspace
     /// package, or GitLab CODEOWNERS section. Values: "owner", "directory",
     /// "package", "section". `section` attaches an `owners: string[]` array
@@ -399,7 +414,7 @@ pub struct HealthParams {
     pub group_by: Option<String>,
 }
 
-/// Parameters for `health_production_coverage`, the focused paid-tier
+/// Parameters for `check_production_coverage`, the focused paid-tier
 /// production-coverage entry point. A thin wrapper around
 /// `fallow health --production-coverage <path>` with a narrow surface area
 /// so agents can pick the right tool by name and pass exactly the knobs
@@ -408,7 +423,7 @@ pub struct HealthParams {
 /// trial). Long V8 dumps can exceed the default 120s MCP subprocess
 /// timeout; raise `FALLOW_TIMEOUT_SECS` for multi-megabyte inputs.
 #[derive(Deserialize, JsonSchema)]
-pub struct HealthProductionCoverageParams {
+pub struct CheckProductionCoverageParams {
     /// Path to production coverage input. Accepts a V8 coverage directory
     /// (`NODE_V8_COVERAGE=<dir>`), a single V8 coverage JSON file, or an
     /// Istanbul `coverage-final.json`. Required.
@@ -443,7 +458,8 @@ pub struct HealthProductionCoverageParams {
 
     /// Fraction of `trace_count` below which an invoked function is
     /// classified `low_traffic` rather than `active`. Expressed as a
-    /// decimal (0.001 = 0.1%). Inherits the sidecar default when omitted.
+    /// decimal (0.001 = 0.1%). Inherits the sidecar default (0.001) when
+    /// omitted.
     pub low_traffic_threshold: Option<f64>,
 
     /// Disable the incremental parse cache. Forces a full re-parse of all files.
@@ -457,6 +473,12 @@ pub struct HealthProductionCoverageParams {
     /// Production V8 coverage yields the most accurate per-function CRAP
     /// inputs, making this flag especially useful on this tool.
     pub max_crap: Option<f64>,
+
+    /// Group health findings by CODEOWNERS ownership, directory, workspace
+    /// package, or GitLab CODEOWNERS section. Values: "owner", "directory",
+    /// "package", "section". `section` attaches an `owners: string[]` array
+    /// to each group. Passed through to the CLI's `--group-by` flag.
+    pub group_by: Option<String>,
 }
 
 #[derive(Default, Deserialize, JsonSchema)]

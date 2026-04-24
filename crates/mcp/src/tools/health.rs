@@ -118,6 +118,18 @@ pub fn build_health_args(params: &HealthParams) -> Vec<String> {
             min_invocations_hot.to_string(),
         ]);
     }
+    if let Some(min_observation_volume) = params.min_observation_volume {
+        args.extend([
+            "--min-observation-volume".to_string(),
+            min_observation_volume.to_string(),
+        ]);
+    }
+    if let Some(low_traffic_threshold) = params.low_traffic_threshold {
+        args.extend([
+            "--low-traffic-threshold".to_string(),
+            format!("{low_traffic_threshold}"),
+        ]);
+    }
     if let Some(ref gb) = params.group_by {
         args.extend(["--group-by".to_string(), gb.clone()]);
     }

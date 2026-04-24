@@ -4,14 +4,15 @@ use rmcp::model::{CallToolResult, Content, Implementation, ServerCapabilities, S
 use rmcp::{ErrorData as McpError, ServerHandler, tool, tool_router};
 
 use crate::params::{
-    AnalyzeParams, AuditParams, CheckChangedParams, FeatureFlagsParams, FindDupesParams, FixParams,
-    HealthParams, HealthProductionCoverageParams, ListBoundariesParams, ProjectInfoParams,
+    AnalyzeParams, AuditParams, CheckChangedParams, CheckProductionCoverageParams,
+    FeatureFlagsParams, FindDupesParams, FixParams, HealthParams, ListBoundariesParams,
+    ProjectInfoParams,
 };
 use crate::tools::{
-    build_analyze_args, build_audit_args, build_check_changed_args, build_feature_flags_args,
-    build_find_dupes_args, build_fix_apply_args, build_fix_preview_args, build_health_args,
-    build_health_production_coverage_args, build_list_boundaries_args, build_project_info_args,
-    run_fallow,
+    build_analyze_args, build_audit_args, build_check_changed_args,
+    build_check_production_coverage_args, build_feature_flags_args, build_find_dupes_args,
+    build_fix_apply_args, build_fix_preview_args, build_health_args, build_list_boundaries_args,
+    build_project_info_args, run_fallow,
 };
 
 #[cfg(test)]
@@ -136,7 +137,7 @@ impl FallowMcp {
     }
 
     #[tool(
-        description = "Check code health metrics (cyclomatic and cognitive complexity) for functions in the project. Returns structured JSON with complexity scores per function, sorted by severity. Set score=true for a single 0-100 health score with letter grade (A/B/C/D/F); forces full pipeline for accuracy. Set min_score=N to fail if score drops below a threshold (CI quality gate). Set file_scores=true for per-file maintainability index (fan-in, fan-out, dead code ratio, complexity density). Set coverage_gaps=true to explicitly include static test coverage gaps: runtime files and exports with no test dependency path (not line-level coverage). A provided config file may also enable coverage gaps via rules.coverage-gaps when no health sections are explicitly selected. Set hotspots=true to identify files that are both complex and frequently changing (combines git churn with complexity). Set ownership=true (implies hotspots) to attach per-file ownership signals: bus factor, contributor count, declared CODEOWNERS owner, drift, and unowned-hotspot flag. Use ownership_email_mode=raw|handle|hash for author email privacy (default handle). Set targets=true for ranked refactoring recommendations sorted by efficiency (quick wins first), with confidence scores and adaptive percentile-based thresholds. Set trend=true to compare current metrics against the most recent saved snapshot and show per-metric deltas with directional indicators (improving/declining/stable). Implies --score. Requires prior snapshots saved with save_snapshot. Set effort to control analysis depth: 'low' (fast, surface-level), 'medium' (balanced, default), or 'high' (thorough, all heuristics). Set summary=true to include a natural-language summary of findings alongside the structured JSON. Set coverage to a path to Istanbul-format coverage data (coverage-final.json from Jest, Vitest, c8, nyc) for accurate per-function CRAP scores instead of the default static binary model. Set production_coverage to a path (V8 coverage directory, V8 JSON file, or Istanbul JSON file) for merged runtime production-coverage findings (paid feature; requires an active license via `fallow license activate`). Set min_invocations_hot=N to tune the hot-path threshold used by production-coverage output (default 100). Set group_by to \"owner\" (CODEOWNERS), \"directory\", \"package\" (workspace), or \"section\" (GitLab CODEOWNERS `[Section]` headers, with `owners` metadata per group) to partition results. Supports config, baseline comparisons, and performance tuning (no_cache, threads). Useful for identifying hard-to-maintain code and prioritizing refactoring.",
+        description = "Check code health metrics (cyclomatic and cognitive complexity) for functions in the project. Returns structured JSON with complexity scores per function, sorted by severity. Set score=true for a single 0-100 health score with letter grade (A/B/C/D/F); forces full pipeline for accuracy. Set min_score=N to fail if score drops below a threshold (CI quality gate). Set file_scores=true for per-file maintainability index (fan-in, fan-out, dead code ratio, complexity density). Set coverage_gaps=true to explicitly include static test coverage gaps: runtime files and exports with no test dependency path (not line-level coverage). A provided config file may also enable coverage gaps via rules.coverage-gaps when no health sections are explicitly selected. Set hotspots=true to identify files that are both complex and frequently changing (combines git churn with complexity). Set ownership=true (implies hotspots) to attach per-file ownership signals: bus factor, contributor count, declared CODEOWNERS owner, drift, and unowned-hotspot flag. Use ownership_email_mode=raw|handle|hash for author email privacy (default handle). Set targets=true for ranked refactoring recommendations sorted by efficiency (quick wins first), with confidence scores and adaptive percentile-based thresholds. Set trend=true to compare current metrics against the most recent saved snapshot and show per-metric deltas with directional indicators (improving/declining/stable). Implies --score. Requires prior snapshots saved with save_snapshot. Set effort to control analysis depth: 'low' (fast, surface-level), 'medium' (balanced, default), or 'high' (thorough, all heuristics). Set summary=true to include a natural-language summary of findings alongside the structured JSON. Set coverage to a path to Istanbul-format coverage data (coverage-final.json from Jest, Vitest, c8, nyc) for accurate per-function CRAP scores instead of the default static binary model. Set production_coverage to a path (V8 coverage directory, V8 JSON file, or Istanbul JSON file) for merged runtime production-coverage findings (paid feature; requires an active license via `fallow license activate`). Set min_invocations_hot=N to tune the hot-path threshold used by production-coverage output (default 100), min_observation_volume=N to raise the high-confidence verdict floor (default 5000), and low_traffic_threshold=F to adjust the active/low_traffic split (default 0.001). All three take effect only when production_coverage is also set. Set group_by to \"owner\" (CODEOWNERS), \"directory\", \"package\" (workspace), or \"section\" (GitLab CODEOWNERS `[Section]` headers, with `owners` metadata per group) to partition results. Supports config, baseline comparisons, and performance tuning (no_cache, threads). Useful for identifying hard-to-maintain code and prioritizing refactoring.",
         annotations(read_only_hint = true, open_world_hint = true)
     )]
     async fn check_health(
@@ -181,14 +182,14 @@ impl FallowMcp {
     }
 
     #[tool(
-        description = "Merge runtime production-coverage data into the health report (paid feature). Focused entry point for the production-coverage pipeline: pass a V8 coverage directory (`NODE_V8_COVERAGE=<dir>`), a single V8 coverage JSON file, or an Istanbul `coverage-final.json` via the required `coverage` field. Requires an active license JWT (start a 30-day trial with `fallow license activate --trial --email <addr>`). Returns structured JSON with a `production_coverage` block containing surfaced `findings` verdicts (`safe_to_delete` / `review_required` / `low_traffic` / `coverage_unavailable`), stable content-hash IDs (`fallow:prod:<hash>`), evidence, percentile-ranked hot paths, and on protocol-0.3+ sidecars a `summary.capture_quality` block that flags short-window captures. The sidecar may still classify other functions as `active`, but the CLI omits those from `production_coverage.findings` to keep the surfaced list actionable. Tunable via `min_invocations_hot` (hot-path threshold), `min_observation_volume` (high-confidence verdict floor), and `low_traffic_threshold` (active/low_traffic split). Production coverage can exceed the default 120s MCP subprocess timeout on multi-megabyte dumps; raise `FALLOW_TIMEOUT_SECS` accordingly. For general complexity / hotspot / CRAP analysis without a production dump, use `check_health` instead.",
+        description = "(paid) Merge runtime production-coverage data into the health report. Focused entry point for the production-coverage pipeline: pass a V8 coverage directory (`NODE_V8_COVERAGE=<dir>`), a single V8 coverage JSON file, or an Istanbul `coverage-final.json` via the required `coverage` field. Requires an active license JWT (start a 30-day trial with `fallow license activate --trial --email <addr>`; check state with `fallow license status`). Returns structured JSON with a `production_coverage` block containing surfaced `findings` verdicts (`safe_to_delete` / `review_required` / `low_traffic` / `coverage_unavailable`), stable content-hash IDs (`fallow:prod:<hash>`), evidence, percentile-ranked hot paths, and on protocol-0.3+ sidecars a `summary.capture_quality` block that flags short-window captures. The sidecar may still classify other functions as `active`, but the CLI omits those from `production_coverage.findings` to keep the surfaced list actionable. Tunable via `min_invocations_hot` (hot-path threshold, default 100), `min_observation_volume` (high-confidence verdict floor, default 5000), and `low_traffic_threshold` (active/low_traffic split, default 0.001). `group_by` partitions results by CODEOWNERS / directory / package / section. Production coverage can exceed the default 120s MCP subprocess timeout on multi-megabyte dumps; raise `FALLOW_TIMEOUT_SECS` accordingly. For general complexity / hotspot / CRAP analysis without a production dump, use `check_health` instead.",
         annotations(read_only_hint = true, open_world_hint = true)
     )]
-    async fn health_production_coverage(
+    async fn check_production_coverage(
         &self,
-        params: Parameters<HealthProductionCoverageParams>,
+        params: Parameters<CheckProductionCoverageParams>,
     ) -> Result<CallToolResult, McpError> {
-        let args = build_health_production_coverage_args(&params.0);
+        let args = build_check_production_coverage_args(&params.0);
         run_fallow(&self.binary, &args).await
     }
 }
@@ -209,10 +210,11 @@ impl ServerHandler for FallowMcp {
                  find_dupes (code duplication), fix_preview/fix_apply (auto-fix), \
                  project_info (plugins, files, entry points, boundary zones), \
                  check_health (code complexity metrics), \
-                 health_production_coverage (paid; merges a V8 or Istanbul production coverage dump into the health report), \
+                 check_production_coverage (paid; merges a V8 or Istanbul production coverage dump into the health report), \
                  audit (combined dead-code + complexity + duplication for changed files, returns verdict), \
                  list_boundaries (architecture boundary zones and access rules), \
-                 feature_flags (detect feature flag patterns).",
+                 feature_flags (detect feature flag patterns). \
+                 Picking check_health vs check_production_coverage: use check_production_coverage when you have a V8 or Istanbul coverage dump and want surfaced dead-in-production verdicts; use check_health for general complexity / hotspot / CRAP analysis without a coverage dump.",
             )
     }
 }

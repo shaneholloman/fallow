@@ -1,11 +1,9 @@
-use crate::params::HealthProductionCoverageParams;
+use crate::params::CheckProductionCoverageParams;
 
 use super::{push_global, push_scope};
 
-/// Build CLI arguments for the `health_production_coverage` tool.
-pub fn build_health_production_coverage_args(
-    params: &HealthProductionCoverageParams,
-) -> Vec<String> {
+/// Build CLI arguments for the `check_production_coverage` tool.
+pub fn build_check_production_coverage_args(params: &CheckProductionCoverageParams) -> Vec<String> {
     let mut args = vec![
         "health".to_string(),
         "--format".to_string(),
@@ -40,11 +38,14 @@ pub fn build_health_production_coverage_args(
     if let Some(low_traffic_threshold) = params.low_traffic_threshold {
         args.extend([
             "--low-traffic-threshold".to_string(),
-            low_traffic_threshold.to_string(),
+            format!("{low_traffic_threshold}"),
         ]);
     }
     if let Some(max_crap) = params.max_crap {
         args.extend(["--max-crap".to_string(), format!("{max_crap}")]);
+    }
+    if let Some(ref gb) = params.group_by {
+        args.extend(["--group-by".to_string(), gb.clone()]);
     }
 
     args

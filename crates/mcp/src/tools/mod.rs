@@ -1,22 +1,22 @@
 mod analyze;
 mod audit;
 mod check_changed;
+mod check_production_coverage;
 mod dupes;
 mod fix;
 mod flags;
 mod health;
-mod health_production_coverage;
 mod list_boundaries;
 mod project_info;
 
 pub use analyze::build_analyze_args;
 pub use audit::build_audit_args;
 pub use check_changed::build_check_changed_args;
+pub use check_production_coverage::build_check_production_coverage_args;
 pub use dupes::build_find_dupes_args;
 pub use fix::{build_fix_apply_args, build_fix_preview_args};
 pub use flags::build_feature_flags_args;
 pub use health::build_health_args;
-pub use health_production_coverage::build_health_production_coverage_args;
 pub use list_boundaries::build_list_boundaries_args;
 pub use project_info::build_project_info_args;
 

@@ -1,13 +1,13 @@
 use crate::params::*;
 use crate::tools::{
     ISSUE_TYPE_FLAGS, VALID_DUPES_MODES, build_analyze_args, build_audit_args,
-    build_check_changed_args, build_feature_flags_args, build_find_dupes_args,
-    build_fix_apply_args, build_fix_preview_args, build_health_args,
-    build_health_production_coverage_args, build_list_boundaries_args, build_project_info_args,
+    build_check_changed_args, build_check_production_coverage_args, build_feature_flags_args,
+    build_find_dupes_args, build_fix_apply_args, build_fix_preview_args, build_health_args,
+    build_list_boundaries_args, build_project_info_args,
 };
 
-fn health_production_coverage(coverage: &str) -> HealthProductionCoverageParams {
-    HealthProductionCoverageParams {
+fn check_production_coverage(coverage: &str) -> CheckProductionCoverageParams {
+    CheckProductionCoverageParams {
         coverage: coverage.to_string(),
         root: None,
         config: None,
@@ -19,6 +19,7 @@ fn health_production_coverage(coverage: &str) -> HealthProductionCoverageParams 
         no_cache: None,
         threads: None,
         max_crap: None,
+        group_by: None,
     }
 }
 
@@ -577,6 +578,8 @@ fn health_args_with_all_options() {
         coverage_root: Some("/ci/build".to_string()),
         production_coverage: Some("./coverage".to_string()),
         min_invocations_hot: Some(250),
+        min_observation_volume: Some(7500),
+        low_traffic_threshold: Some(0.002),
         min_severity: None,
         ownership: None,
         ownership_email_mode: None,
@@ -636,6 +639,10 @@ fn health_args_with_all_options() {
             "./coverage",
             "--min-invocations-hot",
             "250",
+            "--min-observation-volume",
+            "7500",
+            "--low-traffic-threshold",
+            "0.002",
         ]
     );
 }
@@ -719,8 +726,8 @@ fn all_arg_builders_include_format_json_and_quiet() {
     let audit = build_audit_args(&AuditParams::default());
     let list_boundaries = build_list_boundaries_args(&ListBoundariesParams::default());
     let feature_flags = build_feature_flags_args(&FeatureFlagsParams::default());
-    let health_production_coverage =
-        build_health_production_coverage_args(&health_production_coverage("./coverage"));
+    let check_production_coverage =
+        build_check_production_coverage_args(&check_production_coverage("./coverage"));
 
     for (name, args) in [
         ("analyze", &analyze),
@@ -733,7 +740,7 @@ fn all_arg_builders_include_format_json_and_quiet() {
         ("audit", &audit),
         ("list_boundaries", &list_boundaries),
         ("feature_flags", &feature_flags),
-        ("health_production_coverage", &health_production_coverage),
+        ("check_production_coverage", &check_production_coverage),
     ] {
         assert!(
             args.contains(&"--format".to_string()),
@@ -776,16 +783,16 @@ fn each_tool_uses_correct_subcommand() {
         "flags"
     );
     assert_eq!(
-        build_health_production_coverage_args(&health_production_coverage("./coverage"))[0],
+        build_check_production_coverage_args(&check_production_coverage("./coverage"))[0],
         "health"
     );
 }
 
-// ── Argument building: health_production_coverage ─────────────────
+// ── Argument building: check_production_coverage ─────────────────
 
 #[test]
-fn health_production_coverage_minimal_emits_coverage_flag() {
-    let args = build_health_production_coverage_args(&health_production_coverage("./coverage"));
+fn check_production_coverage_minimal_emits_coverage_flag() {
+    let args = build_check_production_coverage_args(&check_production_coverage("./coverage"));
     assert_eq!(args[0], "health");
     assert!(args.contains(&"--production-coverage".to_string()));
     let idx = args
@@ -797,11 +804,12 @@ fn health_production_coverage_minimal_emits_coverage_flag() {
     assert!(!args.contains(&"--min-invocations-hot".to_string()));
     assert!(!args.contains(&"--min-observation-volume".to_string()));
     assert!(!args.contains(&"--low-traffic-threshold".to_string()));
+    assert!(!args.contains(&"--group-by".to_string()));
 }
 
 #[test]
-fn health_production_coverage_all_tuning_flags_emit() {
-    let params = HealthProductionCoverageParams {
+fn check_production_coverage_all_tuning_flags_emit() {
+    let params = CheckProductionCoverageParams {
         coverage: "./coverage/coverage-final.json".to_string(),
         root: Some("/my/project".to_string()),
         config: Some(".fallowrc.json".to_string()),
@@ -813,8 +821,9 @@ fn health_production_coverage_all_tuning_flags_emit() {
         no_cache: Some(true),
         threads: Some(8),
         max_crap: Some(42.5),
+        group_by: Some("owner".to_string()),
     };
-    let args = build_health_production_coverage_args(&params);
+    let args = build_check_production_coverage_args(&params);
     assert!(args.contains(&"--root".to_string()));
     assert!(args.contains(&"/my/project".to_string()));
     assert!(args.contains(&"--config".to_string()));
@@ -835,14 +844,18 @@ fn health_production_coverage_all_tuning_flags_emit() {
         args.windows(2).any(|w| w == ["--max-crap", "42.5"]),
         "expected --max-crap 42.5, got {args:?}"
     );
+    assert!(
+        args.windows(2).any(|w| w == ["--group-by", "owner"]),
+        "expected --group-by owner, got {args:?}"
+    );
 }
 
 #[test]
-fn health_production_coverage_includes_explain() {
-    let args = build_health_production_coverage_args(&health_production_coverage("./coverage"));
+fn check_production_coverage_includes_explain() {
+    let args = build_check_production_coverage_args(&check_production_coverage("./coverage"));
     assert!(
         args.contains(&"--explain".to_string()),
-        "health_production_coverage should include --explain"
+        "check_production_coverage should include --explain"
     );
 }
 
