@@ -176,7 +176,24 @@ Combined mode and `fallow audit` support per-analysis production mode. Precedenc
 }
 ```
 
-Use `--production-health`, `--production-dead-code`, or `--production-dupes` for one invocation, or `FALLOW_PRODUCTION_HEALTH=true` and related env vars in CI. The global `--production` flag still enables production mode for every analysis. When both forms of env var are set, the per-analysis variable wins (e.g., `FALLOW_PRODUCTION=false FALLOW_PRODUCTION_HEALTH=true` runs health in production mode and the other analyses in non-production mode).
+Use `--production-health`, `--production-dead-code`, or `--production-dupes` for one invocation, or `FALLOW_PRODUCTION_HEALTH=true` and related env vars in CI. The global `--production` flag still enables production mode for every analysis.
+
+Precedence (highest to lowest): CLI flags, per-analysis env var, global `FALLOW_PRODUCTION`, config. CLI flags only enable; env vars and config can also disable. Worked examples:
+
+```bash
+# Run health in production mode, dead-code and dupes on the full tree
+fallow --production-health
+
+# Same, via env var (useful in CI templates that pass env-only)
+FALLOW_PRODUCTION_HEALTH=true fallow
+
+# Per-analysis env wins over the global env, so this runs health in production mode
+# even though the global env says off (the typical CI-template defaults case)
+FALLOW_PRODUCTION=false FALLOW_PRODUCTION_HEALTH=true fallow
+
+# CLI flags beat env vars; this turns ALL three on regardless of any FALLOW_PRODUCTION_* env
+fallow --production
+```
 
 ## Dead code
 

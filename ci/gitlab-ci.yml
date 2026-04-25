@@ -70,10 +70,10 @@ variables:
   FALLOW_COMMAND: ""            # dead-code, dupes, health, fix, or empty (runs all)
   FALLOW_ROOT: "."
   FALLOW_CONFIG: ""             # Path to .fallowrc.json or fallow.toml
-  FALLOW_PRODUCTION: "false"
-  FALLOW_PRODUCTION_DEAD_CODE: "false" # Combined mode only: production mode for dead-code
-  FALLOW_PRODUCTION_HEALTH: "false"    # Combined mode only: production mode for health
-  FALLOW_PRODUCTION_DUPES: "false"     # Combined mode only: production mode for duplication
+  FALLOW_PRODUCTION: ""                # "true"/"false" enables production for every analysis. Empty defers to config.
+  FALLOW_PRODUCTION_DEAD_CODE: ""      # Combined mode only: "true"/"false" overrides FALLOW_PRODUCTION for dead-code. Empty defers to it.
+  FALLOW_PRODUCTION_HEALTH: ""         # Combined mode only: "true"/"false" overrides FALLOW_PRODUCTION for health. Empty defers to it.
+  FALLOW_PRODUCTION_DUPES: ""          # Combined mode only: "true"/"false" overrides FALLOW_PRODUCTION for duplication. Empty defers to it.
   FALLOW_FAIL_ON_ISSUES: "true"
   FALLOW_ARGS: ""               # Extra CLI arguments (space-separated)
   FALLOW_COMMENT: "false"       # Post results as MR summary comment
