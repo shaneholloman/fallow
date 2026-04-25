@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.48.5] - 2026-04-25
+
+### Added
+
+- **MCP trace tools for chasing why a finding exists.** Four new tools land in the MCP server: `trace_export` (why is this export reachable, or why isn't it), `trace_file` (which entry points pull this file in), `trace_dependency` (which scripts and config files keep this package alive), and `trace_clone` (where else does this clone group appear). Each returns the full propagation chain, not just the verdict, so an agent can walk from "fallow says X" back to the entry point or script that justifies it without re-running analysis. `trace_dependency` correctly credits packages referenced only from `package.json` `scripts` blocks (e.g., husky, lint-staged) so they stop showing as unused in the trace; `trace_clone` strips absolute paths from instance locations so the output stays portable across machines, and validation errors share the same error envelope as the rest of the MCP surface. Closes [#176](https://github.com/fallow-rs/fallow/pull/176). Thanks [@M-Hassan-Raza](https://github.com/M-Hassan-Raza).
+
+### Fixed
+
+- **VS Code status bar tooltip now renders codicons instead of literal `$(error)` / `$(warning)` / `$(check)` text.** The popup markdown is built as a `vscode.MarkdownString` and the missing `supportThemeIcons = true` flag meant every codicon shorthand fell through as raw text. Independently, the status bar text and tooltip could disagree (e.g., `0.8% duplication` in the bar, `0.6% duplication` in the popup) because two code paths drove the surface: the LSP `analysisComplete` notification updated both, while CLI completion only updated the text. Both paths now feed through one `buildParamsFromCli` + `applyTooltipAndSeverity` pipeline so text and tooltip always derive from the same data. Crashed analysis runs now also surface as `setStatusBarError()` instead of a misleading "$(check) No issues found" tooltip. Closes [#179](https://github.com/fallow-rs/fallow/issues/179).
+- **Health CRAP score no longer mis-merges curried arrow functions that share a start line.** When two named arrow functions in the same file had identical line numbers (typical for one-line curried definitions like `const f = (a) => (b) => a + b`), the per-function CRAP merge collapsed them into a single record and double-counted coverage. The merge key now includes function name alongside `(file, line)` so curried arrows produce distinct CRAP entries.
+
 ## [2.48.4] - 2026-04-24
 
 ### Fixed
@@ -1644,6 +1655,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cross-workspace resolution for npm/yarn/pnpm workspaces
 
 [Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.48.4...HEAD
+[2.48.5]: https://github.com/fallow-rs/fallow/compare/v2.48.4...v2.48.5
 [2.48.4]: https://github.com/fallow-rs/fallow/compare/v2.48.3...v2.48.4
 [2.48.3]: https://github.com/fallow-rs/fallow/compare/v2.48.2...v2.48.3
 [2.48.2]: https://github.com/fallow-rs/fallow/compare/v2.48.1...v2.48.2
