@@ -1,3 +1,6 @@
+import { countCheckIssues } from "./analysis-utils.js";
+import type { FallowCheckResult, FallowDupesResult } from "./types.js";
+
 export interface AnalysisCompleteParams {
   totalIssues: number;
   unusedFiles: number;
@@ -16,6 +19,33 @@ export interface AnalysisCompleteParams {
   duplicationPercentage: number;
   cloneGroups: number;
 }
+
+/**
+ * Convert CLI analysis results into the same shape the LSP notification
+ * delivers, so the status bar text and tooltip can be built from a single
+ * source of truth regardless of whether LSP or CLI produced the data.
+ */
+export const buildParamsFromCli = (
+  check: FallowCheckResult | null,
+  dupes: FallowDupesResult | null
+): AnalysisCompleteParams => ({
+  totalIssues: countCheckIssues(check),
+  unusedFiles: check?.unused_files.length ?? 0,
+  unusedExports: check?.unused_exports.length ?? 0,
+  unusedTypes: check?.unused_types.length ?? 0,
+  unusedDependencies: check?.unused_dependencies.length ?? 0,
+  unusedDevDependencies: check?.unused_dev_dependencies.length ?? 0,
+  unusedOptionalDependencies: check?.unused_optional_dependencies?.length ?? 0,
+  unusedEnumMembers: check?.unused_enum_members.length ?? 0,
+  unusedClassMembers: check?.unused_class_members.length ?? 0,
+  unresolvedImports: check?.unresolved_imports.length ?? 0,
+  unlistedDependencies: check?.unlisted_dependencies.length ?? 0,
+  duplicateExports: check?.duplicate_exports.length ?? 0,
+  typeOnlyDependencies: check?.type_only_dependencies?.length ?? 0,
+  circularDependencies: check?.circular_dependencies?.length ?? 0,
+  duplicationPercentage: dupes?.stats.duplication_percentage ?? 0,
+  cloneGroups: dupes?.stats.clone_groups ?? 0,
+});
 
 type SeverityKey =
   | "statusBarItem.errorBackground"

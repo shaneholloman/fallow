@@ -23,6 +23,7 @@ const defaultIssueTypes = {
   "unused-types": true,
   "unused-dependencies": true,
   "unused-dev-dependencies": true,
+  "unused-optional-dependencies": true,
   "unused-enum-members": true,
   "unused-class-members": true,
   "unresolved-imports": true,
@@ -125,6 +126,7 @@ describe("Fallow VS Code extension", () => {
     assert.ok(result.dupes, "duplication result should be available");
     assert.equal(result.check.unused_files.length, 1);
     assert.equal(result.check.unused_exports.length, 0);
+    assert.equal(result.check.unused_optional_dependencies?.length, 1);
     assert.equal(result.dupes.clone_groups.length, 1);
 
     const analysisCalls = readCliLog();

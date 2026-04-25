@@ -1,8 +1,8 @@
 // VS Code injects this module into the extension host at runtime.
 // fallow-ignore-next-line unlisted-dependency
 import * as vscode from "vscode";
-import { countCheckIssues } from "./analysis-utils.js";
 import {
+  buildParamsFromCli,
   buildStatusBarPartsFromLsp,
   buildStatusBarTooltipMarkdown,
   getStatusBarSeverityKey,
@@ -33,22 +33,30 @@ export const updateStatusBar = (
     return;
   }
 
+  const params = buildParamsFromCli(checkResult, dupesResult);
+  applyTooltipAndSeverity(params);
+
   const parts: string[] = [];
-
   if (checkResult) {
-    parts.push(`${countCheckIssues(checkResult)} issues`);
+    parts.push(`${params.totalIssues} issues`);
   }
-
   if (dupesResult) {
-    const pct = dupesResult.stats.duplication_percentage.toFixed(1);
-    parts.push(`${pct}% duplication`);
+    parts.push(`${params.duplicationPercentage.toFixed(1)}% duplication`);
   }
-
   applyStatusBarText(parts);
 };
 
 /** Update the status bar from LSP notification data. */
 export const updateStatusBarFromLsp = (params: AnalysisCompleteParams): void => {
+  if (!statusBarItem) {
+    return;
+  }
+
+  applyTooltipAndSeverity(params);
+  applyStatusBarText(buildStatusBarPartsFromLsp(params));
+};
+
+const applyTooltipAndSeverity = (params: AnalysisCompleteParams): void => {
   if (!statusBarItem) {
     return;
   }
@@ -62,9 +70,11 @@ export const updateStatusBarFromLsp = (params: AnalysisCompleteParams): void => 
     buildStatusBarTooltipMarkdown(params)
   );
   tooltip.isTrusted = true;
+  // Required so `$(name)` codicons in the markdown render as icons rather
+  // than literal text. Without this the popup shows raw `$(error)`,
+  // `$(warning)`, etc. (issue #179).
+  tooltip.supportThemeIcons = true;
   statusBarItem.tooltip = tooltip;
-
-  applyStatusBarText(buildStatusBarPartsFromLsp(params));
 };
 
 const applyStatusBarText = (parts: string[]): void => {

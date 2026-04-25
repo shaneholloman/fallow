@@ -110,6 +110,7 @@ const filterCheckResult = (result: FallowCheckResult): FallowCheckResult => {
     unused_types: types["unused-types"] ? result.unused_types : [],
     unused_dependencies: types["unused-dependencies"] ? result.unused_dependencies : [],
     unused_dev_dependencies: types["unused-dev-dependencies"] ? result.unused_dev_dependencies : [],
+    unused_optional_dependencies: types["unused-optional-dependencies"] ? result.unused_optional_dependencies : [],
     unused_enum_members: types["unused-enum-members"] ? result.unused_enum_members : [],
     unused_class_members: types["unused-class-members"] ? result.unused_class_members : [],
     unresolved_imports: types["unresolved-imports"] ? result.unresolved_imports : [],
@@ -239,16 +240,20 @@ export const runAnalysis = async (
 
     const output = await execFallow(context, analysisArgs, root);
 
-    try {
-      const result = JSON.parse(output) as FallowCombinedResult;
-      check = result.check ? filterCheckResult(result.check) : null;
-      dupes = result.dupes ?? null;
-    } catch {
-      // Output may be empty or non-JSON on error
+    if (output.trim().length === 0) {
+      // execFallow already rejects on non-zero exit codes (other than 0/1);
+      // an empty stdout on a successful exit means there was nothing to
+      // report. Leave check/dupes null and return without raising.
+      return { check, dupes };
     }
+
+    const result = JSON.parse(output) as FallowCombinedResult;
+    check = result.check ? filterCheckResult(result.check) : null;
+    dupes = result.dupes ?? null;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     void vscode.window.showErrorMessage(`Fallow analysis failed: ${message}`);
+    throw err;
   }
 
   return { check, dupes };

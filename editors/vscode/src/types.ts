@@ -4,6 +4,7 @@ export interface IssueTypeConfig {
   readonly "unused-types": boolean;
   readonly "unused-dependencies": boolean;
   readonly "unused-dev-dependencies": boolean;
+  readonly "unused-optional-dependencies": boolean;
   readonly "unused-enum-members": boolean;
   readonly "unused-class-members": boolean;
   readonly "unresolved-imports": boolean;
@@ -23,6 +24,7 @@ export interface FallowCheckResult {
   readonly unused_types: ReadonlyArray<UnusedExport>;
   readonly unused_dependencies: ReadonlyArray<UnusedDependency>;
   readonly unused_dev_dependencies: ReadonlyArray<UnusedDependency>;
+  readonly unused_optional_dependencies?: ReadonlyArray<UnusedDependency>;
   readonly unused_enum_members: ReadonlyArray<UnusedMember>;
   readonly unused_class_members: ReadonlyArray<UnusedMember>;
   readonly unresolved_imports: ReadonlyArray<UnresolvedImport>;
@@ -166,6 +168,7 @@ export type IssueCategory =
   | "unused-types"
   | "unused-dependencies"
   | "unused-dev-dependencies"
+  | "unused-optional-dependencies"
   | "unused-enum-members"
   | "unused-class-members"
   | "unresolved-imports"
@@ -180,6 +183,7 @@ export const ISSUE_CATEGORY_LABELS: Record<IssueCategory, string> = {
   "unused-types": "Unused Types",
   "unused-dependencies": "Unused Dependencies",
   "unused-dev-dependencies": "Unused Dev Dependencies",
+  "unused-optional-dependencies": "Unused Optional Dependencies",
   "unused-enum-members": "Unused Enum Members",
   "unused-class-members": "Unused Class Members",
   "unresolved-imports": "Unresolved Imports",

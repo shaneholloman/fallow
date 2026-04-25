@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildParamsFromCli,
   buildStatusBarPartsFromLsp,
   buildStatusBarTooltipMarkdown,
   getStatusBarSeverityKey,
   getDuplicationPercentage,
 } from "../src/statusBar-utils.js";
 import type { AnalysisCompleteParams } from "../src/statusBar-utils.js";
+import type { FallowCheckResult, FallowDupesResult } from "../src/types.js";
 
 const baseParams = (
   overrides: Partial<AnalysisCompleteParams> = {}
@@ -94,5 +96,92 @@ describe("buildStatusBarTooltipMarkdown", () => {
     const markdown = buildStatusBarTooltipMarkdown(baseParams());
 
     expect(markdown).toContain("$(check) No issues found");
+  });
+});
+
+describe("buildParamsFromCli", () => {
+  const emptyCheck = (): FallowCheckResult => ({
+    unused_files: [],
+    unused_exports: [],
+    unused_types: [],
+    unused_dependencies: [],
+    unused_dev_dependencies: [],
+    unused_optional_dependencies: [],
+    unused_enum_members: [],
+    unused_class_members: [],
+    unresolved_imports: [],
+    unlisted_dependencies: [],
+    duplicate_exports: [],
+    type_only_dependencies: [],
+    circular_dependencies: [],
+  });
+
+  it("returns zero counts when both inputs are null", () => {
+    const params = buildParamsFromCli(null, null);
+    expect(params.totalIssues).toBe(0);
+    expect(params.duplicationPercentage).toBe(0);
+    expect(params.cloneGroups).toBe(0);
+  });
+
+  it("counts issue categories from the check result", () => {
+    const check: FallowCheckResult = {
+      ...emptyCheck(),
+      unused_files: [{ path: "a.ts" }],
+      unused_exports: [
+        { path: "b.ts", export_name: "x", line: 1, col: 0 },
+        { path: "c.ts", export_name: "y", line: 1, col: 0 },
+      ],
+      unused_optional_dependencies: [
+        { path: "package.json", package_name: "fsevents" },
+      ],
+      unresolved_imports: [
+        { path: "d.ts", specifier: "./missing", line: 1, col: 0 },
+      ],
+    };
+
+    const params = buildParamsFromCli(check, null);
+    expect(params.unusedFiles).toBe(1);
+    expect(params.unusedExports).toBe(2);
+    expect(params.unusedOptionalDependencies).toBe(1);
+    expect(params.unresolvedImports).toBe(1);
+    expect(params.totalIssues).toBe(5);
+    expect(params.duplicationPercentage).toBe(0);
+  });
+
+  it("propagates duplication stats from the dupes result so the tooltip matches the status bar text", () => {
+    const dupes: FallowDupesResult = {
+      clone_groups: [],
+      clone_families: [],
+      stats: {
+        total_files: 10,
+        files_with_clones: 2,
+        total_lines: 1000,
+        duplicated_lines: 8,
+        total_tokens: 5000,
+        duplicated_tokens: 40,
+        clone_groups: 3,
+        clone_instances: 6,
+        duplication_percentage: 0.8,
+      },
+    };
+
+    const params = buildParamsFromCli(null, dupes);
+    expect(params.duplicationPercentage).toBe(0.8);
+    expect(params.cloneGroups).toBe(3);
+  });
+
+  it("treats missing optional check fields as zero counts", () => {
+    const check = emptyCheck();
+    delete (check as { type_only_dependencies?: unknown })
+      .type_only_dependencies;
+    delete (check as { circular_dependencies?: unknown })
+      .circular_dependencies;
+    delete (check as { unused_optional_dependencies?: unknown })
+      .unused_optional_dependencies;
+
+    const params = buildParamsFromCli(check, null);
+    expect(params.unusedOptionalDependencies).toBe(0);
+    expect(params.typeOnlyDependencies).toBe(0);
+    expect(params.circularDependencies).toBe(0);
   });
 });

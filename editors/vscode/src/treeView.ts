@@ -32,6 +32,7 @@ const CATEGORY_ICONS: Record<IssueCategory, string> = {
   "unused-types": "symbol-interface",
   "unused-dependencies": "package",
   "unused-dev-dependencies": "package",
+  "unused-optional-dependencies": "package",
   "unused-enum-members": "symbol-enum-member",
   "unused-class-members": "symbol-field",
   "unresolved-imports": "error",
@@ -48,6 +49,7 @@ const ISSUE_ICONS: Record<IssueCategory, string> = {
   "unused-types": "symbol-interface",
   "unused-dependencies": "package",
   "unused-dev-dependencies": "package",
+  "unused-optional-dependencies": "package",
   "unused-enum-members": "symbol-enum-member",
   "unused-class-members": "symbol-field",
   "unresolved-imports": "error",
@@ -206,6 +208,15 @@ export class DeadCodeTreeProvider
         (d) => new IssueItem(d.package_name, d.path, 1, 0, "unused-dev-dependencies")
       )
     );
+
+    if (this.result.unused_optional_dependencies) {
+      addCategory(
+        "unused-optional-dependencies",
+        this.result.unused_optional_dependencies.map(
+          (d) => new IssueItem(d.package_name, d.path, 1, 0, "unused-optional-dependencies")
+        )
+      );
+    }
 
     addCategory(
       "unused-enum-members",

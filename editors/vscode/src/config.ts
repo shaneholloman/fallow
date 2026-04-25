@@ -20,6 +20,7 @@ export const getIssueTypes = (): IssueTypeConfig =>
     "unused-types": true,
     "unused-dependencies": true,
     "unused-dev-dependencies": true,
+    "unused-optional-dependencies": true,
     "unused-enum-members": true,
     "unused-class-members": true,
     "unresolved-imports": true,
