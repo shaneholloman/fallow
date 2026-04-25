@@ -181,3 +181,40 @@ fn production_mode_resolves_solution_style_tsconfig_paths() {
         "messages.ts should be reachable via tsconfig.app.json paths alias: {unused_file_names:?}"
     );
 }
+
+#[test]
+fn analyze_project_honors_per_analysis_dead_code_production() {
+    // analyze_project (used by the LSP) routes through default_config which
+    // calls config.resolve() directly. When the loaded config uses the
+    // per-analysis production form, default_config must flatten the
+    // production flag for dead-code analysis. Without that flatten,
+    // ResolvedConfig.production silently stays false and test files leak in.
+    let dir = tempfile::tempdir().expect("temp dir");
+    let root = dir.path();
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("package.json"),
+        r#"{"name":"per-analysis-prod","main":"src/index.ts"}"#,
+    )
+    .unwrap();
+    std::fs::write(root.join("src/index.ts"), "export const ok = 1;\n").unwrap();
+    std::fs::write(root.join("src/utils.test.ts"), "export const dead = 1;\n").unwrap();
+    std::fs::write(
+        root.join(".fallowrc.json"),
+        r#"{"production":{"deadCode":true,"health":false,"dupes":false}}"#,
+    )
+    .unwrap();
+
+    let results = fallow_core::analyze_project(root).expect("analysis should succeed");
+
+    let unused_file_names: Vec<String> = results
+        .unused_files
+        .iter()
+        .map(|f| f.path.file_name().unwrap().to_string_lossy().to_string())
+        .collect();
+
+    assert!(
+        !unused_file_names.contains(&"utils.test.ts".to_string()),
+        "per-analysis production.deadCode=true should exclude *.test.ts from analyze_project, found: {unused_file_names:?}"
+    );
+}

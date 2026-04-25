@@ -1070,18 +1070,33 @@ pub fn analyze_project(root: &Path) -> Result<AnalysisResults, FallowError> {
 }
 
 /// Create a default config for a project root.
+///
+/// `analyze_project` is the dead-code entry point used by the LSP and other
+/// programmatic embedders. When the loaded config uses the per-analysis
+/// production form (`production: { deadCode: true, ... }`), the production
+/// flag must be flattened to the dead-code analysis here. Otherwise
+/// `ResolvedConfig::resolve` calls `.global()` which returns false for the
+/// per-analysis variant and the production-mode rule overrides
+/// (`unused_dev_dependencies: off`, etc.) plus `resolved.production = true`
+/// are silently dropped.
 pub(crate) fn default_config(root: &Path) -> ResolvedConfig {
     let user_config = fallow_config::FallowConfig::find_and_load(root)
         .ok()
         .flatten();
     match user_config {
-        Some((config, _path)) => config.resolve(
-            root.to_path_buf(),
-            fallow_config::OutputFormat::Human,
-            num_cpus(),
-            false,
-            true, // quiet: LSP/programmatic callers don't need progress bars
-        ),
+        Some((mut config, _path)) => {
+            let dead_code_production = config
+                .production
+                .for_analysis(fallow_config::ProductionAnalysis::DeadCode);
+            config.production = dead_code_production.into();
+            config.resolve(
+                root.to_path_buf(),
+                fallow_config::OutputFormat::Human,
+                num_cpus(),
+                false,
+                true, // quiet: LSP/programmatic callers don't need progress bars
+            )
+        }
         None => fallow_config::FallowConfig::default().resolve(
             root.to_path_buf(),
             fallow_config::OutputFormat::Human,
