@@ -1609,6 +1609,7 @@ mod tests {
             graph: Some(graph),
             modules: None,
             files: None,
+            script_used_packages: rustc_hash::FxHashSet::default(),
         };
 
         let result = compute_file_scores(&modules, &file_paths, None, output, None).unwrap();
@@ -1631,6 +1632,7 @@ mod tests {
             graph: None,
             modules: None,
             files: None,
+            script_used_packages: rustc_hash::FxHashSet::default(),
         };
 
         let result = compute_file_scores(&modules, &file_paths, None, output, None);
@@ -1693,6 +1695,7 @@ mod tests {
             graph: Some(graph),
             modules: None,
             files: None,
+            script_used_packages: rustc_hash::FxHashSet::default(),
         };
 
         let result = compute_file_scores(&modules, &file_paths, None, output, None).unwrap();
@@ -1744,6 +1747,7 @@ mod tests {
             graph: Some(graph),
             modules: None,
             files: None,
+            script_used_packages: rustc_hash::FxHashSet::default(),
         };
 
         let result = compute_file_scores(&modules, &file_paths, None, output, None).unwrap();
@@ -1830,6 +1834,7 @@ mod tests {
             graph: Some(graph),
             modules: None,
             files: None,
+            script_used_packages: rustc_hash::FxHashSet::default(),
         };
 
         let result =
@@ -1914,6 +1919,7 @@ mod tests {
             graph: Some(graph),
             modules: None,
             files: None,
+            script_used_packages: rustc_hash::FxHashSet::default(),
         };
 
         let result = compute_file_scores(&modules, &file_paths, None, output, None).unwrap();
@@ -1983,6 +1989,7 @@ mod tests {
             graph: Some(graph),
             modules: None,
             files: None,
+            script_used_packages: rustc_hash::FxHashSet::default(),
         };
 
         let result = compute_file_scores(&modules, &file_paths, None, output, None).unwrap();
@@ -2070,6 +2077,7 @@ mod tests {
             graph: Some(graph),
             modules: None,
             files: None,
+            script_used_packages: rustc_hash::FxHashSet::default(),
         };
 
         let result = compute_file_scores(&modules, &file_paths, None, output, None).unwrap();
@@ -2170,6 +2178,7 @@ mod tests {
             graph: Some(graph),
             modules: None,
             files: None,
+            script_used_packages: rustc_hash::FxHashSet::default(),
         };
 
         let result = compute_file_scores(&modules, &file_paths, None, output, None).unwrap();
@@ -2302,6 +2311,7 @@ mod tests {
             graph: Some(graph),
             modules: None,
             files: None,
+            script_used_packages: rustc_hash::FxHashSet::default(),
         };
 
         let result = compute_file_scores(&modules, &file_paths, None, output, None).unwrap();
@@ -2429,6 +2439,7 @@ mod tests {
             graph: Some(graph),
             modules: None,
             files: None,
+            script_used_packages: rustc_hash::FxHashSet::default(),
         };
 
         let result = compute_file_scores(&modules, &file_paths, None, output, None).unwrap();
@@ -2480,6 +2491,7 @@ mod tests {
             graph: Some(graph),
             modules: None,
             files: None,
+            script_used_packages: rustc_hash::FxHashSet::default(),
         };
 
         let result = compute_file_scores(&modules, &file_paths, None, output, None).unwrap();
@@ -2530,6 +2542,7 @@ mod tests {
             graph: Some(graph),
             modules: None,
             files: None,
+            script_used_packages: rustc_hash::FxHashSet::default(),
         };
 
         let result = compute_file_scores(&modules, &file_paths, None, output, None).unwrap();
@@ -2612,6 +2625,7 @@ mod tests {
             graph: Some(graph),
             modules: None,
             files: None,
+            script_used_packages: rustc_hash::FxHashSet::default(),
         };
 
         let result = compute_file_scores(&modules, &file_paths, None, output, None).unwrap();
@@ -2663,6 +2677,7 @@ mod tests {
             graph: Some(graph),
             modules: None,
             files: None,
+            script_used_packages: rustc_hash::FxHashSet::default(),
         };
 
         let result = compute_file_scores(&modules, &file_paths, None, output, None).unwrap();

@@ -175,6 +175,13 @@ pub(in crate::report) fn print_dependency_trace_human(trace: &DependencyTrace) {
             eprintln!("    {} {}{}", "->".dimmed(), path.display(), tag);
         }
     }
+    if trace.used_in_scripts {
+        eprintln!();
+        eprintln!(
+            "  {}",
+            "Referenced from package.json scripts or CI configs.".dimmed()
+        );
+    }
     eprintln!();
 }
 

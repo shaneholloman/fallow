@@ -2,6 +2,7 @@ use std::process::ExitCode;
 
 use fallow_config::{OutputFormat, ResolvedConfig};
 use fallow_core::graph::ModuleGraph;
+use rustc_hash::FxHashSet;
 
 use super::TraceOptions;
 use crate::{error::emit_error, report};
@@ -10,6 +11,10 @@ use crate::{error::emit_error, report};
 
 /// Handle `--trace`, `--trace-file`, `--trace-dependency` early returns.
 ///
+/// `script_used_packages` is the set of binary names referenced from package.json
+/// scripts and CI configs; `trace_dependency` consults it so script-only tooling
+/// (microbundle, vitest, eslint) shows as used instead of being false-flagged.
+///
 /// Returns `Some(code)` if a trace was handled (caller should return),
 /// `None` if no trace was active and control should continue.
 pub(super) fn handle_trace_output(
@@ -17,6 +22,7 @@ pub(super) fn handle_trace_output(
     trace_opts: &TraceOptions,
     root: &std::path::Path,
     output: OutputFormat,
+    script_used_packages: &FxHashSet<String>,
 ) -> Option<ExitCode> {
     if let Some(ref trace_spec) = trace_opts.trace_export {
         let Some((file_path, export_name)) = parse_trace_spec(trace_spec) else {
@@ -58,7 +64,8 @@ pub(super) fn handle_trace_output(
     }
 
     if let Some(ref pkg_name) = trace_opts.trace_dependency {
-        let trace = fallow_core::trace::trace_dependency(graph, root, pkg_name);
+        let trace =
+            fallow_core::trace::trace_dependency(graph, root, pkg_name, script_used_packages);
         report::print_dependency_trace(&trace, output);
         return Some(ExitCode::SUCCESS);
     }

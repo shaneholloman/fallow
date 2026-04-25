@@ -208,9 +208,23 @@ pub fn execute_check(opts: &CheckOptions<'_>) -> Result<CheckResult, ExitCode> {
 
     // Core analysis
     let use_trace = opts.trace_opts.any_active();
-    let (mut results, trace_graph, trace_timings, retained_modules, retained_files) = if use_trace {
+    let (
+        mut results,
+        trace_graph,
+        trace_timings,
+        retained_modules,
+        retained_files,
+        script_used_packages,
+    ) = if use_trace {
         match fallow_core::analyze_with_trace(&config) {
-            Ok(output) => (output.results, output.graph, output.timings, None, None),
+            Ok(output) => (
+                output.results,
+                output.graph,
+                output.timings,
+                None,
+                None,
+                output.script_used_packages,
+            ),
             Err(e) => {
                 return Err(emit_error(&format!("Analysis error: {e}"), 2, opts.output));
             }
@@ -223,14 +237,21 @@ pub fn execute_check(opts: &CheckOptions<'_>) -> Result<CheckResult, ExitCode> {
                 output.timings,
                 output.modules,
                 output.files,
+                output.script_used_packages,
             ),
             Err(e) => {
                 return Err(emit_error(&format!("Analysis error: {e}"), 2, opts.output));
             }
         }
     } else {
+        // `fallow_core::analyze` returns only `AnalysisResults`, not the wider
+        // `AnalysisOutput`, so `script_used_packages` is intentionally empty here.
+        // No code on this path reads it: trace dispatch is gated on `trace_graph`
+        // (which is also `None` here), and `SharedParseData` is only constructed
+        // when `retain_modules_for_health` is set (which routes through
+        // `analyze_retaining_modules`, populating the real set).
         match fallow_core::analyze(&config) {
-            Ok(r) => (r, None, None, None, None),
+            Ok(r) => (r, None, None, None, None, rustc_hash::FxHashSet::default()),
             Err(e) => {
                 return Err(emit_error(&format!("Analysis error: {e}"), 2, opts.output));
             }
@@ -247,8 +268,13 @@ pub fn execute_check(opts: &CheckOptions<'_>) -> Result<CheckResult, ExitCode> {
 
     // Trace early-return
     if let Some(ref graph) = trace_graph
-        && let Some(code) =
-            output::handle_trace_output(graph, opts.trace_opts, &config.root, config.output)
+        && let Some(code) = output::handle_trace_output(
+            graph,
+            opts.trace_opts,
+            &config.root,
+            config.output,
+            &script_used_packages,
+        )
     {
         return Err(code);
     }
@@ -378,6 +404,7 @@ pub fn execute_check(opts: &CheckOptions<'_>) -> Result<CheckResult, ExitCode> {
                 graph: Some(graph),
                 modules: None,
                 files: None,
+                script_used_packages: script_used_packages.clone(),
             });
             Some(crate::health::SharedParseData {
                 files,

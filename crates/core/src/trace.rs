@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+use rustc_hash::FxHashSet;
 use serde::Serialize;
 
 use crate::duplicates::{CloneInstance, DuplicationReport};
@@ -110,7 +111,12 @@ pub struct DependencyTrace {
     pub imported_by: Vec<PathBuf>,
     /// Files that import this dependency with type-only imports.
     pub type_only_imported_by: Vec<PathBuf>,
-    /// Whether the dependency is used at all.
+    /// Whether the dependency is invoked from package.json scripts or CI configs
+    /// (e.g., `microbundle build`, `vitest run` in `scripts`, or binary names in
+    /// `.github/workflows/*.yml` / `.gitlab-ci.yml`). Mirrors how the unused-deps
+    /// detector classifies tooling usage so trace output stays consistent with it.
+    pub used_in_scripts: bool,
+    /// Whether the dependency is used at all (imports OR script/CI invocations).
     pub is_used: bool,
     /// Total import count.
     pub import_count: usize,
@@ -336,8 +342,24 @@ pub fn trace_file(graph: &ModuleGraph, root: &Path, file_path: &str) -> Option<F
 }
 
 /// Trace where a dependency is used.
+///
+/// `script_used_packages` carries the package names recorded as binary invocations
+/// in package.json scripts (`build: microbundle ...`) and CI configs
+/// (`.github/workflows/*.yml`, `.gitlab-ci.yml`). The same set the unused-deps
+/// detector consults; passing it in lets the trace output match the detector's
+/// view of "used" instead of reporting `is_used=false` for tools invoked only
+/// through scripts.
+#[expect(
+    clippy::implicit_hasher,
+    reason = "fallow standardizes on FxHashSet across the workspace"
+)]
 #[must_use]
-pub fn trace_dependency(graph: &ModuleGraph, root: &Path, package_name: &str) -> DependencyTrace {
+pub fn trace_dependency(
+    graph: &ModuleGraph,
+    root: &Path,
+    package_name: &str,
+    script_used_packages: &FxHashSet<String>,
+) -> DependencyTrace {
     let imported_by: Vec<PathBuf> = graph
         .package_usage
         .get(package_name)
@@ -369,11 +391,13 @@ pub fn trace_dependency(graph: &ModuleGraph, root: &Path, package_name: &str) ->
         .unwrap_or_default();
 
     let import_count = imported_by.len();
+    let used_in_scripts = script_used_packages.contains(package_name);
     DependencyTrace {
         package_name: package_name.to_string(),
         imported_by,
         type_only_imported_by,
-        is_used: import_count > 0,
+        used_in_scripts,
+        is_used: import_count > 0 || used_in_scripts,
         import_count,
     }
 }
@@ -679,8 +703,9 @@ mod tests {
         let graph = ModuleGraph::build(&resolved_modules, &entry_points, &files);
         let root = Path::new("/project");
 
-        let trace = trace_dependency(&graph, root, "lodash");
+        let trace = trace_dependency(&graph, root, "lodash", &FxHashSet::default());
         assert!(trace.is_used);
+        assert!(!trace.used_in_scripts);
         assert_eq!(trace.import_count, 1);
         assert_eq!(trace.imported_by[0], PathBuf::from("src/app.ts"));
     }
@@ -705,8 +730,41 @@ mod tests {
         let graph = ModuleGraph::build(&resolved_modules, &entry_points, &files);
         let root = Path::new("/project");
 
-        let trace = trace_dependency(&graph, root, "nonexistent-pkg");
+        let trace = trace_dependency(&graph, root, "nonexistent-pkg", &FxHashSet::default());
         assert!(!trace.is_used);
+        assert!(!trace.used_in_scripts);
+        assert_eq!(trace.import_count, 0);
+        assert!(trace.imported_by.is_empty());
+    }
+
+    #[test]
+    fn trace_dependency_used_only_in_scripts() {
+        let files = vec![DiscoveredFile {
+            id: FileId(0),
+            path: PathBuf::from("/project/src/app.ts"),
+            size_bytes: 100,
+        }];
+        let entry_points = vec![EntryPoint {
+            path: PathBuf::from("/project/src/app.ts"),
+            source: EntryPointSource::PackageJsonMain,
+        }];
+        let resolved_modules = vec![ResolvedModule {
+            file_id: FileId(0),
+            path: PathBuf::from("/project/src/app.ts"),
+            ..Default::default()
+        }];
+
+        let graph = ModuleGraph::build(&resolved_modules, &entry_points, &files);
+        let root = Path::new("/project");
+        let mut script_used = FxHashSet::default();
+        script_used.insert("microbundle".to_string());
+
+        let trace = trace_dependency(&graph, root, "microbundle", &script_used);
+        assert!(
+            trace.is_used,
+            "is_used must be true when the package is referenced from package.json scripts"
+        );
+        assert!(trace.used_in_scripts);
         assert_eq!(trace.import_count, 0);
         assert!(trace.imported_by.is_empty());
     }

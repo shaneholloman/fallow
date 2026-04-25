@@ -43,6 +43,11 @@ pub struct AnalysisOutput {
     pub modules: Option<Vec<extract::ModuleInfo>>,
     /// Discovered files from the pipeline, available when `retain_modules` is true.
     pub files: Option<Vec<discover::DiscoveredFile>>,
+    /// Package names invoked from package.json scripts and CI configs, mirroring
+    /// what the unused-deps detector consults. Populated for every pipeline run;
+    /// trace tooling reads it so `trace_dependency` agrees with `unused-deps` on
+    /// "used vs unused" instead of returning false-negatives for script-only deps.
+    pub script_used_packages: rustc_hash::FxHashSet<String>,
 }
 
 /// Update cache: write freshly parsed modules and refresh stale mtime/size entries.
@@ -407,6 +412,7 @@ pub fn analyze_with_parse_result(
         graph: Some(graph),
         modules: None,
         files: None,
+        script_used_packages: plugin_result.script_used_packages.clone(),
     })
 }
 
@@ -667,6 +673,7 @@ fn analyze_full(
         } else {
             None
         },
+        script_used_packages: plugin_result.script_used_packages,
     })
 }
 

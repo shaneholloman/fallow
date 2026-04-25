@@ -166,7 +166,7 @@ impl FallowMcp {
     }
 
     #[tool(
-        description = "Trace where a dependency is used. Returns which files import the package, which imports are type-only, and whether the dependency is used at all. Useful before removing a dependency or moving it between dependencies and devDependencies.",
+        description = "Trace where a dependency is used. Returns which files import the package, which imports are type-only, whether the package is referenced from package.json scripts or CI configs (`used_in_scripts`), and whether the dependency is used at all (`is_used` accounts for both imports and script usage, matching the unused-deps detector). Useful before removing a dependency or moving it between dependencies and devDependencies.",
         annotations(read_only_hint = true, open_world_hint = true)
     )]
     async fn trace_dependency(
