@@ -2,7 +2,7 @@ use fallow_config::{ScopedUsedClassMemberRule, UsedClassMemberRule};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::discover::FileId;
-use crate::extract::{ANGULAR_TPL_SENTINEL, MemberKind, ModuleInfo};
+use crate::extract::{ANGULAR_TPL_SENTINEL, ExportName, MemberKind, ModuleInfo};
 use crate::graph::ModuleGraph;
 use crate::resolve::{ResolveResult, ResolvedModule};
 use crate::results::UnusedMember;
@@ -127,6 +127,130 @@ fn build_local_to_export_keys(resolved: &ResolvedModule) -> FxHashMap<&str, Vec<
     }
 
     local_to_export_keys
+}
+
+/// Walk the re-export chain starting at `(start_file, start_name)` and return
+/// every defining-site `ExportKey` reachable from it.
+///
+/// A barrel like `lib/index.ts` with `export { Foo } from './types'` produces
+/// a `ReExportEdge { source_file: types.ts, imported_name: "Foo", exported_name: "Foo" }`
+/// on the barrel module, AND Phase 4 chain resolution synthesizes an
+/// `ExportSymbol` for `Foo` on the barrel as a stub for reference tracking.
+/// We must prefer re-export edges over the local stub so the walk reaches
+/// the file where the enum/class is actually defined (and where `members`
+/// are populated). Cross-package consumers resolve their import to the
+/// barrel's `file_id`, so the access map keys at the barrel; without this
+/// chain walk, `find_unused_members` looks up accesses at the origin file
+/// and finds nothing (issue #178).
+///
+/// Handles named re-exports (with renames) and `export *` re-exports as a
+/// fallback when no named edge matches. Cycle-protected via a visited set.
+fn walk_re_export_origins(
+    graph: &ModuleGraph,
+    start_file: FileId,
+    start_name: &str,
+) -> Vec<ExportKey> {
+    let mut origins: Vec<ExportKey> = Vec::new();
+    let mut visited: FxHashSet<(FileId, String)> = FxHashSet::default();
+    let mut stack: Vec<(FileId, String)> = vec![(start_file, start_name.to_string())];
+
+    while let Some((file_id, name)) = stack.pop() {
+        if !visited.insert((file_id, name.clone())) {
+            continue;
+        }
+        let Some(module) = graph.modules.get(file_id.0 as usize) else {
+            continue;
+        };
+
+        // Prefer re-export edges over the local export stub: Phase 4 chain
+        // resolution synthesizes an `ExportSymbol` for chained re-exports so
+        // reference propagation can attach SymbolReferences. That stub is
+        // indistinguishable from a real `export const X = ...` declaration
+        // by name alone, so we follow the named edge first whenever both
+        // are present.
+        let mut matched_named = false;
+        for re in &module.re_exports {
+            // `export * as ns from './mod'` produces an edge with
+            // `exported_name = "ns"` and `imported_name = "*"`. Following
+            // that edge would push `(source_file, "*")` and dead-end on the
+            // next iteration. Member access through a re-exported namespace
+            // (`ns.Foo.member`) is two property accesses deep and isn't
+            // tracked at extract time anyway, so skipping the edge here
+            // matches the existing extraction contract.
+            if re.exported_name != "*" && re.imported_name != "*" && re.exported_name == name {
+                stack.push((re.source_file, re.imported_name.clone()));
+                matched_named = true;
+            }
+        }
+        if matched_named {
+            continue;
+        }
+
+        let locally_defined = module.exports.iter().any(|e| match &e.name {
+            ExportName::Named(n) => n.as_str() == name,
+            ExportName::Default => name == "default",
+        });
+        if locally_defined {
+            origins.push(ExportKey::new(file_id, name));
+            continue;
+        }
+
+        for re in &module.re_exports {
+            if re.exported_name == "*" {
+                stack.push((re.source_file, name.clone()));
+            }
+        }
+    }
+
+    origins
+}
+
+/// Copy access sets from each barrel `ExportKey` in `accessed_members` to
+/// every defining-site `ExportKey` reachable through re-export chains.
+///
+/// Without this, a cross-package consumer of an enum or class re-exported
+/// through a barrel file (e.g. `lib/index.ts` re-exporting `lib/types.ts`)
+/// has its `Foo.bar` accesses recorded at the barrel and never reaches the
+/// origin where `members` are populated. See issue #178.
+fn propagate_accesses_through_re_exports(
+    graph: &ModuleGraph,
+    accessed_members: &mut FxHashMap<ExportKey, FxHashSet<String>>,
+) {
+    let snapshot: Vec<(ExportKey, Vec<String>)> = accessed_members
+        .iter()
+        .map(|(k, v)| (k.clone(), v.iter().cloned().collect()))
+        .collect();
+    for (key, members) in snapshot {
+        let origins = walk_re_export_origins(graph, key.file_id, &key.export_name);
+        for origin in origins {
+            if origin == key {
+                continue;
+            }
+            accessed_members
+                .entry(origin)
+                .or_default()
+                .extend(members.iter().cloned());
+        }
+    }
+}
+
+/// Sibling of `propagate_accesses_through_re_exports` for the
+/// "whole-object-used" set (e.g. `Object.values(StatusCode)` on a re-exported
+/// enum should mark every member of the originating enum as used).
+fn propagate_whole_object_through_re_exports(
+    graph: &ModuleGraph,
+    whole_object_used_exports: &mut FxHashSet<ExportKey>,
+) {
+    let snapshot: Vec<ExportKey> = whole_object_used_exports.iter().cloned().collect();
+    for key in snapshot {
+        let origins = walk_re_export_origins(graph, key.file_id, &key.export_name);
+        for origin in origins {
+            if origin == key {
+                continue;
+            }
+            whole_object_used_exports.insert(origin);
+        }
+    }
 }
 
 /// Build `parent_export -> [child_export, ...]` from each exported class's
@@ -344,6 +468,12 @@ pub fn find_unused_members(
             }
         }
     }
+
+    // Propagate accesses through re-export chains so cross-package consumers
+    // that import a barrel-re-exported enum/class credit the originating
+    // file's `members`. See issue #178.
+    propagate_accesses_through_re_exports(graph, &mut accessed_members);
+    propagate_whole_object_through_re_exports(graph, &mut whole_object_used_exports);
 
     if !interface_to_implementers.is_empty() {
         let mut propagations: Vec<(ExportKey, Vec<String>)> = Vec::new();
@@ -838,6 +968,286 @@ mod tests {
         );
         // Only Inactive should be unused
         assert_eq!(enum_members.len(), 1);
+        assert_eq!(enum_members[0].member_name, "Inactive");
+    }
+
+    #[test]
+    fn accessed_enum_member_via_re_export_not_flagged() {
+        // Mirror of issue #178: enum defined in `types.ts`, re-exported by a
+        // barrel `index.ts`, consumed cross-package via the barrel. Without
+        // re-export chain propagation in `find_unused_members`, the access
+        // map keys at the barrel and the origin-keyed lookup at detection
+        // time misses every cross-barrel access, falsely flagging every
+        // member as unused.
+        let mut graph = build_graph(&[
+            ("/app/consumer.ts", true),
+            ("/lib/index.ts", true),
+            ("/lib/types.ts", false),
+        ]);
+        graph.modules[1].set_reachable(true);
+        graph.modules[2].set_reachable(true);
+
+        // Phase 4 chain resolution synthesizes a stub `ExportSymbol` on the
+        // barrel for chained re-exports (so reference tracking can hang
+        // SymbolReferences off it). Replicate the shape here.
+        graph.modules[1].exports = vec![make_export_with_members(
+            "Status",
+            vec![],
+            Some(0), // referenced from consumer
+        )];
+        graph.modules[1].re_exports = vec![crate::graph::ReExportEdge {
+            source_file: FileId(2),
+            imported_name: "Status".to_string(),
+            exported_name: "Status".to_string(),
+            is_type_only: false,
+            span: Span::default(),
+        }];
+
+        graph.modules[2].exports = vec![make_export_with_members(
+            "Status",
+            vec![
+                make_member("Active", MemberKind::EnumMember),
+                make_member("Inactive", MemberKind::EnumMember),
+                make_member("Archived", MemberKind::EnumMember),
+            ],
+            // In production, Phase 4 chain resolution propagates the
+            // barrel's `references` back to the source. Simulate that here.
+            Some(0),
+        )];
+
+        let resolved_modules = vec![ResolvedModule {
+            file_id: FileId(0),
+            path: PathBuf::from("/app/consumer.ts"),
+            resolved_imports: vec![ResolvedImport {
+                info: ImportInfo {
+                    source: "@scope/lib".to_string(),
+                    imported_name: ImportedName::Named("Status".to_string()),
+                    local_name: "Status".to_string(),
+                    is_type_only: false,
+                    span: Span::new(0, 30),
+                    source_span: Span::default(),
+                },
+                target: ResolveResult::InternalModule(FileId(1)),
+            }],
+            member_accesses: vec![
+                MemberAccess {
+                    object: "Status".to_string(),
+                    member: "Active".to_string(),
+                },
+                MemberAccess {
+                    object: "Status".to_string(),
+                    member: "Inactive".to_string(),
+                },
+            ],
+            ..Default::default()
+        }];
+
+        let (enum_members, _) = find_unused_members(
+            &graph,
+            &resolved_modules,
+            &[],
+            &SuppressionContext::empty(),
+            &FxHashMap::default(),
+            &[],
+        );
+
+        assert_eq!(enum_members.len(), 1, "{enum_members:?}");
+        assert_eq!(enum_members[0].member_name, "Archived");
+        assert_eq!(enum_members[0].parent_name, "Status");
+    }
+
+    #[test]
+    fn accessed_class_static_member_via_re_export_not_flagged() {
+        // Cross-package class static method case from the issue #178 comment:
+        // `ClassName.method()` cross-barrel must credit the originating
+        // class member.
+        let mut graph = build_graph(&[
+            ("/app/consumer.ts", true),
+            ("/lib/index.ts", true),
+            ("/lib/utils.ts", false),
+        ]);
+        graph.modules[1].set_reachable(true);
+        graph.modules[2].set_reachable(true);
+
+        graph.modules[1].exports = vec![make_export_with_members("StringUtils", vec![], Some(0))];
+        graph.modules[1].re_exports = vec![crate::graph::ReExportEdge {
+            source_file: FileId(2),
+            imported_name: "StringUtils".to_string(),
+            exported_name: "StringUtils".to_string(),
+            is_type_only: false,
+            span: Span::default(),
+        }];
+
+        graph.modules[2].exports = vec![make_export_with_members(
+            "StringUtils",
+            vec![
+                make_member("toUpper", MemberKind::ClassMethod),
+                make_member("toLower", MemberKind::ClassMethod),
+            ],
+            Some(0),
+        )];
+
+        let resolved_modules = vec![ResolvedModule {
+            file_id: FileId(0),
+            path: PathBuf::from("/app/consumer.ts"),
+            resolved_imports: vec![ResolvedImport {
+                info: ImportInfo {
+                    source: "@scope/lib".to_string(),
+                    imported_name: ImportedName::Named("StringUtils".to_string()),
+                    local_name: "StringUtils".to_string(),
+                    is_type_only: false,
+                    span: Span::new(0, 30),
+                    source_span: Span::default(),
+                },
+                target: ResolveResult::InternalModule(FileId(1)),
+            }],
+            member_accesses: vec![MemberAccess {
+                object: "StringUtils".to_string(),
+                member: "toUpper".to_string(),
+            }],
+            ..Default::default()
+        }];
+
+        let (_, class_members) = find_unused_members(
+            &graph,
+            &resolved_modules,
+            &[],
+            &SuppressionContext::empty(),
+            &FxHashMap::default(),
+            &[],
+        );
+
+        assert_eq!(class_members.len(), 1, "{class_members:?}");
+        assert_eq!(class_members[0].member_name, "toLower");
+    }
+
+    #[test]
+    fn accessed_member_via_renamed_re_export_not_flagged() {
+        // `export { Original as Renamed } from './types'` chains must
+        // walk back to the original name on the source file.
+        let mut graph = build_graph(&[
+            ("/app/consumer.ts", true),
+            ("/lib/index.ts", true),
+            ("/lib/types.ts", false),
+        ]);
+        graph.modules[1].set_reachable(true);
+        graph.modules[2].set_reachable(true);
+
+        graph.modules[1].exports = vec![make_export_with_members("Renamed", vec![], Some(0))];
+        graph.modules[1].re_exports = vec![crate::graph::ReExportEdge {
+            source_file: FileId(2),
+            imported_name: "Original".to_string(),
+            exported_name: "Renamed".to_string(),
+            is_type_only: false,
+            span: Span::default(),
+        }];
+
+        graph.modules[2].exports = vec![make_export_with_members(
+            "Original",
+            vec![
+                make_member("A", MemberKind::EnumMember),
+                make_member("B", MemberKind::EnumMember),
+            ],
+            Some(0),
+        )];
+
+        let resolved_modules = vec![ResolvedModule {
+            file_id: FileId(0),
+            path: PathBuf::from("/app/consumer.ts"),
+            resolved_imports: vec![ResolvedImport {
+                info: ImportInfo {
+                    source: "@scope/lib".to_string(),
+                    imported_name: ImportedName::Named("Renamed".to_string()),
+                    local_name: "Renamed".to_string(),
+                    is_type_only: false,
+                    span: Span::new(0, 30),
+                    source_span: Span::default(),
+                },
+                target: ResolveResult::InternalModule(FileId(1)),
+            }],
+            member_accesses: vec![MemberAccess {
+                object: "Renamed".to_string(),
+                member: "A".to_string(),
+            }],
+            ..Default::default()
+        }];
+
+        let (enum_members, _) = find_unused_members(
+            &graph,
+            &resolved_modules,
+            &[],
+            &SuppressionContext::empty(),
+            &FxHashMap::default(),
+            &[],
+        );
+
+        assert_eq!(enum_members.len(), 1, "{enum_members:?}");
+        assert_eq!(enum_members[0].member_name, "B");
+        assert_eq!(enum_members[0].parent_name, "Original");
+    }
+
+    #[test]
+    fn accessed_member_via_star_re_export_not_flagged() {
+        // `export * from './types'` must fan out to source file when no
+        // named edge matches.
+        let mut graph = build_graph(&[
+            ("/app/consumer.ts", true),
+            ("/lib/index.ts", true),
+            ("/lib/types.ts", false),
+        ]);
+        graph.modules[1].set_reachable(true);
+        graph.modules[2].set_reachable(true);
+
+        // Star re-export: barrel has no synthesized stub for "Status"; just
+        // a `*` edge pointing at types.ts.
+        graph.modules[1].re_exports = vec![crate::graph::ReExportEdge {
+            source_file: FileId(2),
+            imported_name: "*".to_string(),
+            exported_name: "*".to_string(),
+            is_type_only: false,
+            span: Span::default(),
+        }];
+
+        graph.modules[2].exports = vec![make_export_with_members(
+            "Status",
+            vec![
+                make_member("Active", MemberKind::EnumMember),
+                make_member("Inactive", MemberKind::EnumMember),
+            ],
+            Some(0),
+        )];
+
+        let resolved_modules = vec![ResolvedModule {
+            file_id: FileId(0),
+            path: PathBuf::from("/app/consumer.ts"),
+            resolved_imports: vec![ResolvedImport {
+                info: ImportInfo {
+                    source: "@scope/lib".to_string(),
+                    imported_name: ImportedName::Named("Status".to_string()),
+                    local_name: "Status".to_string(),
+                    is_type_only: false,
+                    span: Span::new(0, 30),
+                    source_span: Span::default(),
+                },
+                target: ResolveResult::InternalModule(FileId(1)),
+            }],
+            member_accesses: vec![MemberAccess {
+                object: "Status".to_string(),
+                member: "Active".to_string(),
+            }],
+            ..Default::default()
+        }];
+
+        let (enum_members, _) = find_unused_members(
+            &graph,
+            &resolved_modules,
+            &[],
+            &SuppressionContext::empty(),
+            &FxHashMap::default(),
+            &[],
+        );
+
+        assert_eq!(enum_members.len(), 1, "{enum_members:?}");
         assert_eq!(enum_members[0].member_name, "Inactive");
     }
 

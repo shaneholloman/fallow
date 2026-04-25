@@ -49,6 +49,83 @@ fn enum_class_members_detects_unused_members() {
     );
 }
 
+// ── Cross-package enum/class member access (issue #178) ────────
+
+#[test]
+fn cross_package_enum_class_members_credit_re_exported_origin() {
+    let root = fixture_path("cross-package-enum-class-members");
+    let config = create_config(root);
+    let results = fallow_core::analyze(&config).expect("analysis should succeed");
+
+    let unused_enum_member_names: Vec<&str> = results
+        .unused_enum_members
+        .iter()
+        .map(|m| m.member_name.as_str())
+        .collect();
+
+    // StatusCode.Active/Inactive/Pending are referenced cross-package via
+    // `import { StatusCode } from '@repro/lib-a'` then `StatusCode.Active`,
+    // where the `@repro/lib-a` import resolves to the barrel `index.ts`.
+    // Without re-export chain propagation in `find_unused_members`, all
+    // four members would be flagged. After the fix, only the genuinely
+    // unused `Archived` should be reported.
+    assert!(
+        !unused_enum_member_names.contains(&"Active"),
+        "StatusCode.Active should be credited via cross-package access, found: {unused_enum_member_names:?}"
+    );
+    assert!(
+        !unused_enum_member_names.contains(&"Inactive"),
+        "StatusCode.Inactive should be credited via cross-package access, found: {unused_enum_member_names:?}"
+    );
+    assert!(
+        !unused_enum_member_names.contains(&"Pending"),
+        "StatusCode.Pending should be credited via cross-package access, found: {unused_enum_member_names:?}"
+    );
+    assert!(
+        unused_enum_member_names.contains(&"Archived"),
+        "StatusCode.Archived is genuinely unused and should still be flagged, found: {unused_enum_member_names:?}"
+    );
+
+    // Direction: only East and West are referenced cross-package.
+    assert!(
+        !unused_enum_member_names.contains(&"East"),
+        "Direction.East should be credited via cross-package access, found: {unused_enum_member_names:?}"
+    );
+    assert!(
+        !unused_enum_member_names.contains(&"West"),
+        "Direction.West should be credited via cross-package access, found: {unused_enum_member_names:?}"
+    );
+    assert!(
+        unused_enum_member_names.contains(&"North"),
+        "Direction.North is genuinely unused, found: {unused_enum_member_names:?}"
+    );
+    assert!(
+        unused_enum_member_names.contains(&"South"),
+        "Direction.South is genuinely unused, found: {unused_enum_member_names:?}"
+    );
+
+    // Class static method case from the issue comment: StringUtils.toUpper
+    // is called cross-package; the other two static methods are not.
+    let unused_class_member_names: Vec<&str> = results
+        .unused_class_members
+        .iter()
+        .map(|m| m.member_name.as_str())
+        .collect();
+
+    assert!(
+        !unused_class_member_names.contains(&"toUpper"),
+        "StringUtils.toUpper should be credited via cross-package access, found: {unused_class_member_names:?}"
+    );
+    assert!(
+        unused_class_member_names.contains(&"toLower"),
+        "StringUtils.toLower is genuinely unused, found: {unused_class_member_names:?}"
+    );
+    assert!(
+        unused_class_member_names.contains(&"reverse"),
+        "StringUtils.reverse is genuinely unused, found: {unused_class_member_names:?}"
+    );
+}
+
 // ── Whole-object enum member heuristics ────────────────────────
 
 #[test]
