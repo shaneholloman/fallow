@@ -113,6 +113,7 @@ fn map_common_options(
         no_cache: no_cache.unwrap_or(false),
         threads,
         production: production.unwrap_or(false),
+        production_override: production,
         changed_since,
         workspace,
         changed_workspaces,
@@ -471,4 +472,28 @@ pub fn compute_health(
     Ok(AsyncTask::new(ProgrammaticTask::new(move || {
         programmatic::compute_health(&options)
     })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn omitted_production_option_defers_to_config() {
+        let options = programmatic::DeadCodeOptions::try_from(DeadCodeOptions::default())
+            .expect("options should map");
+
+        assert_eq!(options.analysis.production_override, None);
+    }
+
+    #[test]
+    fn explicit_production_false_is_forwarded_as_override() {
+        let options = programmatic::DeadCodeOptions::try_from(DeadCodeOptions {
+            production: Some(false),
+            ..DeadCodeOptions::default()
+        })
+        .expect("options should map");
+
+        assert_eq!(options.analysis.production_override, Some(false));
+    }
 }

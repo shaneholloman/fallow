@@ -68,7 +68,12 @@ pub struct AnalysisOptions {
     pub config_path: Option<PathBuf>,
     pub no_cache: bool,
     pub threads: Option<usize>,
+    /// Legacy convenience override. `true` forces production mode; `false`
+    /// defers to config unless `production_override` is set.
     pub production: bool,
+    /// Explicit production override from an embedder option. `None` means
+    /// use the project config for the current analysis.
+    pub production_override: Option<bool>,
     pub changed_since: Option<String>,
     pub workspace: Option<Vec<String>>,
     pub changed_workspaces: Option<String>,
@@ -238,7 +243,7 @@ struct ResolvedAnalysisOptions {
     config_path: Option<PathBuf>,
     no_cache: bool,
     threads: usize,
-    production: bool,
+    production_override: Option<bool>,
     changed_since: Option<String>,
     workspace: Option<Vec<String>>,
     changed_workspaces: Option<String>,
@@ -305,13 +310,16 @@ impl AnalysisOptions {
         }
 
         let threads = self.threads.unwrap_or_else(default_threads);
+        let production_override = self
+            .production_override
+            .or_else(|| self.production.then_some(true));
 
         Ok(ResolvedAnalysisOptions {
             root,
             config_path: self.config_path.clone(),
             no_cache: self.no_cache,
             threads,
-            production: self.production,
+            production_override,
             changed_since: self.changed_since.clone(),
             workspace: self.workspace.clone(),
             changed_workspaces: self.changed_workspaces.clone(),
@@ -396,8 +404,8 @@ fn build_check_options<'a>(
         baseline: None,
         save_baseline: None,
         sarif_file: None,
-        production: resolved.production,
-        production_override: Some(resolved.production),
+        production: resolved.production_override.unwrap_or(false),
+        production_override: resolved.production_override,
         workspace: resolved.workspace.as_deref(),
         changed_workspaces: resolved.changed_workspaces.as_deref(),
         group_by: None,
@@ -551,8 +559,8 @@ pub fn detect_duplication(options: &DuplicationOptions) -> ProgrammaticResult<se
         top: options.top,
         baseline_path: None,
         save_baseline_path: None,
-        production: resolved.production,
-        production_override: Some(resolved.production),
+        production: resolved.production_override.unwrap_or(false),
+        production_override: resolved.production_override,
         trace: None,
         changed_since: resolved.changed_since.as_deref(),
         workspace: resolved.workspace.as_deref(),
@@ -627,8 +635,8 @@ fn build_complexity_options<'a>(
         max_crap: options.max_crap,
         top: options.top,
         sort: options.sort.to_cli(),
-        production: resolved.production,
-        production_override: Some(resolved.production),
+        production: resolved.production_override.unwrap_or(false),
+        production_override: resolved.production_override,
         changed_since: resolved.changed_since.as_deref(),
         workspace: resolved.workspace.as_deref(),
         changed_workspaces: resolved.changed_workspaces.as_deref(),
@@ -729,5 +737,84 @@ mod tests {
         assert_eq!(json["circular_dependencies"].as_array().unwrap().len(), 0);
         assert_eq!(json["unused_exports"].as_array().unwrap().len(), 0);
         assert_eq!(json["summary"]["total_issues"], serde_json::Value::from(1));
+    }
+
+    #[test]
+    fn dead_code_without_production_override_uses_per_analysis_config() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(
+            root.join("package.json"),
+            r#"{"name":"programmatic-production","main":"src/index.ts"}"#,
+        )
+        .unwrap();
+        std::fs::write(root.join("src/index.ts"), "export const ok = 1;\n").unwrap();
+        std::fs::write(root.join("src/utils.test.ts"), "export const dead = 1;\n").unwrap();
+        std::fs::write(
+            root.join(".fallowrc.json"),
+            r#"{"production":{"deadCode":true,"health":false,"dupes":false}}"#,
+        )
+        .unwrap();
+
+        let options = DeadCodeOptions {
+            analysis: AnalysisOptions {
+                root: Some(root.to_path_buf()),
+                ..AnalysisOptions::default()
+            },
+            ..DeadCodeOptions::default()
+        };
+        let json = detect_dead_code(&options).expect("analysis should succeed");
+        let paths = unused_file_paths(&json);
+
+        assert!(
+            !paths.iter().any(|path| path.ends_with("utils.test.ts")),
+            "omitted production option should defer to production.deadCode=true config: {paths:?}"
+        );
+    }
+
+    #[test]
+    fn dead_code_explicit_production_false_overrides_config() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(
+            root.join("package.json"),
+            r#"{"name":"programmatic-production","main":"src/index.ts"}"#,
+        )
+        .unwrap();
+        std::fs::write(root.join("src/index.ts"), "export const ok = 1;\n").unwrap();
+        std::fs::write(root.join("src/utils.test.ts"), "export const dead = 1;\n").unwrap();
+        std::fs::write(
+            root.join(".fallowrc.json"),
+            r#"{"production":{"deadCode":true,"health":false,"dupes":false}}"#,
+        )
+        .unwrap();
+
+        let options = DeadCodeOptions {
+            analysis: AnalysisOptions {
+                root: Some(root.to_path_buf()),
+                production_override: Some(false),
+                ..AnalysisOptions::default()
+            },
+            ..DeadCodeOptions::default()
+        };
+        let json = detect_dead_code(&options).expect("analysis should succeed");
+        let paths = unused_file_paths(&json);
+
+        assert!(
+            paths.iter().any(|path| path.ends_with("utils.test.ts")),
+            "explicit production=false should include test files despite config: {paths:?}"
+        );
+    }
+
+    fn unused_file_paths(json: &serde_json::Value) -> Vec<String> {
+        json["unused_files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|file| file["path"].as_str())
+            .map(str::to_owned)
+            .collect()
     }
 }
