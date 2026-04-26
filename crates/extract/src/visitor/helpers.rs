@@ -22,8 +22,9 @@ pub struct AngularComponentMetadata {
     /// Source span of the matched `@Component`/`@Directive` decorator.
     /// Used to anchor synthetic `<template>` complexity findings to a useful
     /// line/col in the host `.ts` file, and to honour `// fallow-ignore-next-line`
-    /// comments placed above the decorator.
-    pub decorator_span: Option<Span>,
+    /// comments placed above the decorator. Always populated when this struct
+    /// is returned (the loop that constructs it runs over `class.decorators`).
+    pub decorator_span: Span,
     /// Class member names referenced in `host:` binding expressions.
     pub host_member_refs: Vec<String>,
     /// Class member names listed in `inputs:` and `outputs:` metadata arrays.
@@ -143,7 +144,7 @@ pub fn extract_angular_component_metadata(class: &Class<'_>) -> Option<AngularCo
                 template_url,
                 style_urls,
                 inline_template,
-                decorator_span: Some(decorator.span()),
+                decorator_span: decorator.span(),
                 host_member_refs,
                 input_output_members,
             });

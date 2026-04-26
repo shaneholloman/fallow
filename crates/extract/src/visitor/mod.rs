@@ -233,6 +233,16 @@ impl ModuleInfoExtractor {
     }
 
     /// Merge this extractor's fields into an existing `ModuleInfo`.
+    ///
+    /// Used by SFC scripts where multiple `<script>` blocks contribute to a
+    /// single `ModuleInfo`. `inline_template_findings` is intentionally not
+    /// merged here: synthetic `<template>` complexity findings live on
+    /// `ModuleInfo.complexity` (populated at `parse.rs` time by
+    /// `append_inline_template_complexity`), not on this extractor's transient
+    /// holding vec. SFC scripts cannot host Angular `@Component` decorators
+    /// anyway, so the omission is observable only if a future caller starts
+    /// running this visitor on `.ts` content via `merge_into`. Add the
+    /// `inline_template_findings` plumbing at that point.
     pub(crate) fn merge_into(mut self, info: &mut ModuleInfo) {
         self.enrich_local_class_exports();
         self.resolve_bound_member_accesses();
