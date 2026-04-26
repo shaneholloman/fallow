@@ -200,6 +200,11 @@
           "default": false,
           "description": "Enable production mode (excludes test/dev files, only production scripts)."
         },
+        "fallow.changedSince": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Show only issues in files changed since the given git ref. Tag your current commit (`git tag fallow-baseline`) and set this to the tag name to keep existing issues hidden while flagging new ones in the Problems panel. Mirrors the CLI's `--changed-since`. Empty = full scope."
+        },
         "fallow.trace.server": {
           "type": "string",
           "default": "off",

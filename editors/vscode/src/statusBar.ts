@@ -1,6 +1,7 @@
 // VS Code injects this module into the extension host at runtime.
 // fallow-ignore-next-line unlisted-dependency
 import * as vscode from "vscode";
+import { getChangedSince } from "./config.js";
 import {
   buildParamsFromCli,
   buildStatusBarPartsFromLsp,
@@ -67,7 +68,7 @@ const applyTooltipAndSeverity = (params: AnalysisCompleteParams): void => {
     : undefined;
 
   const tooltip = new vscode.MarkdownString(
-    buildStatusBarTooltipMarkdown(params)
+    buildStatusBarTooltipMarkdown(params, getChangedSince() || null)
   );
   tooltip.isTrusted = true;
   // Required so `$(name)` codicons in the markdown render as icons rather
@@ -81,10 +82,12 @@ const applyStatusBarText = (parts: string[]): void => {
   if (!statusBarItem) {
     return;
   }
+  const changedSince = getChangedSince();
+  const suffix = changedSince ? ` (since ${changedSince})` : "";
   if (parts.length > 0) {
-    statusBarItem.text = `$(search) Fallow: ${parts.join(" | ")}`;
+    statusBarItem.text = `$(search) Fallow: ${parts.join(" | ")}${suffix}`;
   } else {
-    statusBarItem.text = "$(search) Fallow";
+    statusBarItem.text = `$(search) Fallow${suffix}`;
   }
 };
 

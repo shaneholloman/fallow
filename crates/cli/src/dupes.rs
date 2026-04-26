@@ -106,25 +106,10 @@ fn exceeds_threshold(threshold: f64, duplication_percentage: f64) -> bool {
     threshold > 0.0 && duplication_percentage > threshold
 }
 
-/// Filter a duplication report to only retain clone groups where at least one
-/// instance belongs to a changed file. Families and stats are rebuilt from the
-/// surviving groups.
-fn filter_by_changed_files(
-    report: &mut fallow_core::duplicates::DuplicationReport,
-    changed: &rustc_hash::FxHashSet<std::path::PathBuf>,
-    root: &std::path::Path,
-) {
-    report
-        .clone_groups
-        .retain(|g| g.instances.iter().any(|i| changed.contains(&i.file)));
-    report.clone_families =
-        fallow_core::duplicates::families::group_into_families(&report.clone_groups, root);
-    report.mirrored_directories = fallow_core::duplicates::families::detect_mirrored_directories(
-        &report.clone_families,
-        root,
-    );
-    report.stats = recompute_stats(report);
-}
+// Changed-file filtering for duplication reports lives in
+// `fallow_core::changed_files` so the LSP can reuse it. Re-export here under
+// the existing local name so call sites in this crate stay readable.
+use fallow_core::changed_files::filter_duplication_by_changed_files as filter_by_changed_files;
 
 /// Filter a duplication report to only retain clone groups where at least one
 /// instance belongs to a file under one of the given workspace roots. Mirrors

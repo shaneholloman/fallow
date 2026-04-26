@@ -270,168 +270,15 @@ fn find_matches(
 
 // ── Changed-file filtering ───────────────────────────────────────
 
-/// Filter results to only include issues in `changed_files`.
-///
-/// Dependency-level issues (unused deps, dev deps, optional deps, type-only deps) are
-/// intentionally NOT filtered here. Unlike file-level issues, a dependency being "unused"
-/// is a function of the entire import graph and can't be attributed to individual changed
-/// source files. Compare with `filter_to_workspace`, which DOES filter dependencies by
-/// their owning package.json — a different, well-defined scope.
-pub(super) fn filter_changed_files(
-    results: &mut fallow_core::results::AnalysisResults,
-    changed_files: &rustc_hash::FxHashSet<std::path::PathBuf>,
-) {
-    results
-        .unused_files
-        .retain(|f| changed_files.contains(&f.path));
-    results
-        .unused_exports
-        .retain(|e| changed_files.contains(&e.path));
-    results
-        .unused_types
-        .retain(|e| changed_files.contains(&e.path));
-    results
-        .unused_enum_members
-        .retain(|m| changed_files.contains(&m.path));
-    results
-        .unused_class_members
-        .retain(|m| changed_files.contains(&m.path));
-    results
-        .unresolved_imports
-        .retain(|i| changed_files.contains(&i.path));
-
-    // Unlisted deps: keep only if any importing file is changed
-    results.unlisted_dependencies.retain(|d| {
-        d.imported_from
-            .iter()
-            .any(|s| changed_files.contains(&s.path))
-    });
-
-    // Duplicate exports: filter locations to changed files, drop groups with < 2
-    for dup in &mut results.duplicate_exports {
-        dup.locations
-            .retain(|loc| changed_files.contains(&loc.path));
-    }
-    results.duplicate_exports.retain(|d| d.locations.len() >= 2);
-
-    // Circular deps: keep cycles where at least one file is changed
-    results
-        .circular_dependencies
-        .retain(|c| c.files.iter().any(|f| changed_files.contains(f)));
-
-    // Boundary violations: keep if the importing file changed
-    results
-        .boundary_violations
-        .retain(|v| changed_files.contains(&v.from_path));
-
-    // Stale suppressions: keep if the file changed
-    results
-        .stale_suppressions
-        .retain(|s| changed_files.contains(&s.path));
-}
-
-// ── Changed files ────────────────────────────────────────────────
-
-/// Classification of a git-diff failure, so callers can word their own error
-/// message (soft warning vs. hard error) consistently.
-#[derive(Debug)]
-pub enum ChangedFilesError {
-    /// `git` binary not found / not executable.
-    GitMissing(String),
-    /// Command ran but the directory isn't a git repository.
-    NotARepository,
-    /// Command ran but the ref is invalid / another git error.
-    GitFailed(String),
-}
-
-impl ChangedFilesError {
-    /// Human-readable clause suitable for embedding in an error message.
-    /// Does not include the flag name (e.g. "--changed-since") so callers can
-    /// prepend their own context.
-    pub fn describe(&self) -> String {
-        match self {
-            Self::GitMissing(e) => format!("failed to run git: {e}"),
-            Self::NotARepository => "not a git repository".to_owned(),
-            Self::GitFailed(stderr) => stderr.clone(),
-        }
-    }
-}
-
-fn collect_git_paths(
-    root: &std::path::Path,
-    args: &[&str],
-) -> Result<rustc_hash::FxHashSet<std::path::PathBuf>, ChangedFilesError> {
-    let output = std::process::Command::new("git")
-        .args(args)
-        .current_dir(root)
-        .output()
-        .map_err(|e| ChangedFilesError::GitMissing(e.to_string()))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(if stderr.contains("not a git repository") {
-            ChangedFilesError::NotARepository
-        } else {
-            ChangedFilesError::GitFailed(stderr.trim().to_owned())
-        });
-    }
-
-    let files: rustc_hash::FxHashSet<std::path::PathBuf> = String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .map(|line| root.join(line))
-        .collect();
-
-    Ok(files)
-}
-
-/// Get files changed since a git ref. Returns `Err` (with details) when the
-/// git invocation itself failed, so callers can choose between warn-and-ignore
-/// and hard-error behavior.
-///
-/// Includes both:
-/// - committed changes from the merge-base range `git_ref...HEAD`
-/// - tracked staged/unstaged changes from `HEAD` to the current worktree
-/// - untracked files not ignored by Git
-///
-/// This keeps `--changed-since` useful for local validation instead of only
-/// reflecting the last committed `HEAD`.
-pub fn try_get_changed_files(
-    root: &std::path::Path,
-    git_ref: &str,
-) -> Result<rustc_hash::FxHashSet<std::path::PathBuf>, ChangedFilesError> {
-    let mut files =
-        collect_git_paths(root, &["diff", "--name-only", &format!("{git_ref}...HEAD")])?;
-    files.extend(collect_git_paths(root, &["diff", "--name-only", "HEAD"])?);
-    files.extend(collect_git_paths(
-        root,
-        &["ls-files", "--others", "--exclude-standard"],
-    )?);
-    Ok(files)
-}
-
-/// Get files changed since a git ref. Returns `None` on git failure after
-/// printing a warning to stderr. Used by `--changed-since` and `--file`, where
-/// a failure falls back to full-scope analysis.
-pub fn get_changed_files(
-    root: &std::path::Path,
-    git_ref: &str,
-) -> Option<rustc_hash::FxHashSet<std::path::PathBuf>> {
-    match try_get_changed_files(root, git_ref) {
-        Ok(files) => Some(files),
-        Err(ChangedFilesError::GitMissing(e)) => {
-            eprintln!("Warning: --changed-since ignored: failed to run git: {e}");
-            None
-        }
-        Err(ChangedFilesError::NotARepository) => {
-            eprintln!("Warning: --changed-since ignored: not a git repository");
-            None
-        }
-        Err(ChangedFilesError::GitFailed(stderr)) => {
-            eprintln!("Warning: --changed-since failed for ref '{git_ref}': {stderr}");
-            None
-        }
-    }
-}
+// `filter_changed_files`, `try_get_changed_files`, `get_changed_files`, and
+// `ChangedFilesError` were promoted to `fallow_core::changed_files` so the LSP
+// (which depends on `fallow-core` but not `fallow-cli`) can reuse the exact
+// same filter and git-resolution logic. Re-exported below for the existing
+// internal call sites in this crate.
+pub use fallow_core::changed_files::{
+    filter_results_by_changed_files as filter_changed_files, get_changed_files,
+    try_get_changed_files,
+};
 
 // ── Changed workspaces ───────────────────────────────────────────
 
@@ -1612,23 +1459,5 @@ mod tests {
         );
     }
 
-    // ── ChangedFilesError::describe ────────────────────────────────
-
-    #[test]
-    fn changed_files_error_describe_includes_underlying_reason() {
-        assert_eq!(
-            ChangedFilesError::NotARepository.describe(),
-            "not a git repository"
-        );
-        assert!(
-            ChangedFilesError::GitMissing("No such file or directory".into())
-                .describe()
-                .contains("No such file or directory")
-        );
-        assert!(
-            ChangedFilesError::GitFailed("unknown revision 'nope'".into())
-                .describe()
-                .contains("unknown revision")
-        );
-    }
+    // ChangedFilesError::describe is tested in fallow_core::changed_files
 }

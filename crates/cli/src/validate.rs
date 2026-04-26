@@ -1,32 +1,7 @@
 use std::path::PathBuf;
 
 pub fn validate_git_ref(s: &str) -> Result<&str, String> {
-    if s.is_empty() {
-        return Err("git ref cannot be empty".to_string());
-    }
-    // Reject refs starting with '-' to prevent argument injection
-    if s.starts_with('-') {
-        return Err("git ref cannot start with '-'".to_string());
-    }
-    // Allowlist: only permit safe characters in git refs.
-    // Covers branches, tags, HEAD~N, HEAD^N, commit SHAs.
-    // Inside braces (@{...}), colons and spaces are allowed for reflog
-    // timestamps like HEAD@{2025-01-01} and HEAD@{1 week ago}.
-    let mut in_braces = false;
-    for c in s.chars() {
-        match c {
-            '{' => in_braces = true,
-            '}' => in_braces = false,
-            ':' | ' ' if in_braces => {} // allowed inside @{...}
-            c if c.is_ascii_alphanumeric()
-                || matches!(c, '.' | '_' | '-' | '/' | '~' | '^' | '@' | '{' | '}') => {}
-            _ => return Err(format!("git ref contains disallowed character: '{c}'")),
-        }
-    }
-    if in_braces {
-        return Err("git ref has unclosed '{'".to_string());
-    }
-    Ok(s)
+    fallow_core::changed_files::validate_git_ref(s)
 }
 
 pub fn validate_root(root: &std::path::Path) -> Result<PathBuf, String> {

@@ -1,6 +1,6 @@
 # Fallow Roadmap
 
-> Last updated: 2026-04-25
+> Last updated: 2026-04-25 (`fallow.changedSince` setting added; baseline-adoption follow-ups queued)
 
 This roadmap tracks planned work on Fallow. For shipped capabilities, see the [documentation](https://docs.fallow.tools) and [GitHub releases](https://github.com/fallow-rs/fallow/releases).
 
@@ -25,6 +25,18 @@ The coverage setup state machine works end to end, but the install handoff still
 ### Post-fix formatter integration
 
 `fallow fix` leaves Prettier, dprint, or Biome to clean up whitespace after removals. Invoke the project's configured formatter automatically when running in-place.
+
+### Baseline-adoption ergonomics
+
+Follow-ups to the `fallow.changedSince` setting shipped for issue #185. The setting works (Problems panel and sidebar scope to files changed since the configured ref) but a few UX polish items would close the loop for users adopting fallow on legacy codebases:
+
+- **"Fallow: Set Baseline at HEAD" command** -- a palette command that runs `git tag fallow-baseline` and writes `fallow.changedSince` into `.vscode/settings.json` in one step, so users do not need to leave the editor or know the git tag command.
+- **Filter-dropped status surfacing** -- when the LSP cannot resolve the configured ref (typo, shallow clone, missing tag), it currently falls back to full scope and logs a `WARNING` to the Fallow output channel. Surface that state in the status bar (e.g. `Fallow: 118 issues (since fallow-baseline: scope dropped)`) so users notice immediately rather than after the next "wait, why am I seeing all these issues again?" question.
+- **Shallow-clone hint in CI templates** -- the runtime hint already explains the `fetch-depth: 0` fix; the GitHub Action and GitLab CI templates should default to checkout depths that work with long-lived baseline tags, or document the requirement in the inline comments.
+
+### Per-package `changedSince` overrides
+
+Monorepos with packages on different release cadences want different baseline refs per package (e.g. `packages/web` tracks `main`, `packages/legacy` tracks `release/2024.10`). Today `fallow.changedSince` is workspace-wide. Extending this to per-package overrides requires config-schema work (a new `[overrides]` block keyed on workspace root, or `package.json` field), resolution semantics (which baseline wins for a file in package A imported from package B), and matching status-bar logic.
 
 ---
 

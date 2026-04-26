@@ -139,12 +139,17 @@ export const getStatusBarSeverityKey = (
 };
 
 export const buildStatusBarTooltipMarkdown = (
-  params: AnalysisCompleteParams
+  params: AnalysisCompleteParams,
+  changedSinceRef: string | null = null
 ): string => {
   const lines: string[] = ["**Fallow** - Analysis Results\n"];
   const duplicationPercentage = getDuplicationPercentage(
     params.duplicationPercentage
   );
+
+  if (changedSinceRef) {
+    lines.push(`$(git-branch) Scoped to changes since \`${changedSinceRef}\``);
+  }
 
   for (const line of BREAKDOWN_LINES) {
     const count = params[line.count];

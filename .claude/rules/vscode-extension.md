@@ -28,7 +28,9 @@ Wraps the `fallow-lsp` binary with additional UI features. TypeScript codebase b
 - **Large buffer** — 50MB maxBuffer for CLI output on large monorepos
 
 ## Settings
-`fallow.lspPath`, `fallow.autoDownload`, `fallow.issueTypes`, `fallow.duplication.threshold`, `fallow.duplication.mode`, `fallow.production`, `fallow.trace.server`
+`fallow.lspPath`, `fallow.autoDownload`, `fallow.issueTypes`, `fallow.duplication.threshold`, `fallow.duplication.mode`, `fallow.production`, `fallow.changedSince`, `fallow.trace.server`
+
+`fallow.changedSince` mirrors the CLI's `--changed-since`: when set to a git ref, the LSP scopes diagnostics (and the CLI-driven sidebar) to files changed since that ref. Forwarded via `initializationOptions.changedSince` and as `--changed-since <ref>` to the CLI in `commands.ts`. Empty string means full scope. Changing the setting restarts the LSP and re-runs the sidebar analysis.
 
 ## Development
 ```bash

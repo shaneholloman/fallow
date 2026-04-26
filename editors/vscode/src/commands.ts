@@ -4,7 +4,14 @@ import * as path from "node:path";
 // VS Code injects this module into the extension host at runtime.
 // fallow-ignore-next-line unlisted-dependency
 import * as vscode from "vscode";
-import { getLspPath, getProduction, getDuplicationMode, getDuplicationThreshold, getIssueTypes } from "./config.js";
+import {
+  getLspPath,
+  getProduction,
+  getDuplicationMode,
+  getDuplicationThreshold,
+  getIssueTypes,
+  getChangedSince,
+} from "./config.js";
 import { findBinaryInPath, findLocalBinary, getExecutableExtension } from "./binary-utils.js";
 import { getInstalledCliPath } from "./download.js";
 import {
@@ -233,6 +240,11 @@ export const runAnalysis = async (
     const analysisArgs = ["--format", "json", "--quiet", "--skip", "health"];
     if (getProduction()) {
       analysisArgs.push("--production");
+    }
+
+    const changedSince = getChangedSince();
+    if (changedSince) {
+      analysisArgs.push("--changed-since", changedSince);
     }
 
     analysisArgs.push("--dupes-mode", getDuplicationMode());

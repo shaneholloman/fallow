@@ -49,6 +49,7 @@ code --install-extension fallow-rs.fallow-vscode
 | `fallow.duplication.threshold` | `5` | Minimum number of lines for a code block to be reported as a duplicate. |
 | `fallow.duplication.mode` | `"mild"` | Detection mode: `strict`, `mild`, `weak`, or `semantic`. |
 | `fallow.production` | `false` | Production mode: exclude test/dev files, only production scripts. |
+| `fallow.changedSince` | `""` | Git ref (tag, branch, or SHA) to scope the Problems panel and sidebar to files changed since that ref, mirroring the CLI's `--changed-since`. Tag your current commit (e.g. `fallow-baseline`) and set this to the tag to enforce "no new issues going forward" while ignoring pre-existing findings. |
 | `fallow.trace.server` | `"off"` | LSP trace level: `off`, `messages`, or `verbose`. |
 
 ## Binary resolution

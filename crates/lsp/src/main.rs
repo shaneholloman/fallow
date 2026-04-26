@@ -16,6 +16,9 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 
 use serde::{Deserialize, Serialize};
 
+use fallow_core::changed_files::{
+    filter_duplication_by_changed_files, filter_results_by_changed_files, try_get_changed_files,
+};
 use fallow_core::duplicates::DuplicationReport;
 use fallow_core::results::AnalysisResults;
 
@@ -82,6 +85,10 @@ struct FallowLspServer {
     documents: Arc<RwLock<FxHashMap<Url, String>>>,
     /// Diagnostic codes to suppress (parsed from initializationOptions.issueTypes)
     disabled_diagnostic_codes: Arc<RwLock<FxHashSet<String>>>,
+    /// Optional git ref from `initializationOptions.changedSince`. When set,
+    /// analysis results and duplication reports are scoped to files changed
+    /// since this ref, mirroring the CLI's `--changed-since`.
+    changed_since: Arc<RwLock<Option<String>>>,
     /// Cached diagnostics for pull-model support (textDocument/diagnostic)
     cached_diagnostics: Arc<RwLock<FxHashMap<Url, Vec<Diagnostic>>>>,
 }
@@ -103,23 +110,35 @@ impl LanguageServer for FallowLspServer {
             *self.root.write().await = Some(path);
         }
 
-        // Parse initializationOptions for issue type toggles
-        if let Some(opts) = &params.initialization_options
-            && let Some(issue_types) = opts.get("issueTypes").and_then(|v| v.as_object())
-        {
-            let mut disabled = FxHashSet::default();
-            for &(config_key, diag_code) in ISSUE_TYPE_TO_DIAGNOSTIC_CODE {
-                if let Some(enabled) = issue_types
-                    .get(config_key)
-                    .and_then(serde_json::Value::as_bool)
-                    && !enabled
-                {
-                    disabled.insert(diag_code.to_string());
+        // Parse initializationOptions for issue type toggles and changedSince
+        if let Some(opts) = &params.initialization_options {
+            if let Some(issue_types) = opts.get("issueTypes").and_then(|v| v.as_object()) {
+                let mut disabled = FxHashSet::default();
+                for &(config_key, diag_code) in ISSUE_TYPE_TO_DIAGNOSTIC_CODE {
+                    if let Some(enabled) = issue_types
+                        .get(config_key)
+                        .and_then(serde_json::Value::as_bool)
+                        && !enabled
+                    {
+                        disabled.insert(diag_code.to_string());
+                    }
                 }
+                // "code-duplication" is controlled by the duplication.* settings,
+                // not issueTypes (always enabled at the LSP level).
+                *self.disabled_diagnostic_codes.write().await = disabled;
             }
-            // "code-duplication" is controlled by the duplication.* settings,
-            // not issueTypes — always enabled at the LSP level
-            *self.disabled_diagnostic_codes.write().await = disabled;
+
+            // changedSince: a git ref (tag, branch, or SHA). Empty string is
+            // treated as "unset" so users can clear the setting via the
+            // settings UI without restarting.
+            if let Some(git_ref) = opts.get("changedSince").and_then(|v| v.as_str()) {
+                let trimmed = git_ref.trim();
+                *self.changed_since.write().await = if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed.to_string())
+                };
+            }
         }
 
         Ok(InitializeResult {
@@ -349,6 +368,9 @@ impl FallowLspServer {
             )
             .await;
 
+        let changed_since = self.changed_since.read().await.clone();
+        let blocking_root = root.clone();
+
         let join_result = tokio::task::spawn_blocking(move || {
             let mut merged_results = AnalysisResults::default();
             let mut merged_duplication = DuplicationReport::default();
@@ -389,18 +411,63 @@ impl FallowLspServer {
                 merge_duplication(&mut merged_duplication, duplication);
             }
 
-            (merged_results, merged_duplication, config_messages)
+            // Apply --changed-since-equivalent filter, if configured. Resolved
+            // relative to the workspace root (matching CLI behavior). On git
+            // failure, log the reason and leave results unfiltered so the
+            // user sees what's wrong instead of an unexplained empty Problems
+            // panel.
+            let changed_message = if let Some(ref git_ref) = changed_since {
+                match try_get_changed_files(&blocking_root, git_ref) {
+                    Ok(changed) => {
+                        filter_results_by_changed_files(&mut merged_results, &changed);
+                        filter_duplication_by_changed_files(
+                            &mut merged_duplication,
+                            &changed,
+                            &blocking_root,
+                        );
+                        Some((
+                            MessageType::INFO,
+                            format!(
+                                "changedSince '{git_ref}': scoped to {} changed file(s)",
+                                changed.len()
+                            ),
+                        ))
+                    }
+                    Err(err) => Some((
+                        MessageType::WARNING,
+                        format!(
+                            "changedSince '{git_ref}' ignored: {} (showing full-scope results)",
+                            err.describe()
+                        ),
+                    )),
+                }
+            } else {
+                None
+            };
+
+            (
+                merged_results,
+                merged_duplication,
+                config_messages,
+                changed_message,
+            )
         })
         .await;
 
         match join_result {
-            Ok((results, duplication, config_messages)) => {
+            Ok((results, duplication, config_messages, changed_message)) => {
                 // Surface which config was loaded for each project root so users
                 // can verify their config is picked up (addresses silent
                 // config-loss UX). Emitted from the async context after the
                 // blocking task returns.
                 for msg in config_messages {
                     self.client.log_message(MessageType::INFO, msg).await;
+                }
+
+                // Report on changedSince outcome so users see why the Problems
+                // panel is scoped (or why the filter was dropped).
+                if let Some((level, msg)) = changed_message {
+                    self.client.log_message(level, msg).await;
                 }
 
                 // Build diagnostics once from the merged results.
@@ -540,6 +607,7 @@ async fn main() {
         analysis_guard: Arc::new(tokio::sync::Mutex::new(())),
         documents: Arc::new(RwLock::new(FxHashMap::default())),
         disabled_diagnostic_codes: Arc::new(RwLock::new(FxHashSet::default())),
+        changed_since: Arc::new(RwLock::new(None)),
         cached_diagnostics: Arc::new(RwLock::new(FxHashMap::default())),
     })
     .custom_method("textDocument/diagnostic", FallowLspServer::diagnostic)

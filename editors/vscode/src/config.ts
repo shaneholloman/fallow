@@ -39,6 +39,9 @@ export const getDuplicationMode = (): DuplicationMode =>
 export const getProduction = (): boolean =>
   getConfig().get<boolean>("production", false);
 
+export const getChangedSince = (): string =>
+  getConfig().get<string>("changedSince", "").trim();
+
 export const getTraceLevel = (): TraceLevel =>
   getConfig().get<TraceLevel>("trace.server", "off");
 

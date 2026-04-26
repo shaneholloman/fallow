@@ -97,6 +97,16 @@ describe("buildStatusBarTooltipMarkdown", () => {
 
     expect(markdown).toContain("$(check) No issues found");
   });
+
+  it("surfaces the changedSince ref when scoped", () => {
+    const markdown = buildStatusBarTooltipMarkdown(baseParams(), "fallow-baseline");
+    expect(markdown).toContain("Scoped to changes since `fallow-baseline`");
+  });
+
+  it("omits the scope line when no changedSince ref is given", () => {
+    const markdown = buildStatusBarTooltipMarkdown(baseParams());
+    expect(markdown).not.toContain("Scoped to changes since");
+  });
 });
 
 describe("buildParamsFromCli", () => {

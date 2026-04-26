@@ -193,12 +193,14 @@ export const activate = async (
       const needsRestart =
         e.affectsConfiguration("fallow.lspPath") ||
         e.affectsConfiguration("fallow.trace.server") ||
-        e.affectsConfiguration("fallow.issueTypes");
+        e.affectsConfiguration("fallow.issueTypes") ||
+        e.affectsConfiguration("fallow.changedSince");
 
       const needsReanalysis =
         e.affectsConfiguration("fallow.production") ||
         e.affectsConfiguration("fallow.duplication") ||
-        e.affectsConfiguration("fallow.issueTypes");
+        e.affectsConfiguration("fallow.issueTypes") ||
+        e.affectsConfiguration("fallow.changedSince");
 
       if (needsRestart) {
         outputChannel.appendLine("Configuration changed, restarting server...");

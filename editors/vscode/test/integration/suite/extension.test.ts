@@ -92,6 +92,9 @@ describe("Fallow VS Code extension", () => {
         defaultIssueTypes,
         vscode.ConfigurationTarget.Workspace
       );
+    await vscode.workspace
+      .getConfiguration("fallow")
+      .update("changedSince", "", vscode.ConfigurationTarget.Workspace);
 
     windowApi.showQuickPick = originalShowQuickPick;
     windowApi.showTextDocument = originalShowTextDocument;
@@ -141,6 +144,27 @@ describe("Fallow VS Code extension", () => {
         "--format json --quiet --skip health --dupes-mode mild --dupes-threshold 5"
       ),
       "combined analysis should pass the expected arguments"
+    );
+  });
+
+  it("forwards changedSince to the CLI analysis path", async () => {
+    await vscode.workspace
+      .getConfiguration("fallow")
+      .update("changedSince", "origin/main", vscode.ConfigurationTarget.Workspace);
+
+    const result = await api.runAnalysis(testContext());
+
+    assert.ok(result.check, "check result should be available");
+    assert.ok(result.dupes, "duplication result should be available");
+
+    const analysisCalls = readCliLog();
+    assert.ok(analysisCalls.length >= 1, "expected at least one CLI analysis call");
+    assert.ok(
+      analysisCalls.every((entry) =>
+        entry.args.join(" ") ===
+        "--format json --quiet --skip health --changed-since origin/main --dupes-mode mild --dupes-threshold 5"
+      ),
+      "combined analysis should include --changed-since before duplication options"
     );
   });
 
