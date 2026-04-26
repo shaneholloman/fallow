@@ -138,6 +138,19 @@ export const getStatusBarSeverityKey = (
   return null;
 };
 
+const normalizeInlineText = (value: string): string =>
+  value.replace(/\s+/g, " ").trim();
+
+export const formatChangedSinceRefForStatusBar = (ref: string): string => {
+  const normalized = normalizeInlineText(ref);
+  return normalized.length > 48
+    ? `${normalized.slice(0, 45).trimEnd()}...`
+    : normalized;
+};
+
+const escapeMarkdownText = (value: string): string =>
+  normalizeInlineText(value).replace(/([\\`*_{}[\]()#+.!|>-])/g, "\\$1");
+
 export const buildStatusBarTooltipMarkdown = (
   params: AnalysisCompleteParams,
   changedSinceRef: string | null = null
@@ -148,7 +161,9 @@ export const buildStatusBarTooltipMarkdown = (
   );
 
   if (changedSinceRef) {
-    lines.push(`$(git-branch) Scoped to changes since \`${changedSinceRef}\``);
+    lines.push(
+      `$(git-branch) Scoped to changes since ${escapeMarkdownText(changedSinceRef)}`
+    );
   }
 
   for (const line of BREAKDOWN_LINES) {

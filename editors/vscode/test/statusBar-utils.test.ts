@@ -3,6 +3,7 @@ import {
   buildParamsFromCli,
   buildStatusBarPartsFromLsp,
   buildStatusBarTooltipMarkdown,
+  formatChangedSinceRefForStatusBar,
   getStatusBarSeverityKey,
   getDuplicationPercentage,
 } from "../src/statusBar-utils.js";
@@ -100,12 +101,38 @@ describe("buildStatusBarTooltipMarkdown", () => {
 
   it("surfaces the changedSince ref when scoped", () => {
     const markdown = buildStatusBarTooltipMarkdown(baseParams(), "fallow-baseline");
-    expect(markdown).toContain("Scoped to changes since `fallow-baseline`");
+    expect(markdown).toContain("Scoped to changes since fallow\\-baseline");
+  });
+
+  it("escapes changedSince markdown in trusted tooltip text", () => {
+    const markdown = buildStatusBarTooltipMarkdown(
+      baseParams(),
+      "base` [open](command:workbench.action.openSettings)"
+    );
+    expect(markdown).toContain(
+      "base\\` \\[open\\]\\(command:workbench\\.action\\.openSettings\\)"
+    );
   });
 
   it("omits the scope line when no changedSince ref is given", () => {
     const markdown = buildStatusBarTooltipMarkdown(baseParams());
     expect(markdown).not.toContain("Scoped to changes since");
+  });
+});
+
+describe("formatChangedSinceRefForStatusBar", () => {
+  it("normalizes whitespace for the compact status bar label", () => {
+    expect(formatChangedSinceRefForStatusBar(" feature\nbranch\tname ")).toBe(
+      "feature branch name"
+    );
+  });
+
+  it("truncates long refs for the compact status bar label", () => {
+    const formatted = formatChangedSinceRefForStatusBar(
+      "feature/some-extremely-long-baseline-branch-name-that-would-crowd-the-status-bar"
+    );
+    expect(formatted.length).toBeLessThanOrEqual(48);
+    expect(formatted).toMatch(/\.\.\.$/);
   });
 });
 

@@ -6,6 +6,7 @@ import {
   buildParamsFromCli,
   buildStatusBarPartsFromLsp,
   buildStatusBarTooltipMarkdown,
+  formatChangedSinceRefForStatusBar,
   getStatusBarSeverityKey,
 } from "./statusBar-utils.js";
 import type { FallowCheckResult, FallowDupesResult } from "./types.js";
@@ -83,7 +84,9 @@ const applyStatusBarText = (parts: string[]): void => {
     return;
   }
   const changedSince = getChangedSince();
-  const suffix = changedSince ? ` (since ${changedSince})` : "";
+  const suffix = changedSince
+    ? ` (since ${formatChangedSinceRefForStatusBar(changedSince)})`
+    : "";
   if (parts.length > 0) {
     statusBarItem.text = `$(search) Fallow: ${parts.join(" | ")}${suffix}`;
   } else {
