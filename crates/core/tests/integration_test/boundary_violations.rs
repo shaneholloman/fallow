@@ -250,6 +250,226 @@ fn preset_detects_boundary_violation() {
 }
 
 #[test]
+fn root_field_classifies_per_subtree() {
+    let root = fixture_path("boundary-root");
+    let boundaries = BoundaryConfig {
+        preset: None,
+        zones: vec![
+            BoundaryZone {
+                name: "ui".to_string(),
+                patterns: vec!["src/**".to_string()],
+                root: Some("packages/app/".to_string()),
+            },
+            BoundaryZone {
+                name: "domain".to_string(),
+                patterns: vec!["src/**".to_string()],
+                root: Some("packages/core/".to_string()),
+            },
+        ],
+        rules: vec![
+            BoundaryRule {
+                from: "ui".to_string(),
+                allow: vec![],
+            },
+            BoundaryRule {
+                from: "domain".to_string(),
+                allow: vec![],
+            },
+        ],
+    };
+    let config = FallowConfig {
+        schema: None,
+        extends: vec![],
+        entry: vec!["packages/app/src/login.tsx".to_string()],
+        ignore_patterns: vec![],
+        framework: vec![],
+        workspaces: None,
+        ignore_dependencies: vec![],
+        ignore_exports: vec![],
+        used_class_members: vec![],
+        duplicates: DuplicatesConfig::default(),
+        health: HealthConfig::default(),
+        rules: RulesConfig {
+            boundary_violation: Severity::Error,
+            ..RulesConfig::default()
+        },
+        boundaries,
+        production: false.into(),
+        plugins: vec![],
+        dynamically_loaded: vec![],
+        overrides: vec![],
+        regression: None,
+        audit: fallow_config::AuditConfig::default(),
+        codeowners: None,
+        public_packages: vec![],
+        flags: FlagsConfig::default(),
+        resolve: ResolveConfig::default(),
+        sealed: false,
+    }
+    .resolve(root, OutputFormat::Human, 4, true, true);
+    let results = fallow_core::analyze(&config).expect("analysis should succeed");
+
+    // Same flat pattern `src/**` is disambiguated by `root`: ui matches
+    // packages/app/src/login.tsx, domain matches packages/core/src/order.ts.
+    // The deny rule on "ui" fires on the cross-zone import.
+    assert_eq!(
+        results.boundary_violations.len(),
+        1,
+        "expected 1 boundary violation, got: {:?}",
+        results
+            .boundary_violations
+            .iter()
+            .map(|v| format!(
+                "{} ({}) -> {} ({})",
+                v.from_zone,
+                v.from_path.display(),
+                v.to_zone,
+                v.to_path.display()
+            ))
+            .collect::<Vec<_>>()
+    );
+
+    let v = &results.boundary_violations[0];
+    assert_eq!(v.from_zone, "ui");
+    assert_eq!(v.to_zone, "domain");
+    assert!(
+        v.from_path
+            .to_string_lossy()
+            .replace('\\', "/")
+            .ends_with("packages/app/src/login.tsx"),
+        "from_path should end with packages/app/src/login.tsx, got: {}",
+        v.from_path.display()
+    );
+    assert!(
+        v.to_path
+            .to_string_lossy()
+            .replace('\\', "/")
+            .ends_with("packages/core/src/order.ts"),
+        "to_path should end with packages/core/src/order.ts, got: {}",
+        v.to_path.display()
+    );
+}
+
+#[test]
+fn root_field_genuinely_disambiguates_flat_patterns() {
+    // Without `root`, the flat patterns `src/**` would match BOTH files
+    // and the first zone (`ui`) would steal both. With `root` the two
+    // zones partition the subtrees correctly.
+    let root = fixture_path("boundary-root");
+
+    // Without root: flat `packages/*/src/**` collapses to a single zone
+    // because "ui" matches first for both files. No violation possible
+    // since the importer and target end up in the same zone.
+    let flat_boundaries = BoundaryConfig {
+        preset: None,
+        zones: vec![BoundaryZone {
+            name: "ui".to_string(),
+            patterns: vec!["packages/*/src/**".to_string()],
+            root: None,
+        }],
+        rules: vec![BoundaryRule {
+            from: "ui".to_string(),
+            allow: vec![],
+        }],
+    };
+    let flat_config = FallowConfig {
+        schema: None,
+        extends: vec![],
+        entry: vec!["packages/app/src/login.tsx".to_string()],
+        ignore_patterns: vec![],
+        framework: vec![],
+        workspaces: None,
+        ignore_dependencies: vec![],
+        ignore_exports: vec![],
+        used_class_members: vec![],
+        duplicates: DuplicatesConfig::default(),
+        health: HealthConfig::default(),
+        rules: RulesConfig {
+            boundary_violation: Severity::Error,
+            ..RulesConfig::default()
+        },
+        boundaries: flat_boundaries,
+        production: false.into(),
+        plugins: vec![],
+        dynamically_loaded: vec![],
+        overrides: vec![],
+        regression: None,
+        audit: fallow_config::AuditConfig::default(),
+        codeowners: None,
+        public_packages: vec![],
+        flags: FlagsConfig::default(),
+        resolve: ResolveConfig::default(),
+        sealed: false,
+    }
+    .resolve(root.clone(), OutputFormat::Human, 4, true, true);
+    let flat_results = fallow_core::analyze(&flat_config).expect("analysis should succeed");
+    assert!(
+        flat_results.boundary_violations.is_empty(),
+        "without root, both files share the same zone so self-imports are allowed"
+    );
+
+    // With root: same internal pattern `src/**` partitions cleanly.
+    let scoped_boundaries = BoundaryConfig {
+        preset: None,
+        zones: vec![
+            BoundaryZone {
+                name: "ui".to_string(),
+                patterns: vec!["src/**".to_string()],
+                root: Some("packages/app/".to_string()),
+            },
+            BoundaryZone {
+                name: "domain".to_string(),
+                patterns: vec!["src/**".to_string()],
+                root: Some("packages/core/".to_string()),
+            },
+        ],
+        rules: vec![BoundaryRule {
+            from: "ui".to_string(),
+            allow: vec![],
+        }],
+    };
+    let scoped_config = FallowConfig {
+        schema: None,
+        extends: vec![],
+        entry: vec!["packages/app/src/login.tsx".to_string()],
+        ignore_patterns: vec![],
+        framework: vec![],
+        workspaces: None,
+        ignore_dependencies: vec![],
+        ignore_exports: vec![],
+        used_class_members: vec![],
+        duplicates: DuplicatesConfig::default(),
+        health: HealthConfig::default(),
+        rules: RulesConfig {
+            boundary_violation: Severity::Error,
+            ..RulesConfig::default()
+        },
+        boundaries: scoped_boundaries,
+        production: false.into(),
+        plugins: vec![],
+        dynamically_loaded: vec![],
+        overrides: vec![],
+        regression: None,
+        audit: fallow_config::AuditConfig::default(),
+        codeowners: None,
+        public_packages: vec![],
+        flags: FlagsConfig::default(),
+        resolve: ResolveConfig::default(),
+        sealed: false,
+    }
+    .resolve(root, OutputFormat::Human, 4, true, true);
+    let scoped_results = fallow_core::analyze(&scoped_config).expect("analysis should succeed");
+    assert_eq!(
+        scoped_results.boundary_violations.len(),
+        1,
+        "with root, the cross-package import is now a cross-zone violation"
+    );
+    let v = &scoped_results.boundary_violations[0];
+    assert_eq!(v.from_zone, "ui");
+    assert_eq!(v.to_zone, "domain");
+}
+
+#[test]
 fn bulletproof_preset_detects_violation() {
     let root = fixture_path("boundary-bulletproof");
     let boundaries = BoundaryConfig {

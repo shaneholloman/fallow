@@ -904,7 +904,7 @@
           }
         },
         "root": {
-          "description": "Optional subtree scope. Reserved for future subtree-relative pattern\nsupport: when set, patterns would resolve relative to this directory\ninstead of the project root (useful for monorepos with per-package\nboundaries). Currently inert: the detector ignores the field, and\n`BoundaryConfig::resolve` emits a warning tagged\n`FALLOW-BOUNDARY-ROOT-RESERVED` so users do not silently rely on it.",
+          "description": "Optional subtree scope for monorepo per-package boundaries.\n\nWhen set, the zone's `patterns` are matched against paths *relative*\nto this directory rather than the project root. At classification\ntime, fallow checks that a candidate path starts with `root` and\nstrips that prefix before glob-matching the patterns against the\nremainder. Files outside the subtree never match the zone.\n\nUseful for monorepos where each package has the same internal\ndirectory layout: instead of writing `packages/app/src/**` and\n`packages/core/src/**` (which collide on shared zone names), set\n`root: \"packages/app/\"` and `patterns: [\"src/**\"]` per package.\n\nTrailing slash and leading `./` are normalized; backslashes are\nconverted to forward slashes. Patterns must NOT redundantly include\nthe root prefix: `root: \"packages/app/\"` with\n`patterns: [\"packages/app/src/**\"]` is rejected with\n`FALLOW-BOUNDARY-ROOT-REDUNDANT-PREFIX` because patterns are\nresolved relative to the root.",
           "type": [
             "string",
             "null"

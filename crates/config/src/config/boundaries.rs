@@ -213,12 +213,25 @@ pub struct BoundaryZone {
     /// Glob patterns (relative to project root) that define zone membership.
     /// A file belongs to the first zone whose pattern matches.
     pub patterns: Vec<String>,
-    /// Optional subtree scope. Reserved for future subtree-relative pattern
-    /// support: when set, patterns would resolve relative to this directory
-    /// instead of the project root (useful for monorepos with per-package
-    /// boundaries). Currently inert: the detector ignores the field, and
-    /// `BoundaryConfig::resolve` emits a warning tagged
-    /// `FALLOW-BOUNDARY-ROOT-RESERVED` so users do not silently rely on it.
+    /// Optional subtree scope for monorepo per-package boundaries.
+    ///
+    /// When set, the zone's `patterns` are matched against paths *relative*
+    /// to this directory rather than the project root. At classification
+    /// time, fallow checks that a candidate path starts with `root` and
+    /// strips that prefix before glob-matching the patterns against the
+    /// remainder. Files outside the subtree never match the zone.
+    ///
+    /// Useful for monorepos where each package has the same internal
+    /// directory layout: instead of writing `packages/app/src/**` and
+    /// `packages/core/src/**` (which collide on shared zone names), set
+    /// `root: "packages/app/"` and `patterns: ["src/**"]` per package.
+    ///
+    /// Trailing slash and leading `./` are normalized; backslashes are
+    /// converted to forward slashes. Patterns must NOT redundantly include
+    /// the root prefix: `root: "packages/app/"` with
+    /// `patterns: ["packages/app/src/**"]` is rejected with
+    /// `FALLOW-BOUNDARY-ROOT-REDUNDANT-PREFIX` because patterns are
+    /// resolved relative to the root.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub root: Option<String>,
 }
@@ -250,7 +263,15 @@ pub struct ResolvedZone {
     /// Zone identifier.
     pub name: String,
     /// Pre-compiled glob matchers for zone membership.
+    /// When `root` is set, matchers are applied to the path with the
+    /// `root` prefix stripped (subtree-relative patterns).
     pub matchers: Vec<globset::GlobMatcher>,
+    /// Normalized subtree scope (e.g. `"packages/app/"`). When present,
+    /// only paths starting with this prefix can match this zone, and the
+    /// prefix is stripped before glob matching. Forward slashes only,
+    /// always trailing slash. `None` means patterns are matched against
+    /// the project-root-relative path as-is.
+    pub root: Option<String>,
 }
 
 /// A resolved boundary rule.
@@ -341,17 +362,33 @@ impl BoundaryConfig {
         })
     }
 
-    /// Return the names of zones that set the reserved `root` field. The
-    /// detector currently ignores `root`; consumers (the resolver, CLI
-    /// validate command) call this to warn users so the silent no-op cannot
-    /// be mistaken for an enforced subtree scope.
+    /// Validate that no zone's pattern redundantly includes its `root`
+    /// prefix. Returns a list of error messages tagged with
+    /// `FALLOW-BOUNDARY-ROOT-REDUNDANT-PREFIX`. Patterns are resolved
+    /// relative to the zone root, so prefixing the pattern with the same
+    /// root double-prefixes the path and never matches.
     #[must_use]
-    pub fn reserved_root_zones(&self) -> Vec<&str> {
-        self.zones
-            .iter()
-            .filter(|z| z.root.is_some())
-            .map(|z| z.name.as_str())
-            .collect()
+    pub fn validate_root_prefixes(&self) -> Vec<String> {
+        let mut errors = Vec::new();
+        for zone in &self.zones {
+            let Some(raw_root) = zone.root.as_deref() else {
+                continue;
+            };
+            let normalized = normalize_zone_root(raw_root);
+            for pattern in &zone.patterns {
+                let normalized_pattern = pattern.replace('\\', "/");
+                let stripped = normalized_pattern
+                    .strip_prefix("./")
+                    .unwrap_or(&normalized_pattern);
+                if stripped.starts_with(&normalized) {
+                    errors.push(format!(
+                        "FALLOW-BOUNDARY-ROOT-REDUNDANT-PREFIX: zone '{}': pattern '{}' starts with the zone root '{}'. Patterns are now resolved relative to root; remove the redundant prefix from the pattern.",
+                        zone.name, pattern, normalized
+                    ));
+                }
+            }
+        }
+        errors
     }
 
     /// Validate that all zone names referenced in rules are defined in `zones`.
@@ -398,9 +435,11 @@ impl BoundaryConfig {
                         }
                     })
                     .collect();
+                let root = zone.root.as_deref().map(normalize_zone_root);
                 ResolvedZone {
                     name: zone.name.clone(),
                     matchers,
+                    root,
                 }
             })
             .collect();
@@ -418,6 +457,23 @@ impl BoundaryConfig {
     }
 }
 
+/// Normalize a zone `root` string into the canonical form used at
+/// classification time: forward slashes, no leading `./`, always a
+/// trailing slash. Empty / `"."` / `"./"` collapse to `""` which means
+/// "subtree is the project root" and effectively behaves like no root.
+fn normalize_zone_root(raw: &str) -> String {
+    let with_slashes = raw.replace('\\', "/");
+    let trimmed = with_slashes.trim_start_matches("./");
+    let no_dot = if trimmed == "." { "" } else { trimmed };
+    if no_dot.is_empty() {
+        String::new()
+    } else if no_dot.ends_with('/') {
+        no_dot.to_owned()
+    } else {
+        format!("{no_dot}/")
+    }
+}
+
 impl ResolvedBoundaryConfig {
     /// Whether any boundaries are configured.
     #[must_use]
@@ -427,10 +483,24 @@ impl ResolvedBoundaryConfig {
 
     /// Classify a file path into a zone. Returns the first matching zone name.
     /// Path should be relative to the project root with forward slashes.
+    ///
+    /// When a zone declares a `root` (subtree scope), the path must start
+    /// with that prefix and the prefix is stripped before glob matching;
+    /// otherwise the zone is skipped. Zones without a `root` keep
+    /// project-root-relative behavior.
     #[must_use]
     pub fn classify_zone(&self, relative_path: &str) -> Option<&str> {
         for zone in &self.zones {
-            if zone.matchers.iter().any(|m| m.is_match(relative_path)) {
+            let candidate: &str = match zone.root.as_deref() {
+                Some(root) if !root.is_empty() => {
+                    let Some(stripped) = relative_path.strip_prefix(root) else {
+                        continue;
+                    };
+                    stripped
+                }
+                _ => relative_path,
+            };
+            if zone.matchers.iter().any(|m| m.is_match(candidate)) {
                 return Some(&zone.name);
             }
         }
@@ -730,27 +800,151 @@ allow = ["db"]
     }
 
     #[test]
-    fn root_field_reserved() {
-        let json = r#"{
-            "zones": [
-                { "name": "ui", "patterns": ["src/**"], "root": "packages/app/" },
-                { "name": "api", "patterns": ["api/**"] }
+    fn zone_root_filters_classification_to_subtree() {
+        let config = BoundaryConfig {
+            preset: None,
+            zones: vec![
+                BoundaryZone {
+                    name: "ui".to_string(),
+                    patterns: vec!["src/**".to_string()],
+                    root: Some("packages/app/".to_string()),
+                },
+                BoundaryZone {
+                    name: "domain".to_string(),
+                    patterns: vec!["src/**".to_string()],
+                    root: Some("packages/core/".to_string()),
+                },
             ],
-            "rules": []
-        }"#;
-        let config: BoundaryConfig = serde_json::from_str(json).unwrap();
-        assert_eq!(config.zones[0].root.as_deref(), Some("packages/app/"));
-        assert_eq!(config.reserved_root_zones(), vec!["ui"]);
+            rules: vec![],
+        };
+        let resolved = config.resolve();
+        // Files inside packages/app/ classify as ui
+        assert_eq!(
+            resolved.classify_zone("packages/app/src/login.tsx"),
+            Some("ui")
+        );
+        // Files inside packages/core/ classify as domain (same pattern, different root)
+        assert_eq!(
+            resolved.classify_zone("packages/core/src/order.ts"),
+            Some("domain")
+        );
+        // Files outside either subtree do not match
+        assert_eq!(resolved.classify_zone("src/login.tsx"), None);
+        assert_eq!(resolved.classify_zone("packages/utils/src/x.ts"), None);
     }
 
     #[test]
-    fn reserved_root_zones_empty_when_no_zone_sets_root() {
+    fn zone_root_normalizes_trailing_slash_and_dot_prefix() {
+        let config = BoundaryConfig {
+            preset: None,
+            zones: vec![
+                BoundaryZone {
+                    name: "no-slash".to_string(),
+                    patterns: vec!["src/**".to_string()],
+                    root: Some("packages/app".to_string()),
+                },
+                BoundaryZone {
+                    name: "dot-prefixed".to_string(),
+                    patterns: vec!["src/**".to_string()],
+                    root: Some("./packages/lib/".to_string()),
+                },
+            ],
+            rules: vec![],
+        };
+        let resolved = config.resolve();
+        assert_eq!(resolved.zones[0].root.as_deref(), Some("packages/app/"));
+        assert_eq!(resolved.zones[1].root.as_deref(), Some("packages/lib/"));
+        assert_eq!(
+            resolved.classify_zone("packages/app/src/x.ts"),
+            Some("no-slash")
+        );
+        assert_eq!(
+            resolved.classify_zone("packages/lib/src/x.ts"),
+            Some("dot-prefixed")
+        );
+    }
+
+    #[test]
+    fn validate_root_prefixes_flags_redundant_pattern() {
+        let config = BoundaryConfig {
+            preset: None,
+            zones: vec![BoundaryZone {
+                name: "ui".to_string(),
+                patterns: vec!["packages/app/src/**".to_string()],
+                root: Some("packages/app/".to_string()),
+            }],
+            rules: vec![],
+        };
+        let errors = config.validate_root_prefixes();
+        assert_eq!(errors.len(), 1, "expected one redundant-prefix error");
+        assert!(
+            errors[0].contains("FALLOW-BOUNDARY-ROOT-REDUNDANT-PREFIX"),
+            "error should be tagged: {}",
+            errors[0]
+        );
+        assert!(
+            errors[0].contains("zone 'ui'"),
+            "error should name the zone: {}",
+            errors[0]
+        );
+        assert!(
+            errors[0].contains("packages/app/src/**"),
+            "error should quote the pattern: {}",
+            errors[0]
+        );
+    }
+
+    #[test]
+    fn validate_root_prefixes_handles_unnormalized_root() {
+        // Root without trailing slash + pattern with leading "./" should
+        // still be detected as redundant after normalization.
+        let config = BoundaryConfig {
+            preset: None,
+            zones: vec![BoundaryZone {
+                name: "ui".to_string(),
+                patterns: vec!["./packages/app/src/**".to_string()],
+                root: Some("packages/app".to_string()),
+            }],
+            rules: vec![],
+        };
+        let errors = config.validate_root_prefixes();
+        assert_eq!(errors.len(), 1);
+    }
+
+    #[test]
+    fn validate_root_prefixes_empty_when_no_overlap() {
+        let config = BoundaryConfig {
+            preset: None,
+            zones: vec![BoundaryZone {
+                name: "ui".to_string(),
+                patterns: vec!["src/**".to_string()],
+                root: Some("packages/app/".to_string()),
+            }],
+            rules: vec![],
+        };
+        assert!(config.validate_root_prefixes().is_empty());
+    }
+
+    #[test]
+    fn validate_root_prefixes_skips_zones_without_root() {
         let json = r#"{
             "zones": [{ "name": "ui", "patterns": ["src/**"] }],
             "rules": []
         }"#;
         let config: BoundaryConfig = serde_json::from_str(json).unwrap();
-        assert!(config.reserved_root_zones().is_empty());
+        assert!(config.validate_root_prefixes().is_empty());
+    }
+
+    #[test]
+    fn deserialize_zone_with_root() {
+        let json = r#"{
+            "zones": [
+                { "name": "ui", "patterns": ["src/**"], "root": "packages/app/" }
+            ],
+            "rules": []
+        }"#;
+        let config: BoundaryConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.zones[0].root.as_deref(), Some("packages/app/"));
     }
 
     // ── Preset deserialization ─────────────────────────────────

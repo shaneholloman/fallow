@@ -171,13 +171,8 @@ impl FallowConfig {
                 rule_idx
             );
         }
-        for zone_name in boundaries.reserved_root_zones() {
-            tracing::warn!(
-                "boundary zone '{zone_name}': 'root' is reserved \
-                 (FALLOW-BOUNDARY-ROOT-RESERVED) and currently has no effect; \
-                 remove the field, or wait for subtree-relative pattern \
-                 support to ship before relying on it"
-            );
+        for message in boundaries.validate_root_prefixes() {
+            tracing::error!("{message}");
         }
         let boundaries = boundaries.resolve();
 
