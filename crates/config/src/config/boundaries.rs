@@ -375,6 +375,13 @@ impl BoundaryConfig {
                 continue;
             };
             let normalized = normalize_zone_root(raw_root);
+            // Skip empty-root zones: `""`, `"."`, and `"./"` all normalize to
+            // `""`, which behaves as no root at classification time. Without
+            // this guard `starts_with("")` is always true and every pattern
+            // produces a spurious redundant-prefix error.
+            if normalized.is_empty() {
+                continue;
+            }
             for pattern in &zone.patterns {
                 let normalized_pattern = pattern.replace('\\', "/");
                 let stripped = normalized_pattern
@@ -933,6 +940,31 @@ allow = ["db"]
         }"#;
         let config: BoundaryConfig = serde_json::from_str(json).unwrap();
         assert!(config.validate_root_prefixes().is_empty());
+    }
+
+    /// Regression: an empty `root` (or `"."`/`"./"`, both of which normalize
+    /// to `""`) used to make `starts_with("")` always true, producing a
+    /// spurious FALLOW-BOUNDARY-ROOT-REDUNDANT-PREFIX error for every
+    /// pattern in the zone. The validation must skip empty-normalized roots
+    /// the same way `classify_zone` does.
+    #[test]
+    fn validate_root_prefixes_skips_empty_root() {
+        for raw_root in ["", ".", "./"] {
+            let config = BoundaryConfig {
+                preset: None,
+                zones: vec![BoundaryZone {
+                    name: "ui".to_string(),
+                    patterns: vec!["src/**".to_string(), "lib/**".to_string()],
+                    root: Some(raw_root.to_string()),
+                }],
+                rules: vec![],
+            };
+            let errors = config.validate_root_prefixes();
+            assert!(
+                errors.is_empty(),
+                "empty-normalized root {raw_root:?} produced spurious errors: {errors:?}"
+            );
+        }
     }
 
     #[test]

@@ -99,6 +99,7 @@ expression: json_str
     "duplication_percentage": 0.7
   },
   "grouped_by": "directory",
+  "total_issues": 2,
   "groups": [
     {
       "key": "lib",

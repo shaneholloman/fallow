@@ -281,8 +281,13 @@ pub fn execute_dupes(opts: &DupesOptions<'_>) -> Result<DupesResult, ExitCode> {
         filter_by_workspaces(&mut report, &ws_roots, &config.root);
     }
 
-    // Apply --top
-    if let Some(n) = opts.top {
+    // Apply --top.
+    // Skip when --group-by is active: per-group stats must be computed over
+    // the full bucket (not a globally-truncated subset), and the human/JSON
+    // grouped renderers apply their own per-bucket caps at render time.
+    if let Some(n) = opts.top
+        && opts.group_by.is_none()
+    {
         report.clone_groups.truncate(n);
         report.clone_families = fallow_core::duplicates::families::group_into_families(
             &report.clone_groups,

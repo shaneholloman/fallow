@@ -61,7 +61,7 @@ pub(in crate::report) fn print_duplication_human(
             .red()
             .bold()
         );
-        // Advisory when duplication rate is very high — likely mirrored directories
+        // Advisory when duplication rate is very high (likely mirrored directories)
         if stats.duplication_percentage > 80.0 {
             eprintln!(
                 "  {}",
@@ -452,19 +452,30 @@ pub(in crate::report) fn print_grouped_duplication_human(
         return;
     }
 
-    // Per-bucket render
+    // Top-level grouped section header, matching health's grouped output:
+    //   "● Per-{mode} duplication"
+    println!(
+        "{} {}",
+        "\u{25cf}".cyan(),
+        format!("Per-{} duplication", grouping.mode).cyan().bold()
+    );
+    println!();
+
+    // Per-bucket render. Each bucket leads with a cyan-bullet sub-header
+    // (matching the design system) followed by a blank line before the
+    // first clone-group row.
     for bucket in &grouping.groups {
         let total_groups = bucket.clone_groups.len();
         let dup_lines = bucket.stats.duplicated_lines;
-        let header = format!(
-            "## {}: {} ({} clone group{}, {} LOC duplicated)",
-            grouping.mode,
-            bucket.key,
+        println!(
+            "{} {} ({} clone group{}, {} LOC duplicated)",
+            "\u{25cf}".cyan(),
+            bucket.key.clone().cyan().bold(),
             total_groups,
             plural(total_groups),
             thousands(dup_lines),
         );
-        println!("{}", header.cyan().bold());
+        println!();
 
         let shown = total_groups.min(MAX_CLONE_GROUPS);
         let mut sorted: Vec<_> = bucket.clone_groups.iter().collect();
@@ -550,6 +561,14 @@ pub(in crate::report) fn print_grouped_duplication_human(
         eprintln!(
             "  {}",
             format!("Group attribution rule: largest owner (most instances; alphabetical tiebreak); see {DOCS_DUPLICATION}#grouping").dimmed()
+        );
+        // Per-bucket files-with-clones is local to that bucket; the project
+        // total deduplicates files appearing in multiple buckets so per-bucket
+        // counts can sum to more than the project headline.
+        eprintln!(
+            "  {}",
+            "Per-bucket files-with-clones is local; project total deduplicates across buckets."
+                .dimmed()
         );
     }
 }

@@ -1405,6 +1405,15 @@ pub fn build_grouped_duplication_json(
 
     if let serde_json::Value::Object(ref mut map) = output {
         map.insert("grouped_by".to_string(), serde_json::json!(grouping.mode));
+        // Mirror the grouped check / health envelopes which expose
+        // `total_issues` so MCP and CI consumers can read the same key
+        // across all three commands. For dupes the count is total clone
+        // groups (sum is preserved across grouping; each clone group is
+        // attributed to exactly one bucket).
+        map.insert(
+            "total_issues".to_string(),
+            serde_json::json!(report.clone_groups.len()),
+        );
     }
 
     let group_values: Vec<serde_json::Value> = grouping
