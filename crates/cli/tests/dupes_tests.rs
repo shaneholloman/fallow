@@ -99,6 +99,36 @@ fn dupes_top_flag() {
 }
 
 #[test]
+fn dupes_group_by_package_validates_non_monorepo() {
+    let dir = tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("package.json"),
+        r#"{"name":"single","version":"1.0.0","main":"src/index.ts"}"#,
+    )
+    .unwrap();
+    std::fs::create_dir_all(dir.path().join("src")).unwrap();
+    std::fs::write(dir.path().join("src/index.ts"), "export const value = 1;\n").unwrap();
+
+    let output = run_fallow_in_root(
+        "dupes",
+        dir.path(),
+        &["--group-by", "package", "--format", "json", "--quiet"],
+    );
+
+    assert_eq!(output.code, 2, "dupes should reject package grouping");
+    let parsed: serde_json::Value =
+        serde_json::from_str(&output.stdout).expect("stdout should be a single JSON error object");
+    assert_eq!(parsed["error"], serde_json::json!(true));
+    let msg = parsed["message"]
+        .as_str()
+        .expect("error message should be a string");
+    assert!(
+        msg.contains("monorepo"),
+        "error message should mention 'monorepo': {msg}"
+    );
+}
+
+#[test]
 fn dupes_save_baseline_creates_parent_directory() {
     let dir = tempdir().unwrap();
     std::fs::write(

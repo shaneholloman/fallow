@@ -2152,11 +2152,7 @@ mod tests {
         );
     }
 
-    fn visit_help(
-        cmd: &mut clap::Command,
-        path: &str,
-        violations: &mut Vec<(String, String)>,
-    ) {
+    fn visit_help(cmd: &mut clap::Command, path: &str, violations: &mut Vec<(String, String)>) {
         let help = cmd.render_long_help().to_string();
         for line in scan_forbidden(&help) {
             violations.push((path.to_owned(), line));
@@ -2198,8 +2194,7 @@ mod tests {
             let abs = start + rel;
             let before_ok = abs == 0 || !bytes[abs - 1].is_ascii_alphanumeric();
             let after_idx = abs + word.len();
-            let after_ok =
-                after_idx >= bytes.len() || !bytes[after_idx].is_ascii_alphanumeric();
+            let after_ok = after_idx >= bytes.len() || !bytes[after_idx].is_ascii_alphanumeric();
             if before_ok && after_ok {
                 return Some(abs);
             }
@@ -2210,9 +2205,7 @@ mod tests {
 
     fn extract_line(s: &str, byte_idx: usize) -> String {
         let line_start = s[..byte_idx].rfind('\n').map_or(0, |i| i + 1);
-        let line_end = s[byte_idx..]
-            .find('\n')
-            .map_or(s.len(), |i| byte_idx + i);
+        let line_end = s[byte_idx..].find('\n').map_or(s.len(), |i| byte_idx + i);
         s[line_start..line_end].trim().to_owned()
     }
 

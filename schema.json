@@ -904,7 +904,7 @@
           }
         },
         "root": {
-          "description": "Optional subtree scope. When set, patterns are relative to this directory\ninstead of the project root. Useful for monorepos with per-package boundaries.\nReserved for future use — currently ignored by the detector.",
+          "description": "Optional subtree scope. Reserved for future subtree-relative pattern\nsupport: when set, patterns would resolve relative to this directory\ninstead of the project root (useful for monorepos with per-package\nboundaries). Currently inert: the detector ignores the field, and\n`BoundaryConfig::resolve` emits a warning tagged\n`FALLOW-BOUNDARY-ROOT-RESERVED` so users do not silently rely on it.",
           "type": [
             "string",
             "null"
