@@ -1561,7 +1561,7 @@
     },
 
     "HealthFindingAction": {
-      "description": "A suggested action for a complex function finding.",
+      "description": "A suggested action for a health complexity finding.",
       "type": "object",
       "required": ["type", "auto_fixable", "description"],
       "properties": {
@@ -1588,7 +1588,7 @@
         },
         "placement": {
           "type": "string",
-          "description": "Where to insert the suppress comment (e.g., 'above-function-declaration' or 'top-of-template'). Present for suppress actions."
+          "description": "Where to insert the suppress comment (e.g., 'above-function-declaration', 'above-angular-decorator', or 'top-of-template'). Present for suppress actions."
         }
       }
     },

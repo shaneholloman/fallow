@@ -180,6 +180,15 @@ fn health_reports_angular_inline_template_complexity() {
             .any(|action| action["type"] == "suppress-line"),
         "inline template finding should expose a suppress-line action: {actions:#?}"
     );
+    let suppress_line = actions
+        .iter()
+        .find(|action| action["type"] == "suppress-line")
+        .expect("suppress-line action");
+    assert_eq!(
+        suppress_line["placement"].as_str(),
+        Some("above-angular-decorator"),
+        "inline template suppress-line should point at the decorator: {actions:#?}"
+    );
     assert!(
         actions
             .iter()

@@ -829,18 +829,35 @@ fn render_findings(
                 .and_then(|ext| ext.to_str())
                 .is_some_and(|ext| ext.eq_ignore_ascii_case("html"))
     });
+    let has_inline_template = report.findings.iter().any(|finding| {
+        finding.name == "<template>"
+            && finding
+                .path
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .is_none_or(|ext| !ext.eq_ignore_ascii_case("html"))
+    });
     let has_function_finding = report
         .findings
         .iter()
         .any(|finding| finding.name != "<template>");
-    // Show the HTML-template hint whenever any synthetic <template> finding is
-    // present (the suppression syntax is non-obvious, so don't gate on count).
-    // Keep the existing >=3 threshold for the function hint to avoid noise on
-    // tiny reports.
+    // Show the template-suppression hints whenever any synthetic <template>
+    // finding is present (the syntax is non-obvious for both flavors). External
+    // .html templates take a file-level HTML comment; inline @Component
+    // templates take a line-level TS comment placed directly above the
+    // decorator. Keep the existing >=3 threshold for the generic function hint
+    // to avoid noise on tiny reports.
     if has_html_template {
         lines.push(format!(
             "  {}",
             "To suppress HTML templates: <!-- fallow-ignore-file complexity -->".dimmed()
+        ));
+    }
+    if has_inline_template {
+        lines.push(format!(
+            "  {}",
+            "To suppress inline templates: // fallow-ignore-next-line complexity (above @Component)"
+                .dimmed()
         ));
     }
     if has_function_finding && report.findings.len() >= 3 {

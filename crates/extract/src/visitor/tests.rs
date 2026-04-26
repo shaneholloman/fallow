@@ -2899,7 +2899,7 @@ export class A {}\n",
 
 #[test]
 fn angular_template_with_interpolation_expressions_is_skipped() {
-    // Tagged template literals with `${...}` interpolations are skipped
+    // Template literals with `${...}` expressions are skipped
     // (variable-substituted templates are out of scope for the first cut).
     let info = crate::tests::parse_ts_with_complexity(
         "import { Component } from '@angular/core';\n\

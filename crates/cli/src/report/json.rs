@@ -785,17 +785,33 @@ fn build_health_finding_actions(
         && cyclomatic > 0
         && cyclomatic >= max_cyclomatic_threshold.saturating_sub(SECONDARY_REFACTOR_BAND)
         && cognitive >= cognitive_floor;
+    let is_template = name == "<template>";
     if !crap_only || crap_only_needs_complexity_reduction || near_cyclomatic_threshold {
+        let (description, note) = if is_template {
+            (
+                format!(
+                    "Refactor `{name}` to reduce template complexity (simplify control flow and bindings)"
+                ),
+                "Consider splitting complex template branches into smaller components or simpler bindings",
+            )
+        } else {
+            (
+                format!(
+                    "Refactor `{name}` to reduce complexity (extract helper functions, simplify branching)"
+                ),
+                "Consider splitting into smaller functions with single responsibilities",
+            )
+        };
         actions.push(serde_json::json!({
             "type": "refactor-function",
             "auto_fixable": false,
-            "description": format!("Refactor `{name}` to reduce complexity (extract helper functions, simplify branching)"),
-            "note": "Consider splitting into smaller functions with single responsibilities",
+            "description": description,
+            "note": note,
         }));
     }
 
     if !opts.omit_suppress_line {
-        if name == "<template>"
+        if is_template
             && Path::new(path)
                 .extension()
                 .is_some_and(|ext| ext.eq_ignore_ascii_case("html"))
@@ -806,6 +822,14 @@ fn build_health_finding_actions(
                 "description": "Suppress with an HTML comment at the top of the template",
                 "comment": "<!-- fallow-ignore-file complexity -->",
                 "placement": "top-of-template",
+            }));
+        } else if is_template {
+            actions.push(serde_json::json!({
+                "type": "suppress-line",
+                "auto_fixable": false,
+                "description": "Suppress with an inline comment above the Angular decorator",
+                "comment": "// fallow-ignore-next-line complexity",
+                "placement": "above-angular-decorator",
             }));
         } else {
             actions.push(serde_json::json!({
@@ -2945,6 +2969,40 @@ mod tests {
             "<!-- fallow-ignore-file complexity -->"
         );
         assert_eq!(suppress["placement"], "top-of-template");
+    }
+
+    #[test]
+    fn inline_template_health_finding_uses_decorator_suppression() {
+        let mut output = serde_json::json!({
+            "findings": [{
+                "path": "src/app.component.ts",
+                "name": "<template>",
+                "line": 5,
+                "col": 0,
+                "cyclomatic": 25,
+                "cognitive": 30,
+                "line_count": 40,
+                "exceeded": "both"
+            }]
+        });
+
+        inject_health_actions(&mut output, HealthActionOptions::default());
+
+        let refactor = &output["findings"][0]["actions"][0];
+        assert_eq!(refactor["type"], "refactor-function");
+        assert!(
+            refactor["description"]
+                .as_str()
+                .unwrap()
+                .contains("template complexity")
+        );
+        let suppress = &output["findings"][0]["actions"][1];
+        assert_eq!(suppress["type"], "suppress-line");
+        assert_eq!(
+            suppress["description"],
+            "Suppress with an inline comment above the Angular decorator"
+        );
+        assert_eq!(suppress["placement"], "above-angular-decorator");
     }
 
     // ── Duplication actions injection ─────────────────────────────

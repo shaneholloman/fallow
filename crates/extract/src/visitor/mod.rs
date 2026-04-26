@@ -244,6 +244,13 @@ impl ModuleInfoExtractor {
     /// running this visitor on `.ts` content via `merge_into`. Add the
     /// `inline_template_findings` plumbing at that point.
     pub(crate) fn merge_into(mut self, info: &mut ModuleInfo) {
+        debug_assert!(
+            self.inline_template_findings.is_empty(),
+            "merge_into is the SFC-script path and SFC scripts cannot host \
+             Angular @Component decorators; if a future caller routes \
+             Angular content here, plumb inline_template_findings into the \
+             merge step before relying on this assertion"
+        );
         self.enrich_local_class_exports();
         self.resolve_bound_member_accesses();
         info.imports.extend(self.imports);
