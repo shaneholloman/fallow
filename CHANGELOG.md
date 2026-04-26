@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.50.0] - 2026-04-26
+
+### Added
+
+- **Per-workspace health metrics with `--group-by package`.** `fallow health --group-by package|owner|directory|section` finally produces a real grouped envelope instead of silently discarding the flag. JSON output keeps `vital_signs`, `health_score`, `summary`, `findings`, `file_scores`, `hotspots`, `large_functions`, and `targets` at the project level so consumers that ignore grouping still see the headline, then adds `grouped_by` plus a `groups` array where each bucket carries its own `vital_signs` and `health_score` recomputed from the group's files. SARIF results gain `properties.group` and CodeClimate issues gain a top-level `group` field, so GitHub Code Scanning and GitLab Code Quality can partition findings per team or package without dropping out of the SARIF/CodeClimate pipeline. Human output adds a per-group score / files / hot / p90 summary block sorted worst-first when `--score` is set, with a color-coded grade column and a `(root)` legend for files outside any workspace package. Compact, markdown, and badge fall back to ungrouped output with a stderr note pointing at `--format json`. The `check_health` MCP tool description now spells out the per-group output so AI agents can use it for per-team or per-package quality questions in a single invocation. Closes [#184](https://github.com/fallow-rs/fallow/issues/184).
+- **VS Code extension: `fallow.changedSince` setting to scope LSP diagnostics to changed files.** New extension setting accepts a git ref (e.g. `main`, `HEAD~1`, `origin/main`); the LSP only emits diagnostics for files changed since that ref. Useful for legacy codebases adopting fallow incrementally without surfacing the entire pre-existing dead-code backlog at once. The status bar tooltip surfaces the active scope so users can see when diagnostics are filtered.
+
+### Fixed
+
+- **`fallow health --workspace X` now scopes `vital_signs`, `health_score`, and `summary.files_analyzed` to the workspace's files.** Previously the workspace flag scoped only `findings`, `file_scores`, and `hotspots`, leaving the project-level metrics at monorepo-wide values; consumers asking "what is the health score of workspace X" got the monorepo answer back. Now every per-module aggregate (cyclomatic distribution, total LOC, unit profiles), every `analysis_counts` denominator (dead files, dead exports, unused deps, circular deps), and the summary file count is recomputed against the workspace subset. Internal change: introduces `SubsetFilter` (`Full` / `Workspaces` / `Paths`) and `AnalysisCountsSnapshot` retained on `FileScoreOutput` so per-subset counts can be derived without re-running the analyser.
+- **`fallow health --group-by package` on a non-monorepo emits exactly one structured JSON error instead of two.** The pre-existing flow validated `--group-by package` *after* the hotspot pipeline, so a non-monorepo run produced a `hotspot analysis requires a git repository` error followed by a `--group-by package requires a monorepo` error in the same stdout, breaking any pipeline that did `jq .` on the output. Validation now runs upfront so misconfigured invocations short-circuit before any expensive work and emit a single error object. The non-monorepo error message also suggests `--group-by directory` as a fallback for single-package projects.
+- **VS Code status bar: `changedSince` value is HTML-escaped in the trusted-content tooltip and truncated to 40 characters in the status bar.** Avoids breaking tooltip rendering when the ref string contains markdown-active characters and prevents long refs (commit SHAs, full origin/branch names) from squeezing the rest of the bar.
+
 ## [2.49.0] - 2026-04-25
 
 ### Added
@@ -1667,7 +1680,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--changed-since` and `--fail-on-issues` for CI
 - Cross-workspace resolution for npm/yarn/pnpm workspaces
 
-[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.49.0...HEAD
+[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.50.0...HEAD
+[2.50.0]: https://github.com/fallow-rs/fallow/compare/v2.49.0...v2.50.0
 [2.49.0]: https://github.com/fallow-rs/fallow/compare/v2.48.5...v2.49.0
 [2.48.5]: https://github.com/fallow-rs/fallow/compare/v2.48.4...v2.48.5
 [2.48.4]: https://github.com/fallow-rs/fallow/compare/v2.48.3...v2.48.4
