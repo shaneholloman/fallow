@@ -64,7 +64,7 @@ pub struct HealthGroup {
 
 /// Wrapper carrying the resolver mode label alongside the partitioned groups.
 ///
-/// Stored on [`crate::health::HealthResult`] when `--group-by` is active and
+/// Stored on `crate::health::HealthResult` when `--group-by` is active and
 /// consumed by formatters that either render grouped data directly or annotate
 /// per-finding machine output with the group key.
 #[derive(Debug, Clone)]

@@ -223,6 +223,8 @@ Finds copy-pasted code blocks across your codebase. Suffix-array algorithm -- no
 fallow dupes                              # Default (mild mode)
 fallow dupes --mode semantic              # Catch clones with renamed variables
 fallow dupes --skip-local                 # Only cross-directory duplicates
+fallow dupes --group-by owner             # Partition clone groups by CODEOWNERS team
+fallow dupes --group-by directory         # Partition clone groups by directory
 fallow dupes --trace src/utils.ts:42      # Show all clones of code at this location
 ```
 

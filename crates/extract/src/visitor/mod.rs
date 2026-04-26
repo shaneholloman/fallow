@@ -27,8 +27,8 @@ struct LocalClassExportInfo {
 }
 
 /// One Angular `@Component({ template: \`...\` })` decorator captured during
-/// the visit pass, awaiting synthetic `<template>` complexity computation in
-/// `parse.rs` (where `line_offsets` is available).
+/// the visit pass, awaiting synthetic template-block complexity computation
+/// in `parse.rs` (where `line_offsets` is available).
 #[derive(Debug, Clone)]
 pub(crate) struct InlineTemplateFinding {
     /// Template source content (already escape-interpreted when possible).

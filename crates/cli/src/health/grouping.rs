@@ -2,7 +2,7 @@
 //!
 //! Partitions the project's analyzed files by an [`OwnershipResolver`] and
 //! produces a [`HealthGroup`] for each bucket. Each group computes its own
-//! [`VitalSigns`] / [`HealthScore`] from the files in that group, mirroring
+//! `VitalSigns` / `HealthScore` from the files in that group, mirroring
 //! how `--workspace` already scopes a single subset (`SubsetFilter::Paths`
 //! is the underlying primitive in both cases).
 

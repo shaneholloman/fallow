@@ -7,9 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.52.0] - 2026-04-26
+
 ### Added
 
+- **`fallow dupes --group-by` partitions clone groups by owner / directory / package / section.** Previously the flag was validated (so global flag errors stayed consistent across `check`, `health`, and `dupes`) but the resolver was built and discarded; the output stayed ungrouped. Now grouped output mirrors the existing `health --group-by` shape across every format. Multi-owner clone groups are attributed to the **largest-owner** (most instances in the group) with **alphabetical tiebreak** on equal counts, matching jscpd's majority-instance attribution; per-instance owners are surfaced inline so consumers can see split ownership. JSON output gains `grouped_by`, `total_issues`, and a `groups` array carrying per-bucket `stats`, `clone_groups` (each with `primary_owner`), and `clone_families`. SARIF gains `properties.group` per result; CodeClimate gains a top-level `group` per issue. Human output mirrors health's grouped section style: cyan-bullet `Per-{mode} duplication` header, per-bucket cyan-bullet sub-headers with stats, and a project-totals footer. The largest-owner attribution preamble renders only for `--group-by owner` (where attribution is genuinely ambiguous); directory / package / section modes hide it as cognitive noise. `--top` is skipped when `--group-by` is active so per-bucket stats reflect the full bucket; the renderer applies its own per-bucket cap. The MCP `find_dupes` tool already plumbed `--group-by`; no MCP-side change needed.
+- **`BoundaryZone.root` for monorepo per-package boundary configurations.** `[[boundaries.zones]] root = "packages/app/"` resolves the zone's `patterns` against paths relative to the subtree instead of the project root. At classification time, `classify_zone` checks the path starts with the root prefix; if yes, strips it and glob-matches the patterns against the remainder; if no, skips the zone. Filter approach over prefix-rewriting: zero-cost for zones without `root`, keeps stored pattern strings un-corrupted, debug output stays clean. Closes the `FALLOW-BOUNDARY-ROOT-RESERVED` warning ramp from v2.51.0; the warning emission and `BoundaryConfig::reserved_root_zones()` method are removed. A new `FALLOW-BOUNDARY-ROOT-REDUNDANT-PREFIX` validation flags patterns that double-prefix the root (e.g., `root: "packages/app/"` + `patterns: ["packages/app/src/**"]`) so users who manually pre-prefixed their patterns during the warning ramp see the migration cue. Validation is emitted via `tracing::error!` consistent with `validate_zone_references`. Root matching is case-sensitive, matching globset's pattern conventions; locked down with a regression test to prevent silent platform-divergent classification on case-insensitive filesystems. New ADR: `decisions/007-boundary-zone-root.md`.
 - **`<template>` complexity findings now cover inline Angular `@Component({ template: \`...\` })` decorators.** v2.51.0 emitted synthetic `<template>` cyclomatic/cognitive findings only for standalone `.html` files referenced via `templateUrl`, leaving codebases that put their templates inline (the modern Angular default) with zero coverage for the same control-flow density. The visitor now records each captured inline `template:` literal and the parser runs the existing template-complexity scanner over it, anchoring the resulting finding at the host file's `@Component`/`@Directive` decorator line. Jump-to-source lands on the decorator and `// fallow-ignore-next-line complexity` placed directly above the decorator suppresses through the existing health-side check, no extra suppression plumbing required. Template literals containing `${...}` expressions and `template:` properties bound to a variable are skipped (out of scope for the first cut). Cache version bumped to 49 so existing caches re-extract the new finding shape. Closes [#187](https://github.com/fallow-rs/fallow/issues/187).
+
+### Changed
+
+- **Schema version policy documented explicitly in `docs/output-schema.json`.** The `SchemaVersion` definition now states the bump policy: additive changes (new optional top-level fields, new optional struct fields, new array entries, new MCP tools, new CLI flags that map to new optional fields) do NOT bump the version; breaking changes (renamed fields, removed fields, type changes, enum-variant removals, semantic changes to existing fields) DO bump. Consumers should feature-detect new fields via JSON-key existence rather than gating on the version number. Resolves the ambiguity around `dupes --group-by` adding `grouped_by` / `total_issues` / `groups` without a version bump.
+
+### Fixed
+
+- **`cargo doc --document-private-items` no longer fails on `<template>` and unresolved intra-doc links.** Three rustdoc errors landed in earlier v2.51.x work: a bare `<template>` HTML tag in a doc comment on `InlineTemplateFinding`, an unresolved `[`VitalSigns`]` / `[`HealthScore`]` intra-doc link in `crates/cli/src/health/grouping.rs`, and a public-doc-links-private warning on `[`crate::health::HealthResult`]` in `crates/cli/src/health_types/grouped.rs`. CI `cargo doc --workspace --no-deps --document-private-items` is green again. Pre-existing problem; no behavior change.
 
 ## [2.51.0] - 2026-04-26
 
@@ -1695,7 +1707,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--changed-since` and `--fail-on-issues` for CI
 - Cross-workspace resolution for npm/yarn/pnpm workspaces
 
-[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.50.0...HEAD
+[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.52.0...HEAD
+[2.52.0]: https://github.com/fallow-rs/fallow/compare/v2.51.0...v2.52.0
 [2.51.0]: https://github.com/fallow-rs/fallow/compare/v2.50.0...v2.51.0
 [2.50.0]: https://github.com/fallow-rs/fallow/compare/v2.49.0...v2.50.0
 [2.49.0]: https://github.com/fallow-rs/fallow/compare/v2.48.5...v2.49.0
