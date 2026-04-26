@@ -213,9 +213,12 @@ pub struct BoundaryZone {
     /// Glob patterns (relative to project root) that define zone membership.
     /// A file belongs to the first zone whose pattern matches.
     pub patterns: Vec<String>,
-    /// Optional subtree scope. When set, patterns are relative to this directory
-    /// instead of the project root. Useful for monorepos with per-package boundaries.
-    /// Reserved for future use — currently ignored by the detector.
+    /// Optional subtree scope. Reserved for future subtree-relative pattern
+    /// support: when set, patterns would resolve relative to this directory
+    /// instead of the project root (useful for monorepos with per-package
+    /// boundaries). Currently inert: the detector ignores the field, and
+    /// `BoundaryConfig::resolve` emits a warning tagged
+    /// `FALLOW-BOUNDARY-ROOT-RESERVED` so users do not silently rely on it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub root: Option<String>,
 }
@@ -336,6 +339,19 @@ impl BoundaryConfig {
             BoundaryPreset::FeatureSliced => "feature-sliced",
             BoundaryPreset::Bulletproof => "bulletproof",
         })
+    }
+
+    /// Return the names of zones that set the reserved `root` field. The
+    /// detector currently ignores `root`; consumers (the resolver, CLI
+    /// validate command) call this to warn users so the silent no-op cannot
+    /// be mistaken for an enforced subtree scope.
+    #[must_use]
+    pub fn reserved_root_zones(&self) -> Vec<&str> {
+        self.zones
+            .iter()
+            .filter(|z| z.root.is_some())
+            .map(|z| z.name.as_str())
+            .collect()
     }
 
     /// Validate that all zone names referenced in rules are defined in `zones`.
@@ -716,11 +732,25 @@ allow = ["db"]
     #[test]
     fn root_field_reserved() {
         let json = r#"{
-            "zones": [{ "name": "ui", "patterns": ["src/**"], "root": "packages/app/" }],
+            "zones": [
+                { "name": "ui", "patterns": ["src/**"], "root": "packages/app/" },
+                { "name": "api", "patterns": ["api/**"] }
+            ],
             "rules": []
         }"#;
         let config: BoundaryConfig = serde_json::from_str(json).unwrap();
         assert_eq!(config.zones[0].root.as_deref(), Some("packages/app/"));
+        assert_eq!(config.reserved_root_zones(), vec!["ui"]);
+    }
+
+    #[test]
+    fn reserved_root_zones_empty_when_no_zone_sets_root() {
+        let json = r#"{
+            "zones": [{ "name": "ui", "patterns": ["src/**"] }],
+            "rules": []
+        }"#;
+        let config: BoundaryConfig = serde_json::from_str(json).unwrap();
+        assert!(config.reserved_root_zones().is_empty());
     }
 
     // ── Preset deserialization ─────────────────────────────────
