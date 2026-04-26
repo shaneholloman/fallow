@@ -46,7 +46,8 @@ pub enum LicenseSubcommand {
     Activate(ActivateArgs),
     /// Print active license tier, seats, features, days remaining.
     Status,
-    /// Fetch a fresh JWT from `api.fallow.cloud` (network-only). Stub.
+    /// Fetch a fresh JWT from `api.fallow.cloud`, verify it offline, and
+    /// persist it to the active license path.
     Refresh,
     /// Remove the local license file.
     Deactivate,
@@ -61,7 +62,8 @@ pub struct ActivateArgs {
     pub from_file: Option<PathBuf>,
     /// Read JWT from stdin.
     pub from_stdin: bool,
-    /// Start a 30-day email-gated trial in one step (stub).
+    /// Issue a 30-day email-gated trial via `api.fallow.cloud` and persist
+    /// the returned JWT in one step.
     pub trial: bool,
     /// Email used for the trial flow (required when `trial = true`).
     pub email: Option<String>,

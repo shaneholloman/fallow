@@ -77,13 +77,16 @@ pub struct LicenseClaims {
 /// bumps and unrecognized strings round-trip through [`Feature::Other`].
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Feature {
-    /// The Phase-2 paid local analyzer.
+    /// Paid local runtime coverage analyzer (CLI + sidecar).
     RuntimeCoverage,
-    /// Phase-3+ cloud features (placeholder).
+    /// Cloud portfolio dashboard. Currently inert: granted in JWTs but not
+    /// yet consumed by any CLI command.
     PortfolioDashboard,
-    /// Phase-4+ MCP cloud tools (placeholder).
+    /// Cloud MCP tools. Currently inert: granted in JWTs but not yet
+    /// consumed by any CLI command.
     McpCloudTools,
-    /// Phase-3+ cross-repo aggregation (placeholder).
+    /// Cross-repo aggregation. Currently inert: granted in JWTs but not yet
+    /// consumed by any CLI command.
     CrossRepoAggregation,
     /// Forward-compat sentinel for unrecognized feature strings.
     Other(String),
