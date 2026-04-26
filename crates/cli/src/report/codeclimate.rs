@@ -669,13 +669,13 @@ pub fn build_health_codeclimate(report: &HealthReport, root: &Path) -> serde_jso
             let path = cc_path(&finding.path, root);
             let check_name = match finding.verdict {
                 crate::health_types::RuntimeCoverageVerdict::SafeToDelete => {
-                    "fallow/production-safe-to-delete"
+                    "fallow/runtime-safe-to-delete"
                 }
                 crate::health_types::RuntimeCoverageVerdict::ReviewRequired => {
-                    "fallow/production-review-required"
+                    "fallow/runtime-review-required"
                 }
                 crate::health_types::RuntimeCoverageVerdict::LowTraffic => {
-                    "fallow/production-low-traffic"
+                    "fallow/runtime-low-traffic"
                 }
                 crate::health_types::RuntimeCoverageVerdict::CoverageUnavailable => {
                     "fallow/runtime-coverage-unavailable"

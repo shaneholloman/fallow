@@ -106,7 +106,7 @@ expression: redact_health_sarif_version(&json_str)
               }
             },
             {
-              "id": "fallow/production-safe-to-delete",
+              "id": "fallow/runtime-safe-to-delete",
               "shortDescription": {
                 "text": "Statically unused AND never invoked in production with V8 tracking"
               },
@@ -119,7 +119,7 @@ expression: redact_health_sarif_version(&json_str)
               }
             },
             {
-              "id": "fallow/production-review-required",
+              "id": "fallow/runtime-review-required",
               "shortDescription": {
                 "text": "Statically used but never invoked in production"
               },
@@ -132,7 +132,7 @@ expression: redact_health_sarif_version(&json_str)
               }
             },
             {
-              "id": "fallow/production-low-traffic",
+              "id": "fallow/runtime-low-traffic",
               "shortDescription": {
                 "text": "Function was invoked below the low-traffic threshold"
               },

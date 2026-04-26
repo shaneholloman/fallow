@@ -870,17 +870,17 @@ pub fn build_health_sarif(
             "warning",
         ),
         sarif_rule(
-            "fallow/production-safe-to-delete",
+            "fallow/runtime-safe-to-delete",
             "Function is statically unused and was never invoked in production",
             "warning",
         ),
         sarif_rule(
-            "fallow/production-review-required",
+            "fallow/runtime-review-required",
             "Function is statically used but was never invoked in production",
             "warning",
         ),
         sarif_rule(
-            "fallow/production-low-traffic",
+            "fallow/runtime-low-traffic",
             "Function was invoked below the low-traffic threshold relative to total trace count",
             "note",
         ),
@@ -922,14 +922,12 @@ fn append_runtime_coverage_sarif_results(
         let uri = relative_uri(&finding.path, root);
         let rule_id = match finding.verdict {
             crate::health_types::RuntimeCoverageVerdict::SafeToDelete => {
-                "fallow/production-safe-to-delete"
+                "fallow/runtime-safe-to-delete"
             }
             crate::health_types::RuntimeCoverageVerdict::ReviewRequired => {
-                "fallow/production-review-required"
+                "fallow/runtime-review-required"
             }
-            crate::health_types::RuntimeCoverageVerdict::LowTraffic => {
-                "fallow/production-low-traffic"
-            }
+            crate::health_types::RuntimeCoverageVerdict::LowTraffic => "fallow/runtime-low-traffic",
             crate::health_types::RuntimeCoverageVerdict::CoverageUnavailable => {
                 "fallow/runtime-coverage-unavailable"
             }

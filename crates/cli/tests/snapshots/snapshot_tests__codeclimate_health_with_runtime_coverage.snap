@@ -21,13 +21,13 @@ expression: json_str
   },
   {
     "type": "issue",
-    "check_name": "fallow/production-review-required",
+    "check_name": "fallow/runtime-review-required",
     "description": "'coldPath' runtime coverage verdict: review required (0 invocations)",
     "categories": [
       "Bug Risk"
     ],
     "severity": "major",
-    "fingerprint": "4dc8b128005d6955",
+    "fingerprint": "8ad72b7a0b4f6fb2",
     "location": {
       "path": "src/cold.ts",
       "lines": {
