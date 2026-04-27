@@ -109,6 +109,36 @@ struct FallowLspServer {
     cached_diagnostics: Arc<RwLock<FxHashMap<Url, Vec<Diagnostic>>>>,
 }
 
+/// Build the `ServerCapabilities` advertised by `initialize`.
+///
+/// `diagnostic_provider` is required for strict LSP 3.17 clients
+/// (Helix, Zed, and other editors that gate the pull-model diagnostic
+/// request on the advertised capability). Without it, `textDocument/diagnostic`
+/// is dead code for those clients even though the handler is wired up.
+/// `inter_file_dependencies = true` because changing exports or imports in one
+/// file can flip diagnostics in another (unused exports, unused dependencies).
+/// `workspace_diagnostics = false` because we do not serve `workspace/diagnostic`.
+fn build_server_capabilities() -> ServerCapabilities {
+    ServerCapabilities {
+        text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::FULL)),
+        code_action_provider: Some(CodeActionProviderCapability::Options(CodeActionOptions {
+            code_action_kinds: Some(vec![CodeActionKind::QUICKFIX]),
+            ..Default::default()
+        })),
+        code_lens_provider: Some(CodeLensOptions {
+            resolve_provider: Some(false),
+        }),
+        hover_provider: Some(HoverProviderCapability::Simple(true)),
+        diagnostic_provider: Some(DiagnosticServerCapabilities::Options(DiagnosticOptions {
+            identifier: Some("fallow".to_string()),
+            inter_file_dependencies: true,
+            workspace_diagnostics: false,
+            work_done_progress_options: WorkDoneProgressOptions::default(),
+        })),
+        ..Default::default()
+    }
+}
+
 #[tower_lsp::async_trait]
 impl LanguageServer for FallowLspServer {
     async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
@@ -165,22 +195,7 @@ impl LanguageServer for FallowLspServer {
         }
 
         Ok(InitializeResult {
-            capabilities: ServerCapabilities {
-                text_document_sync: Some(TextDocumentSyncCapability::Kind(
-                    TextDocumentSyncKind::FULL,
-                )),
-                code_action_provider: Some(CodeActionProviderCapability::Options(
-                    CodeActionOptions {
-                        code_action_kinds: Some(vec![CodeActionKind::QUICKFIX]),
-                        ..Default::default()
-                    },
-                )),
-                code_lens_provider: Some(CodeLensOptions {
-                    resolve_provider: Some(false),
-                }),
-                hover_provider: Some(HoverProviderCapability::Simple(true)),
-                ..Default::default()
-            },
+            capabilities: build_server_capabilities(),
             ..Default::default()
         })
     }
@@ -994,6 +1009,43 @@ mod tests {
         BoundaryViolation, CircularDependency, ExportUsage, TestOnlyDependency, UnlistedDependency,
         UnusedDependency, UnusedExport, UnusedFile, UnusedMember,
     };
+
+    // -----------------------------------------------------------------------
+    // build_server_capabilities
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn server_capabilities_advertise_pull_diagnostics() {
+        let caps = build_server_capabilities();
+        let provider = caps
+            .diagnostic_provider
+            .expect("diagnostic_provider must be advertised so strict LSP 3.17 clients (Helix, Zed) call textDocument/diagnostic");
+        match provider {
+            DiagnosticServerCapabilities::Options(opts) => {
+                assert_eq!(opts.identifier.as_deref(), Some("fallow"));
+                assert!(
+                    opts.inter_file_dependencies,
+                    "fallow diagnostics span files; clients must re-pull related files on changes"
+                );
+                assert!(
+                    !opts.workspace_diagnostics,
+                    "no workspace/diagnostic handler is registered"
+                );
+            }
+            DiagnosticServerCapabilities::RegistrationOptions(_) => {
+                panic!("dynamic registration not supported");
+            }
+        }
+    }
+
+    #[test]
+    fn server_capabilities_keep_existing_providers() {
+        let caps = build_server_capabilities();
+        assert!(caps.text_document_sync.is_some());
+        assert!(caps.code_action_provider.is_some());
+        assert!(caps.code_lens_provider.is_some());
+        assert!(caps.hover_provider.is_some());
+    }
 
     // -----------------------------------------------------------------------
     // merge_results
