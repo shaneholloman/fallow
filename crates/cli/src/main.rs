@@ -799,7 +799,7 @@ enum CoverageCli {
     /// that exists". See <https://docs.fallow.tools/analysis/runtime-coverage>.
     ///
     /// This command is the only fallow subcommand that makes network calls
-    /// outside of `fallow license`. `fallow check` stays offline.
+    /// outside of `fallow license`. `fallow dead-code` stays offline.
     ///
     /// Exit codes: 0 ok · 7 network · 10 validation · 11 payload too large
     /// · 12 auth rejected · 13 server error.
