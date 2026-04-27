@@ -181,7 +181,7 @@ pub fn extract_css_import_sources(source: &str, is_scss: bool) -> Vec<CssImportS
 
 /// Extract normalized `@import` / `@use` / `@forward` source paths from a CSS/SCSS string.
 ///
-/// Returns specifiers normalized via [`normalize_css_import_path`] so callers can push
+/// Returns specifiers normalized via `normalize_css_import_path` so callers can push
 /// them as `SideEffect` imports without further pre-processing. URL imports
 /// (`http://`, `https://`, `data:`) are skipped. Used by the SFC parser to scan
 /// `<style lang="scss">` block bodies and by plugins that only need entry paths.

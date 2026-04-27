@@ -1,6 +1,6 @@
 # Fallow Roadmap
 
-> Last updated: 2026-04-26 (`fallow dupes --group-by` and `BoundaryZone.root` shipped in v2.52.0; inline Angular `@Component` template complexity also shipped; CRAP coverage story for templates still queued in #186)
+> Last updated: 2026-04-27 (v2.52.1: detection accuracy fixes for non-source entry-point references; LSP `changedSince` filter resolution across monorepo subdirectory roots; LSP 3.17 pull-model capability for Helix/Zed; CRAP coverage story for templates still queued in #186)
 
 This roadmap tracks planned work on Fallow. For shipped capabilities, see the [documentation](https://docs.fallow.tools) and [GitHub releases](https://github.com/fallow-rs/fallow/releases).
 
