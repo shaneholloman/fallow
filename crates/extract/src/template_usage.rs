@@ -3,7 +3,7 @@ use oxc_ast_visit::Visit;
 use oxc_parser::Parser;
 use oxc_semantic::SemanticBuilder;
 use oxc_span::SourceType;
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::MemberAccess;
 use crate::visitor::ModuleInfoExtractor;
@@ -60,8 +60,26 @@ pub fn analyze_template_snippet(
     locals: &[String],
     allow_dollar_prefixed_refs: bool,
 ) -> TemplateUsage {
+    analyze_template_snippet_with_bound_targets(
+        snippet,
+        kind,
+        imported_bindings,
+        &FxHashMap::default(),
+        locals,
+        allow_dollar_prefixed_refs,
+    )
+}
+
+pub fn analyze_template_snippet_with_bound_targets(
+    snippet: &str,
+    kind: TemplateSnippetKind,
+    imported_bindings: &FxHashSet<String>,
+    bound_targets: &FxHashMap<String, String>,
+    locals: &[String],
+    allow_dollar_prefixed_refs: bool,
+) -> TemplateUsage {
     let snippet = snippet.trim();
-    if snippet.is_empty() || imported_bindings.is_empty() {
+    if snippet.is_empty() || (imported_bindings.is_empty() && bound_targets.is_empty()) {
         return TemplateUsage::default();
     }
 
@@ -70,27 +88,35 @@ pub fn analyze_template_snippet(
     let parser_return = Parser::new(&allocator, &wrapped, SourceType::ts()).parse();
 
     let semantic_ret = SemanticBuilder::new().build(&parser_return.program);
-    let unresolved_names: FxHashSet<String> = semantic_ret
+    let mut used_bindings = FxHashSet::default();
+    let mut unresolved_targets = FxHashSet::default();
+    for name in semantic_ret
         .semantic
         .scoping()
         .root_unresolved_references()
         .keys()
-        .filter_map(|name| {
-            let name = name.as_str();
-            if imported_bindings.contains(name) {
-                return Some(name.to_string());
+    {
+        let name = name.as_str();
+        if imported_bindings.contains(name) {
+            used_bindings.insert(name.to_string());
+            unresolved_targets.insert(name.to_string());
+            continue;
+        }
+        if bound_targets.contains_key(name) {
+            unresolved_targets.insert(name.to_string());
+            continue;
+        }
+        if allow_dollar_prefixed_refs && let Some(stripped) = name.strip_prefix('$') {
+            if imported_bindings.contains(stripped) {
+                used_bindings.insert(stripped.to_string());
+                unresolved_targets.insert(stripped.to_string());
+            } else if bound_targets.contains_key(stripped) {
+                unresolved_targets.insert(stripped.to_string());
             }
-            if allow_dollar_prefixed_refs
-                && let Some(stripped) = name.strip_prefix('$')
-                && imported_bindings.contains(stripped)
-            {
-                return Some(stripped.to_string());
-            }
-            None
-        })
-        .collect();
+        }
+    }
 
-    if unresolved_names.is_empty() {
+    if unresolved_targets.is_empty() {
         return TemplateUsage::default();
     }
 
@@ -98,7 +124,7 @@ pub fn analyze_template_snippet(
     extractor.visit_program(&parser_return.program);
 
     TemplateUsage {
-        used_bindings: unresolved_names.clone(),
+        used_bindings,
         member_accesses: dedup_member_accesses(
             extractor
                 .member_accesses
@@ -106,7 +132,8 @@ pub fn analyze_template_snippet(
                 .filter_map(|access| {
                     remap_object_name(
                         &access.object,
-                        &unresolved_names,
+                        &unresolved_targets,
+                        bound_targets,
                         allow_dollar_prefixed_refs,
                     )
                     .map(|object| MemberAccess {
@@ -121,7 +148,12 @@ pub fn analyze_template_snippet(
                 .whole_object_uses
                 .into_iter()
                 .filter_map(|name| {
-                    remap_object_name(&name, &unresolved_names, allow_dollar_prefixed_refs)
+                    remap_object_name(
+                        &name,
+                        &unresolved_targets,
+                        bound_targets,
+                        allow_dollar_prefixed_refs,
+                    )
                 })
                 .collect(),
         ),
@@ -180,15 +212,22 @@ pub fn collect_unresolved_refs_and_accesses(
 fn remap_object_name(
     name: &str,
     unresolved_names: &FxHashSet<String>,
+    bound_targets: &FxHashMap<String, String>,
     allow_dollar_prefixed_refs: bool,
 ) -> Option<String> {
     if unresolved_names.contains(name) {
+        if let Some(target) = bound_targets.get(name) {
+            return Some(target.clone());
+        }
         return Some(name.to_string());
     }
     if allow_dollar_prefixed_refs
         && let Some(stripped) = name.strip_prefix('$')
         && unresolved_names.contains(stripped)
     {
+        if let Some(target) = bound_targets.get(stripped) {
+            return Some(target.clone());
+        }
         return Some(stripped.to_string());
     }
     None

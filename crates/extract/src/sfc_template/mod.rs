@@ -11,7 +11,7 @@ mod shared;
 mod svelte;
 mod vue;
 
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::template_usage::TemplateUsage;
 
@@ -24,6 +24,7 @@ pub enum SfcKind {
 }
 
 /// Collect template-visible import usage from Vue or Svelte markup.
+#[cfg(test)]
 pub fn collect_template_usage(
     kind: SfcKind,
     source: &str,
@@ -32,6 +33,24 @@ pub fn collect_template_usage(
     match kind {
         SfcKind::Vue => vue::collect_template_usage(source, imported_bindings),
         SfcKind::Svelte => svelte::collect_template_usage(source, imported_bindings),
+    }
+}
+
+/// Collect template-visible usage, including framework template references to
+/// script-local instance bindings such as `const counter = new Counter()`.
+pub fn collect_template_usage_with_bound_targets(
+    kind: SfcKind,
+    source: &str,
+    imported_bindings: &FxHashSet<String>,
+    bound_targets: &FxHashMap<String, String>,
+) -> TemplateUsage {
+    match kind {
+        SfcKind::Vue => vue::collect_template_usage(source, imported_bindings),
+        SfcKind::Svelte => svelte::collect_template_usage_with_bound_targets(
+            source,
+            imported_bindings,
+            bound_targets,
+        ),
     }
 }
 

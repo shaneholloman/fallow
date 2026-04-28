@@ -117,6 +117,10 @@ impl ModuleInfoExtractor {
         );
     }
 
+    pub(crate) fn binding_target_names(&self) -> &FxHashMap<String, String> {
+        &self.binding_target_names
+    }
+
     fn enrich_local_class_exports(&mut self) {
         if self.local_class_exports.is_empty() {
             return;

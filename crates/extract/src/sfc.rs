@@ -13,11 +13,11 @@ use oxc_allocator::Allocator;
 use oxc_ast_visit::Visit;
 use oxc_parser::Parser;
 use oxc_span::SourceType;
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::asset_url::normalize_asset_url;
 use crate::parse::compute_import_binding_usage;
-use crate::sfc_template::{SfcKind, collect_template_usage};
+use crate::sfc_template::{SfcKind, collect_template_usage_with_bound_targets};
 use crate::visitor::ModuleInfoExtractor;
 use crate::{ImportInfo, ImportedName, ModuleInfo};
 use fallow_types::discover::FileId;
@@ -199,6 +199,7 @@ pub(crate) fn parse_sfc_to_module(
     let kind = sfc_kind(path);
     let mut combined = empty_sfc_module(file_id, source, content_hash);
     let mut template_visible_imports: FxHashSet<String> = FxHashSet::default();
+    let mut template_visible_bound_targets: FxHashMap<String, String> = FxHashMap::default();
 
     for script in &scripts {
         merge_script_into_module(
@@ -206,6 +207,7 @@ pub(crate) fn parse_sfc_to_module(
             script,
             &mut combined,
             &mut template_visible_imports,
+            &mut template_visible_bound_targets,
             need_complexity,
         );
     }
@@ -214,7 +216,13 @@ pub(crate) fn parse_sfc_to_module(
         merge_style_into_module(style, &mut combined);
     }
 
-    apply_template_usage(kind, source, &template_visible_imports, &mut combined);
+    apply_template_usage(
+        kind,
+        source,
+        &template_visible_imports,
+        &template_visible_bound_targets,
+        &mut combined,
+    );
     combined.unused_import_bindings.sort_unstable();
     combined.unused_import_bindings.dedup();
     combined.type_referenced_import_bindings.sort_unstable();
@@ -266,6 +274,7 @@ fn merge_script_into_module(
     script: &SfcScript,
     combined: &mut ModuleInfo,
     template_visible_imports: &mut FxHashSet<String>,
+    template_visible_bound_targets: &mut FxHashMap<String, String>,
     need_complexity: bool,
 ) {
     if let Some(src) = &script.src {
@@ -303,6 +312,12 @@ fn merge_script_into_module(
                 .iter()
                 .filter(|import| !import.local_name.is_empty())
                 .map(|import| import.local_name.clone()),
+        );
+        template_visible_bound_targets.extend(
+            extractor
+                .binding_target_names()
+                .iter()
+                .map(|(local, target)| (local.clone(), target.clone())),
         );
     }
 
@@ -406,13 +421,19 @@ fn apply_template_usage(
     kind: SfcKind,
     source: &str,
     template_visible_imports: &FxHashSet<String>,
+    template_visible_bound_targets: &FxHashMap<String, String>,
     combined: &mut ModuleInfo,
 ) {
-    if template_visible_imports.is_empty() {
+    if template_visible_imports.is_empty() && template_visible_bound_targets.is_empty() {
         return;
     }
 
-    let template_usage = collect_template_usage(kind, source, template_visible_imports);
+    let template_usage = collect_template_usage_with_bound_targets(
+        kind,
+        source,
+        template_visible_imports,
+        template_visible_bound_targets,
+    );
     combined
         .unused_import_bindings
         .retain(|binding| !template_usage.used_bindings.contains(binding));

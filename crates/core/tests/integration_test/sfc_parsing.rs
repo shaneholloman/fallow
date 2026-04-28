@@ -241,6 +241,10 @@ fn svelte_imports_mark_exports_used() {
         !unused_export_names.contains(&"isActive"),
         "isActive should be used from a Svelte attribute value expression, found: {unused_export_names:?}"
     );
+    assert!(
+        !unused_export_names.contains(&"myAttach"),
+        "myAttach should be used from a Svelte {{@attach}} directive, found: {unused_export_names:?}"
+    );
 
     // unusedUtil is not imported anywhere, should be unused
     assert!(
@@ -250,6 +254,32 @@ fn svelte_imports_mark_exports_used() {
     assert!(
         unused_export_names.contains(&"unusedImported"),
         "unusedImported should stay unused even when imported in App.svelte, found: {unused_export_names:?}"
+    );
+}
+
+#[test]
+fn svelte_template_event_handlers_mark_class_members_used() {
+    let root = fixture_path("svelte-project");
+    let config = create_config(root);
+    let results = fallow_core::analyze(&config).expect("analysis should succeed");
+
+    let unused_members: Vec<String> = results
+        .unused_class_members
+        .iter()
+        .map(|member| format!("{}.{}", member.parent_name, member.member_name))
+        .collect();
+
+    assert!(
+        !unused_members.contains(&"Counter.bump".to_string()),
+        "Counter.bump should be used from a Svelte event handler arrow function, found: {unused_members:?}"
+    );
+    assert!(
+        !unused_members.contains(&"Counter.value".to_string()),
+        "Counter.value should be used from a Svelte template expression, found: {unused_members:?}"
+    );
+    assert!(
+        unused_members.contains(&"Counter.unused".to_string()),
+        "Counter.unused should still be reported as unused, found: {unused_members:?}"
     );
 }
 

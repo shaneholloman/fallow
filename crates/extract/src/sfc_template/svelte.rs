@@ -1,14 +1,14 @@
 use std::sync::LazyLock;
 
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::template_usage::TemplateUsage;
 
 use super::scanners::{scan_curly_section, scan_html_tag};
 use super::shared::{
     HTML_COMMENT_RE, extract_pattern_binding_names, merge_component_tag_usage,
-    merge_expression_usage_allow_dollar_refs, merge_statement_usage_allow_dollar_refs,
-    parse_tag_attrs,
+    merge_expression_usage_allow_dollar_refs_with_bound_targets,
+    merge_statement_usage_allow_dollar_refs_with_bound_targets, parse_tag_attrs,
 };
 
 static STYLE_BLOCK_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
@@ -66,11 +66,20 @@ struct SvelteScopeFrame {
     locals: Vec<String>,
 }
 
+#[cfg(test)]
 pub(super) fn collect_template_usage(
     source: &str,
     imported_bindings: &FxHashSet<String>,
 ) -> TemplateUsage {
-    if imported_bindings.is_empty() {
+    collect_template_usage_with_bound_targets(source, imported_bindings, &FxHashMap::default())
+}
+
+pub(super) fn collect_template_usage_with_bound_targets(
+    source: &str,
+    imported_bindings: &FxHashSet<String>,
+    bound_targets: &FxHashMap<String, String>,
+) -> TemplateUsage {
+    if imported_bindings.is_empty() && bound_targets.is_empty() {
         return TemplateUsage::default();
     }
 
@@ -93,14 +102,26 @@ pub(super) fn collect_template_usage(
                 let Some((tag, next_index)) = scan_curly_section(&markup, index, 1, 1) else {
                     break;
                 };
-                apply_tag(tag.trim(), imported_bindings, &mut scopes, &mut usage);
+                apply_tag(
+                    tag.trim(),
+                    imported_bindings,
+                    bound_targets,
+                    &mut scopes,
+                    &mut usage,
+                );
                 index = next_index;
             }
             b'<' => {
                 let Some((tag, next_index)) = scan_html_tag(&markup, index) else {
                     break;
                 };
-                apply_markup_tag(tag, imported_bindings, &mut scopes, &mut usage);
+                apply_markup_tag(
+                    tag,
+                    imported_bindings,
+                    bound_targets,
+                    &mut scopes,
+                    &mut usage,
+                );
                 index = next_index;
             }
             _ => index += 1,
@@ -161,6 +182,7 @@ fn strip_non_template_content(source: &str) -> String {
 fn apply_tag(
     tag: &str,
     imported_bindings: &FxHashSet<String>,
+    bound_targets: &FxHashMap<String, String>,
     scopes: &mut Vec<SvelteScopeFrame>,
     usage: &mut TemplateUsage,
 ) {
@@ -174,10 +196,11 @@ fn apply_tag(
     }
 
     if let Some(expr) = tag.strip_prefix("#if") {
-        merge_expression_usage_allow_dollar_refs(
+        merge_expression_usage_allow_dollar_refs_with_bound_targets(
             usage,
             expr.trim(),
             imported_bindings,
+            bound_targets,
             &current_locals(scopes),
         );
         scopes.push(SvelteScopeFrame {
@@ -192,13 +215,25 @@ fn apply_tag(
         let bindings = captures.name("bindings").map_or("", |m| m.as_str()).trim();
         let each_locals = extract_pattern_binding_names(bindings);
         let current = current_locals(scopes);
-        merge_expression_usage_allow_dollar_refs(usage, iterable, imported_bindings, &current);
+        merge_expression_usage_allow_dollar_refs_with_bound_targets(
+            usage,
+            iterable,
+            imported_bindings,
+            bound_targets,
+            &current,
+        );
         if let Some(key) = captures.name("key").map(|m| m.as_str().trim())
             && !key.is_empty()
         {
             let mut key_locals = current;
             key_locals.extend(each_locals.iter().cloned());
-            merge_expression_usage_allow_dollar_refs(usage, key, imported_bindings, &key_locals);
+            merge_expression_usage_allow_dollar_refs_with_bound_targets(
+                usage,
+                key,
+                imported_bindings,
+                bound_targets,
+                &key_locals,
+            );
         }
         scopes.push(SvelteScopeFrame {
             kind: SvelteBlockKind::Each,
@@ -209,10 +244,11 @@ fn apply_tag(
 
     if let Some(captures) = SVELTE_AWAIT_RE.captures(tag) {
         let expr = captures.name("expr").map_or("", |m| m.as_str()).trim();
-        merge_expression_usage_allow_dollar_refs(
+        merge_expression_usage_allow_dollar_refs_with_bound_targets(
             usage,
             expr,
             imported_bindings,
+            bound_targets,
             &current_locals(scopes),
         );
         scopes.push(SvelteScopeFrame {
@@ -251,10 +287,11 @@ fn apply_tag(
     }
 
     if let Some(expr) = tag.strip_prefix("#key") {
-        merge_expression_usage_allow_dollar_refs(
+        merge_expression_usage_allow_dollar_refs_with_bound_targets(
             usage,
             expr.trim(),
             imported_bindings,
+            bound_targets,
             &current_locals(scopes),
         );
         scopes.push(SvelteScopeFrame {
@@ -273,21 +310,34 @@ fn apply_tag(
         return;
     }
 
-    if let Some(expr) = tag.strip_prefix("@html") {
-        merge_expression_usage_allow_dollar_refs(
+    if let Some(expr) = tag.strip_prefix("@attach") {
+        merge_expression_usage_allow_dollar_refs_with_bound_targets(
             usage,
             expr.trim(),
             imported_bindings,
+            bound_targets,
+            &current_locals(scopes),
+        );
+        return;
+    }
+
+    if let Some(expr) = tag.strip_prefix("@html") {
+        merge_expression_usage_allow_dollar_refs_with_bound_targets(
+            usage,
+            expr.trim(),
+            imported_bindings,
+            bound_targets,
             &current_locals(scopes),
         );
         return;
     }
 
     if let Some(expr) = tag.strip_prefix("@render") {
-        merge_expression_usage_allow_dollar_refs(
+        merge_expression_usage_allow_dollar_refs_with_bound_targets(
             usage,
             expr.trim(),
             imported_bindings,
+            bound_targets,
             &current_locals(scopes),
         );
         return;
@@ -295,7 +345,13 @@ fn apply_tag(
 
     if let Some(stmt) = tag.strip_prefix("@const") {
         let locals = current_locals(scopes);
-        merge_statement_usage_allow_dollar_refs(usage, stmt.trim(), imported_bindings, &locals);
+        merge_statement_usage_allow_dollar_refs_with_bound_targets(
+            usage,
+            stmt.trim(),
+            imported_bindings,
+            bound_targets,
+            &locals,
+        );
         if let Some(lhs) = stmt.split_once('=').map(|(lhs, _)| lhs.trim()) {
             let new_bindings = extract_pattern_binding_names(lhs);
             if let Some(frame) = scopes.last_mut() {
@@ -306,20 +362,22 @@ fn apply_tag(
     }
 
     if let Some(expr) = tag.strip_prefix("@debug") {
-        merge_expression_usage_allow_dollar_refs(
+        merge_expression_usage_allow_dollar_refs_with_bound_targets(
             usage,
             expr.trim(),
             imported_bindings,
+            bound_targets,
             &current_locals(scopes),
         );
         return;
     }
 
     if let Some(expr) = tag.strip_prefix(":else if") {
-        merge_expression_usage_allow_dollar_refs(
+        merge_expression_usage_allow_dollar_refs_with_bound_targets(
             usage,
             expr.trim(),
             imported_bindings,
+            bound_targets,
             &current_locals(scopes),
         );
         return;
@@ -329,10 +387,11 @@ fn apply_tag(
         return;
     }
 
-    merge_expression_usage_allow_dollar_refs(
+    merge_expression_usage_allow_dollar_refs_with_bound_targets(
         usage,
         tag,
         imported_bindings,
+        bound_targets,
         &current_locals(scopes),
     );
 }
@@ -340,6 +399,7 @@ fn apply_tag(
 fn apply_markup_tag(
     tag: &str,
     imported_bindings: &FxHashSet<String>,
+    bound_targets: &FxHashMap<String, String>,
     scopes: &mut Vec<SvelteScopeFrame>,
     usage: &mut TemplateUsage,
 ) {
@@ -363,6 +423,7 @@ fn apply_markup_tag(
     }
 
     let current = current_locals(scopes);
+    merge_markup_attach_usage(trimmed, usage, imported_bindings, bound_targets, &current);
     if parsed.name.contains('.')
         || parsed
             .name
@@ -376,7 +437,13 @@ fn apply_markup_tag(
     let mut element_locals = Vec::new();
     for attr in &parsed.attrs {
         if let Some(binding) = directive_binding_name(&attr.name) {
-            merge_expression_usage_allow_dollar_refs(usage, binding, imported_bindings, &current);
+            merge_expression_usage_allow_dollar_refs_with_bound_targets(
+                usage,
+                binding,
+                imported_bindings,
+                bound_targets,
+                &current,
+            );
         }
         if let Some(local) = attr.name.strip_prefix("let:")
             && !local.is_empty()
@@ -384,10 +451,16 @@ fn apply_markup_tag(
             element_locals.extend(extract_pattern_binding_names(local));
         }
         if let Some(expr) = shorthand_attribute_expression(&attr.name) {
-            merge_expression_usage_allow_dollar_refs(usage, expr, imported_bindings, &current);
+            merge_expression_usage_allow_dollar_refs_with_bound_targets(
+                usage,
+                expr,
+                imported_bindings,
+                bound_targets,
+                &current,
+            );
         }
         if let Some(value) = attr.value.as_deref() {
-            merge_attribute_value_usage(usage, value, imported_bindings, &current);
+            merge_attribute_value_usage(usage, value, imported_bindings, bound_targets, &current);
         }
     }
 
@@ -396,6 +469,36 @@ fn apply_markup_tag(
             kind: SvelteBlockKind::Element,
             locals: element_locals,
         });
+    }
+}
+
+fn merge_markup_attach_usage(
+    tag: &str,
+    usage: &mut TemplateUsage,
+    imported_bindings: &FxHashSet<String>,
+    bound_targets: &FxHashMap<String, String>,
+    locals: &[String],
+) {
+    let mut index = 0;
+    let bytes = tag.as_bytes();
+    while index < bytes.len() {
+        if bytes[index] == b'{' {
+            let Some((section, next_index)) = scan_curly_section(tag, index, 1, 1) else {
+                break;
+            };
+            if let Some(expr) = section.trim().strip_prefix("@attach") {
+                merge_expression_usage_allow_dollar_refs_with_bound_targets(
+                    usage,
+                    expr.trim(),
+                    imported_bindings,
+                    bound_targets,
+                    locals,
+                );
+            }
+            index = next_index;
+            continue;
+        }
+        index += 1;
     }
 }
 
@@ -427,6 +530,7 @@ fn merge_attribute_value_usage(
     usage: &mut TemplateUsage,
     value: &str,
     imported_bindings: &FxHashSet<String>,
+    bound_targets: &FxHashMap<String, String>,
     locals: &[String],
 ) {
     let mut index = 0;
@@ -438,7 +542,13 @@ fn merge_attribute_value_usage(
             let Some((expr, next_index)) = scan_curly_section(value, index, 1, 1) else {
                 break;
             };
-            merge_expression_usage_allow_dollar_refs(usage, expr, imported_bindings, locals);
+            merge_expression_usage_allow_dollar_refs_with_bound_targets(
+                usage,
+                expr,
+                imported_bindings,
+                bound_targets,
+                locals,
+            );
             found_expression = true;
             index = next_index;
             continue;
@@ -447,10 +557,11 @@ fn merge_attribute_value_usage(
     }
 
     if !found_expression && value.starts_with('{') && value.ends_with('}') && value.len() >= 2 {
-        merge_expression_usage_allow_dollar_refs(
+        merge_expression_usage_allow_dollar_refs_with_bound_targets(
             usage,
             &value[1..value.len() - 1],
             imported_bindings,
+            bound_targets,
             locals,
         );
     }
@@ -490,11 +601,18 @@ fn current_locals(scopes: &[SvelteScopeFrame]) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::collect_template_usage;
-    use rustc_hash::FxHashSet;
+    use super::{collect_template_usage, collect_template_usage_with_bound_targets};
+    use rustc_hash::{FxHashMap, FxHashSet};
 
     fn imported(names: &[&str]) -> FxHashSet<String> {
         names.iter().map(|name| (*name).to_string()).collect()
+    }
+
+    fn bound_targets(pairs: &[(&str, &str)]) -> FxHashMap<String, String> {
+        pairs
+            .iter()
+            .map(|(local, target)| ((*local).to_string(), (*target).to_string()))
+            .collect()
     }
 
     #[test]
@@ -758,6 +876,70 @@ mod tests {
         let usage = collect_template_usage("{@render header()}", &imported(&["header"]));
 
         assert!(usage.used_bindings.contains("header"));
+    }
+
+    // --- @attach ---
+
+    #[test]
+    fn at_attach_marks_expression_used() {
+        let usage = collect_template_usage(
+            "<div {@attach myAttach}>Attached</div>",
+            &imported(&["myAttach"]),
+        );
+
+        assert!(usage.used_bindings.contains("myAttach"));
+    }
+
+    #[test]
+    fn event_handler_arrow_member_access_maps_script_instance_to_class() {
+        let usage = collect_template_usage_with_bound_targets(
+            "<button onclick={() => counter.bump()}>{counter.value}</button>",
+            &imported(&[]),
+            &bound_targets(&[("counter", "Counter")]),
+        );
+
+        assert!(
+            usage
+                .member_accesses
+                .iter()
+                .any(|access| access.object == "Counter" && access.member == "bump"),
+            "counter.bump() should map to Counter.bump, found: {:?}",
+            usage.member_accesses
+        );
+        assert!(
+            usage
+                .member_accesses
+                .iter()
+                .any(|access| access.object == "Counter" && access.member == "value"),
+            "counter.value should map to Counter.value, found: {:?}",
+            usage.member_accesses
+        );
+    }
+
+    #[test]
+    fn template_locals_shadow_script_instance_bindings() {
+        let usage = collect_template_usage_with_bound_targets(
+            "{#each rows as counter}<button onclick={() => { other.go(); counter.bump(); }} />{/each}",
+            &imported(&[]),
+            &bound_targets(&[("counter", "Counter"), ("other", "Other")]),
+        );
+
+        assert!(
+            usage
+                .member_accesses
+                .iter()
+                .any(|access| access.object == "Other" && access.member == "go"),
+            "other.go() should still map to Other.go, found: {:?}",
+            usage.member_accesses
+        );
+        assert!(
+            !usage
+                .member_accesses
+                .iter()
+                .any(|access| access.object == "Counter" && access.member == "bump"),
+            "shadowed counter.bump() must not map to Counter.bump, found: {:?}",
+            usage.member_accesses
+        );
     }
 
     // --- @const ---
