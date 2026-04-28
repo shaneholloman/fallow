@@ -94,6 +94,7 @@ jobs:
   build:
     name: Build (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container }}
     permissions:
       contents: read
     strategy:
@@ -114,12 +115,14 @@ jobs:
             npm_dir: darwin-arm64
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
+            container: rust:1.95-bullseye
             binary: fallow
             lsp_binary: fallow-lsp
             mcp_binary: fallow-mcp
             npm_dir: linux-x64-gnu
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
+            container: rust:1.95-bullseye
             binary: fallow
             lsp_binary: fallow-lsp
             mcp_binary: fallow-mcp
@@ -155,7 +158,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           targets: ${{ matrix.target }}
-          cache-key: ${{ matrix.target }}
+          cache-key: ${{ matrix.target }}-${{ matrix.container || 'host' }}
 
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
@@ -164,14 +167,22 @@ jobs:
       - name: Install musl tools
         if: contains(matrix.target, 'musl')
         run: |
-          sudo apt-get update
-          sudo apt-get install -y musl-tools
+          apt_get="apt-get"
+          if command -v sudo >/dev/null 2>&1; then
+            apt_get="sudo apt-get"
+          fi
+          $apt_get update
+          $apt_get install -y musl-tools
 
       - name: Install aarch64 cross-compilation tools
         if: contains(matrix.target, 'aarch64-unknown-linux')
         run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu
+          apt_get="apt-get"
+          if command -v sudo >/dev/null 2>&1; then
+            apt_get="sudo apt-get"
+          fi
+          $apt_get update
+          $apt_get install -y gcc-aarch64-linux-gnu
 
       - name: Build CLI release binary
         run: cargo build --release --target ${{ matrix.target }} -p fallow-cli
@@ -199,6 +210,48 @@ jobs:
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: aarch64-linux-gnu-gcc
+
+      - name: Verify GNU glibc compatibility
+        if: contains(matrix.target, 'unknown-linux-gnu')
+        run: |
+          ldd --version | head -n1
+          max_allowed="2.31"
+          if ! command -v readelf >/dev/null 2>&1; then
+            apt-get update
+            apt-get install -y binutils
+          fi
+
+          check_glibc_floor() {
+            artifact="$1"
+            if [ ! -f "$artifact" ]; then
+              echo "::error::$artifact missing"
+              exit 1
+            fi
+
+            max_required=$(
+              readelf --version-info "$artifact" |
+                sed -n 's/.*Name: GLIBC_\([0-9.]*\).*/\1/p' |
+                sort -Vu |
+                tail -n1
+            )
+
+            if [ -z "$max_required" ]; then
+              echo "$artifact: no dynamic GLIBC requirement found"
+              return 0
+            fi
+
+            echo "$artifact: requires GLIBC_$max_required"
+            highest=$(printf '%s\n%s\n' "$max_required" "$max_allowed" | sort -V | tail -n1)
+            if [ "$highest" != "$max_allowed" ]; then
+              echo "::error::$artifact requires GLIBC_$max_required; maximum allowed is GLIBC_$max_allowed"
+              exit 1
+            fi
+          }
+
+          check_glibc_floor "target/${{ matrix.target }}/release/${{ matrix.binary }}"
+          check_glibc_floor "target/${{ matrix.target }}/release/${{ matrix.lsp_binary }}"
+          check_glibc_floor "target/${{ matrix.target }}/release/${{ matrix.mcp_binary }}"
+          check_glibc_floor "crates/napi/fallow-node.${{ matrix.npm_dir }}.node"
 
       - name: Package binaries (unix)
         if: runner.os != 'Windows'
