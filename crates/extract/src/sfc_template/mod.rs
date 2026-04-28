@@ -45,7 +45,9 @@ pub fn collect_template_usage_with_bound_targets(
     bound_targets: &FxHashMap<String, String>,
 ) -> TemplateUsage {
     match kind {
-        SfcKind::Vue => vue::collect_template_usage(source, imported_bindings),
+        SfcKind::Vue => {
+            vue::collect_template_usage_with_bound_targets(source, imported_bindings, bound_targets)
+        }
         SfcKind::Svelte => svelte::collect_template_usage_with_bound_targets(
             source,
             imported_bindings,

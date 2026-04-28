@@ -1,13 +1,13 @@
 use std::sync::LazyLock;
 
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::template_usage::TemplateUsage;
 
 use super::scanners::{scan_bracket_section, scan_curly_section, scan_html_tag};
 use super::shared::{
-    HTML_COMMENT_RE, merge_component_tag_usage, merge_expression_usage,
-    merge_pattern_binding_usage, merge_statement_usage, parse_tag_attrs,
+    HTML_COMMENT_RE, merge_component_tag_usage, merge_expression_usage_with_bound_targets,
+    merge_pattern_binding_usage, merge_statement_usage_with_bound_targets, parse_tag_attrs,
 };
 
 static TEMPLATE_BLOCK_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
@@ -21,11 +21,20 @@ static VUE_FOR_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(r"(?is)^(?P<binding>.+?)\s+(?:in|of)\s+(?P<source>.+)$").expect("valid regex")
 });
 
+#[cfg(test)]
 pub(super) fn collect_template_usage(
     source: &str,
     imported_bindings: &FxHashSet<String>,
 ) -> TemplateUsage {
-    if imported_bindings.is_empty() {
+    collect_template_usage_with_bound_targets(source, imported_bindings, &FxHashMap::default())
+}
+
+pub(super) fn collect_template_usage_with_bound_targets(
+    source: &str,
+    imported_bindings: &FxHashSet<String>,
+    bound_targets: &FxHashMap<String, String>,
+) -> TemplateUsage {
+    if imported_bindings.is_empty() && bound_targets.is_empty() {
         return TemplateUsage::default();
     }
 
@@ -46,13 +55,17 @@ pub(super) fn collect_template_usage(
             continue;
         }
         let body = cap.name("body").map_or("", |m| m.as_str());
-        usage.merge(scan_template_body(body, imported_bindings));
+        usage.merge(scan_template_body(body, imported_bindings, bound_targets));
     }
 
     usage
 }
 
-fn scan_template_body(body: &str, imported_bindings: &FxHashSet<String>) -> TemplateUsage {
+fn scan_template_body(
+    body: &str,
+    imported_bindings: &FxHashSet<String>,
+    bound_targets: &FxHashMap<String, String>,
+) -> TemplateUsage {
     let mut usage = TemplateUsage::default();
     let mut scopes: Vec<Vec<String>> = vec![Vec::new()];
     let bytes = body.as_bytes();
@@ -72,10 +85,11 @@ fn scan_template_body(body: &str, imported_bindings: &FxHashSet<String>) -> Temp
             let Some((expr, next_index)) = scan_curly_section(body, index, 2, 2) else {
                 break;
             };
-            merge_expression_usage(
+            merge_expression_usage_with_bound_targets(
                 &mut usage,
                 expr.trim(),
                 imported_bindings,
+                bound_targets,
                 &current_locals(&scopes),
             );
             index = next_index;
@@ -86,7 +100,7 @@ fn scan_template_body(body: &str, imported_bindings: &FxHashSet<String>) -> Temp
             let Some((tag, next_index)) = scan_html_tag(body, index) else {
                 break;
             };
-            apply_tag(tag, imported_bindings, &mut scopes, &mut usage);
+            apply_tag(tag, imported_bindings, bound_targets, &mut scopes, &mut usage);
             index = next_index;
             continue;
         }
@@ -100,6 +114,7 @@ fn scan_template_body(body: &str, imported_bindings: &FxHashSet<String>) -> Temp
 fn apply_tag(
     tag: &str,
     imported_bindings: &FxHashSet<String>,
+    bound_targets: &FxHashMap<String, String>,
     scopes: &mut Vec<Vec<String>>,
     usage: &mut TemplateUsage,
 ) {
@@ -130,7 +145,13 @@ fn apply_tag(
     {
         let binding = captures.name("binding").map_or("", |m| m.as_str()).trim();
         let source_expr = captures.name("source").map_or("", |m| m.as_str()).trim();
-        merge_expression_usage(usage, source_expr, imported_bindings, &current);
+        merge_expression_usage_with_bound_targets(
+            usage,
+            source_expr,
+            imported_bindings,
+            bound_targets,
+            &current,
+        );
         v_for_locals.extend(merge_pattern_binding_usage(
             usage,
             binding,
@@ -168,7 +189,13 @@ fn apply_tag(
     for attr in &parsed.attrs {
         mark_custom_directive_usage(&attr.name, imported_bindings, usage);
         if let Some(expr) = dynamic_argument_expression(&attr.name) {
-            merge_expression_usage(usage, expr, imported_bindings, &arg_locals);
+            merge_expression_usage_with_bound_targets(
+                usage,
+                expr,
+                imported_bindings,
+                bound_targets,
+                &arg_locals,
+            );
         }
         if let Some(expr) = attr.value.as_deref() {
             if attr.name == "v-for"
@@ -180,9 +207,21 @@ fn apply_tag(
             }
 
             if is_statement_attr(&attr.name) {
-                merge_statement_usage(usage, expr, imported_bindings, &attr_locals);
+                merge_statement_usage_with_bound_targets(
+                    usage,
+                    expr,
+                    imported_bindings,
+                    bound_targets,
+                    &attr_locals,
+                );
             } else if is_expression_attr(&attr.name) || is_custom_directive_attr(&attr.name) {
-                merge_expression_usage(usage, expr, imported_bindings, &attr_locals);
+                merge_expression_usage_with_bound_targets(
+                    usage,
+                    expr,
+                    imported_bindings,
+                    bound_targets,
+                    &attr_locals,
+                );
             }
         }
     }
@@ -337,11 +376,18 @@ fn is_expression_attr(name: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::collect_template_usage;
-    use rustc_hash::FxHashSet;
+    use super::{collect_template_usage, collect_template_usage_with_bound_targets};
+    use rustc_hash::{FxHashMap, FxHashSet};
 
     fn imported(names: &[&str]) -> FxHashSet<String> {
         names.iter().map(|name| (*name).to_string()).collect()
+    }
+
+    fn bound_targets(pairs: &[(&str, &str)]) -> FxHashMap<String, String> {
+        pairs
+            .iter()
+            .map(|(local, target)| ((*local).to_string(), (*target).to_string()))
+            .collect()
     }
 
     #[test]
@@ -556,5 +602,59 @@ mod tests {
 
         // items is used as the iterable expression
         assert!(usage.used_bindings.contains("items"));
+    }
+
+    // --- bound_targets remap (script-local instance bindings) ---
+
+    #[test]
+    fn event_handler_member_call_maps_script_instance_to_class() {
+        let usage = collect_template_usage_with_bound_targets(
+            "<template><button @click=\"counter.bump()\">{{ counter.value }}</button></template>",
+            &imported(&[]),
+            &bound_targets(&[("counter", "Counter")]),
+        );
+
+        assert!(
+            usage
+                .member_accesses
+                .iter()
+                .any(|access| access.object == "Counter" && access.member == "bump"),
+            "counter.bump() should map to Counter.bump, found: {:?}",
+            usage.member_accesses
+        );
+        assert!(
+            usage
+                .member_accesses
+                .iter()
+                .any(|access| access.object == "Counter" && access.member == "value"),
+            "counter.value should map to Counter.value, found: {:?}",
+            usage.member_accesses
+        );
+    }
+
+    #[test]
+    fn v_for_local_shadows_script_instance_binding() {
+        let usage = collect_template_usage_with_bound_targets(
+            "<template><button v-for=\"counter in counters\" @click=\"other.go(); counter.bump()\" /></template>",
+            &imported(&[]),
+            &bound_targets(&[("counter", "Counter"), ("other", "Other")]),
+        );
+
+        assert!(
+            usage
+                .member_accesses
+                .iter()
+                .any(|access| access.object == "Other" && access.member == "go"),
+            "other.go() should still map to Other.go, found: {:?}",
+            usage.member_accesses
+        );
+        assert!(
+            !usage
+                .member_accesses
+                .iter()
+                .any(|access| access.object == "Counter" && access.member == "bump"),
+            "shadowed counter.bump() must not map to Counter.bump, found: {:?}",
+            usage.member_accesses
+        );
     }
 }

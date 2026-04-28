@@ -29,6 +29,7 @@ pub(super) fn merge_expression_usage(
     );
 }
 
+#[cfg(test)]
 pub(super) fn merge_statement_usage(
     usage: &mut TemplateUsage,
     snippet: &str,
@@ -76,6 +77,42 @@ pub(super) fn merge_statement_usage_allow_dollar_refs(
         imported_bindings,
         locals,
         true,
+    );
+}
+
+pub(super) fn merge_expression_usage_with_bound_targets(
+    usage: &mut TemplateUsage,
+    snippet: &str,
+    imported_bindings: &FxHashSet<String>,
+    bound_targets: &FxHashMap<String, String>,
+    locals: &[String],
+) {
+    merge_snippet_usage_with_bound_targets(
+        usage,
+        snippet,
+        TemplateSnippetKind::Expression,
+        imported_bindings,
+        bound_targets,
+        locals,
+        false,
+    );
+}
+
+pub(super) fn merge_statement_usage_with_bound_targets(
+    usage: &mut TemplateUsage,
+    snippet: &str,
+    imported_bindings: &FxHashSet<String>,
+    bound_targets: &FxHashMap<String, String>,
+    locals: &[String],
+) {
+    merge_snippet_usage_with_bound_targets(
+        usage,
+        snippet,
+        TemplateSnippetKind::Statement,
+        imported_bindings,
+        bound_targets,
+        locals,
+        false,
     );
 }
 

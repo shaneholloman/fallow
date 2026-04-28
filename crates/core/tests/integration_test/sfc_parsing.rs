@@ -77,6 +77,32 @@ fn vue_imports_mark_exports_used() {
 }
 
 #[test]
+fn vue_template_event_handlers_mark_class_members_used() {
+    let root = fixture_path("vue-project");
+    let config = create_config(root);
+    let results = fallow_core::analyze(&config).expect("analysis should succeed");
+
+    let unused_members: Vec<String> = results
+        .unused_class_members
+        .iter()
+        .map(|member| format!("{}.{}", member.parent_name, member.member_name))
+        .collect();
+
+    assert!(
+        !unused_members.contains(&"Counter.bump".to_string()),
+        "Counter.bump should be used from a Vue @click handler, found: {unused_members:?}"
+    );
+    assert!(
+        !unused_members.contains(&"Counter.value".to_string()),
+        "Counter.value should be used from a Vue mustache expression, found: {unused_members:?}"
+    );
+    assert!(
+        unused_members.contains(&"Counter.unused".to_string()),
+        "Counter.unused should still be reported as unused, found: {unused_members:?}"
+    );
+}
+
+#[test]
 fn vue_component_tags_mark_component_exports_used() {
     let root = fixture_path("vue-component-tags");
     let config = create_config(root);
