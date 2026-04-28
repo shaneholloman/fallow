@@ -9,6 +9,12 @@ use serde::{Deserialize, Serialize};
 )]
 type StdHashMap<K, V> = std::collections::HashMap<K, V>;
 
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct PeerDependencyMeta {
+    #[serde(default)]
+    pub optional: bool,
+}
+
 /// Parsed package.json with fields relevant to fallow.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct PackageJson {
@@ -36,6 +42,8 @@ pub struct PackageJson {
     pub dev_dependencies: Option<StdHashMap<String, String>>,
     #[serde(default, rename = "peerDependencies")]
     pub peer_dependencies: Option<StdHashMap<String, String>>,
+    #[serde(default, rename = "peerDependenciesMeta")]
+    pub peer_dependencies_meta: Option<StdHashMap<String, PeerDependencyMeta>>,
     #[serde(default, rename = "optionalDependencies")]
     pub optional_dependencies: Option<StdHashMap<String, String>>,
     #[serde(default)]
@@ -101,6 +109,27 @@ impl PackageJson {
             .as_ref()
             .map(|d| d.keys().cloned().collect())
             .unwrap_or_default()
+    }
+
+    /// Get required peer dependency names only.
+    #[must_use]
+    pub fn required_peer_dependency_names(&self) -> Vec<String> {
+        self.peer_dependencies
+            .as_ref()
+            .map(|deps| {
+                deps.keys()
+                    .filter(|dep| !self.peer_dependency_is_optional(dep))
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn peer_dependency_is_optional(&self, dep: &str) -> bool {
+        self.peer_dependencies_meta
+            .as_ref()
+            .and_then(|meta| meta.get(dep))
+            .is_some_and(|meta| meta.optional)
     }
 
     /// Extract entry points from package.json fields.
@@ -454,6 +483,7 @@ mod tests {
         assert!(pkg.dependencies.is_none());
         assert!(pkg.dev_dependencies.is_none());
         assert!(pkg.peer_dependencies.is_none());
+        assert!(pkg.peer_dependencies_meta.is_none());
         assert!(pkg.optional_dependencies.is_none());
         assert!(pkg.scripts.is_none());
         assert!(pkg.workspaces.is_none());
@@ -555,6 +585,18 @@ mod tests {
         // No production or dev deps
         assert!(pkg.production_dependency_names().is_empty());
         assert!(pkg.dev_dependency_names().is_empty());
+    }
+
+    #[test]
+    fn package_json_required_peer_dependency_names_excludes_optional_peers() {
+        let pkg: PackageJson = serde_json::from_str(
+            r#"{
+            "peerDependencies": {"react": "^18", "typescript": "^5"},
+            "peerDependenciesMeta": {"typescript": {"optional": true}}
+        }"#,
+        )
+        .unwrap();
+        assert_eq!(pkg.required_peer_dependency_names(), vec!["react"]);
     }
 
     // ── Optional dependencies ───────────────────────────────────────

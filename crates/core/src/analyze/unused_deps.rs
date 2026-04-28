@@ -59,6 +59,97 @@ pub struct SharedDepSets<'a> {
     pub ignore_deps: &'a FxHashSet<&'a str>,
 }
 
+struct PeerDependencyResolver {
+    cache: FxHashMap<(PathBuf, String), Vec<String>>,
+}
+
+impl PeerDependencyResolver {
+    fn new() -> Self {
+        Self {
+            cache: FxHashMap::default(),
+        }
+    }
+
+    fn peer_dependency_closure<'b>(
+        &mut self,
+        package_root: &Path,
+        seeds: impl IntoIterator<Item = &'b str>,
+    ) -> FxHashSet<String> {
+        let mut peer_used = FxHashSet::default();
+        let mut expanded = FxHashSet::default();
+        let mut queue: Vec<String> = seeds.into_iter().map(str::to_string).collect();
+
+        while let Some(package_name) = queue.pop() {
+            if !expanded.insert(package_name.clone()) {
+                continue;
+            }
+
+            for peer in self.peer_dependencies_for(package_root, &package_name) {
+                if peer_used.insert(peer.clone()) {
+                    queue.push(peer);
+                }
+            }
+        }
+
+        peer_used
+    }
+
+    fn peer_dependencies_for(&mut self, package_root: &Path, package_name: &str) -> Vec<String> {
+        let key = (package_root.to_path_buf(), package_name.to_string());
+        if let Some(cached) = self.cache.get(&key) {
+            return cached.clone();
+        }
+
+        let peer_dependencies: Vec<String> =
+            find_installed_package_json(package_root, package_name)
+                .and_then(|path| PackageJson::load(&path).ok())
+                .map(|pkg| pkg.required_peer_dependency_names())
+                .unwrap_or_default();
+
+        self.cache.insert(key, peer_dependencies.clone());
+        peer_dependencies
+    }
+}
+
+fn find_installed_package_json(package_root: &Path, package_name: &str) -> Option<PathBuf> {
+    for base in package_root.ancestors() {
+        let candidate = node_modules_package_json(base, package_name);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+fn node_modules_package_json(base: &Path, package_name: &str) -> PathBuf {
+    let mut path = base.join("node_modules");
+    for segment in package_name.split('/') {
+        path.push(segment);
+    }
+    path.join("package.json")
+}
+
+fn packages_used_in_workspace<'a>(
+    graph: &'a ModuleGraph,
+    workspace_root: &Path,
+) -> FxHashSet<&'a str> {
+    graph
+        .package_usage
+        .iter()
+        .filter_map(|(package_name, file_ids)| {
+            file_ids
+                .iter()
+                .any(|id| {
+                    graph
+                        .modules
+                        .get(id.0 as usize)
+                        .is_some_and(|module| module.path.starts_with(workspace_root))
+                })
+                .then_some(package_name.as_str())
+        })
+        .collect()
+}
+
 /// Collect unused dependencies for a single category (prod, dev, or optional).
 ///
 /// Filters `dep_names` against usage data and category-specific rules, returning
@@ -226,6 +317,9 @@ pub fn find_unused_dependencies(
     // Build per-package set of files that use it (globally)
     let used_packages: FxHashSet<&str> = graph.package_usage.keys().map(String::as_str).collect();
     let package_workspace_usage = collect_package_workspace_usage(graph, workspaces);
+    let mut peer_resolver = PeerDependencyResolver::new();
+    let root_peer_used =
+        peer_resolver.peer_dependency_closure(&config.root, used_packages.iter().copied());
 
     let root_pkg_path = config.root.join("package.json");
     let root_pkg_content = read_pkg_json_content(&root_pkg_path);
@@ -238,7 +332,7 @@ pub fn find_unused_dependencies(
         ignore_deps: &ignore_deps,
     };
 
-    let is_used_globally = |dep: &str| used_packages.contains(dep);
+    let is_used_globally = |dep: &str| used_packages.contains(dep) || root_peer_used.contains(dep);
     let no_workspace_context = |_dep: &str| Vec::new();
 
     // --- Root package.json check (existing behavior: any file can satisfy usage) ---
@@ -295,8 +389,11 @@ pub fn find_unused_dependencies(
         // Uses raw path comparison (module paths are absolute, workspace root is absolute)
         // to avoid per-file canonicalize() syscalls.
         let ws_root = &ws.root;
+        let ws_used_packages = packages_used_in_workspace(graph, ws_root);
+        let ws_peer_used = peer_resolver.peer_dependency_closure(ws_root, ws_used_packages);
         let is_used_in_workspace = |dep: &str| -> bool {
             root_flagged.contains(dep)
+                || ws_peer_used.contains(dep)
                 || package_workspace_usage
                     .get(dep)
                     .is_some_and(|roots| roots.iter().any(|root| root == ws_root))

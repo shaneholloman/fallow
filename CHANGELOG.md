@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Peer dependencies of used packages are no longer reported as unused.** `fallow dead-code` now reads installed packages' required `peerDependencies` and credits them when the package itself is used, recursively. Peers marked optional via `peerDependenciesMeta.<name>.optional: true` are still reported when otherwise unused. Package lookup follows ancestor `node_modules` directories so workspace-local, hoisted monorepo, and scoped-package installs are covered. Closes [#199](https://github.com/fallow-rs/fallow/issues/199).
+
 ## [2.52.2] - 2026-04-28
 
 ### Fixed

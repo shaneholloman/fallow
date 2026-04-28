@@ -106,6 +106,115 @@ fn unused_workspace_dependency_reports_other_workspace_usage() {
     );
 }
 
+// ── Peer dependencies ─────────────────────────────────────────
+
+#[test]
+fn peer_dependency_of_used_installed_package_is_not_unused() {
+    let tmp = tempfile::tempdir().expect("create temp dir");
+    let root = tmp.path();
+    std::fs::create_dir_all(root.join("src")).expect("create src dir");
+    std::fs::create_dir_all(root.join("node_modules/react-dom")).expect("create react-dom dir");
+    std::fs::write(
+        root.join("package.json"),
+        r#"{
+  "name": "peer-dep-repro",
+  "private": true,
+  "dependencies": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "left-pad": "1.3.0"
+  }
+}"#,
+    )
+    .expect("write package.json");
+    std::fs::write(
+        root.join("src/index.tsx"),
+        "import { createRoot } from 'react-dom/client';\ncreateRoot(document.body).render('hello');\n",
+    )
+    .expect("write source");
+    std::fs::write(
+        root.join("node_modules/react-dom/package.json"),
+        r#"{"name":"react-dom","peerDependencies":{"react":"^18.3.1"}}"#,
+    )
+    .expect("write react-dom package");
+
+    let config = create_config(root.to_path_buf());
+    let results = fallow_core::analyze(&config).expect("analysis should succeed");
+    let unused_dep_names: Vec<&str> = results
+        .unused_dependencies
+        .iter()
+        .map(|d| d.package_name.as_str())
+        .collect();
+
+    assert!(
+        !unused_dep_names.contains(&"react"),
+        "react is required as react-dom's peer dependency and must not be reported: {unused_dep_names:?}"
+    );
+    assert!(
+        unused_dep_names.contains(&"left-pad"),
+        "unrelated unused dependencies should still be reported: {unused_dep_names:?}"
+    );
+}
+
+#[test]
+fn peer_dependency_of_parent_installed_package_is_not_unused() {
+    let tmp = tempfile::tempdir().expect("create temp dir");
+    let parent = tmp.path().join("monorepo");
+    let root = parent.join("packages/app");
+    std::fs::create_dir_all(root.join("src")).expect("create src dir");
+    std::fs::create_dir_all(parent.join("node_modules/react-dom"))
+        .expect("create parent react-dom dir");
+    std::fs::write(
+        root.join("package.json"),
+        r#"{
+  "name": "peer-dep-hoisted-repro",
+  "private": true,
+  "dependencies": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "left-pad": "1.3.0"
+  }
+}"#,
+    )
+    .expect("write package.json");
+    std::fs::write(
+        root.join("src/index.tsx"),
+        "import { createRoot } from 'react-dom/client';\ncreateRoot(document.body).render('hello');\n",
+    )
+    .expect("write source");
+    std::fs::write(
+        parent.join("node_modules/react-dom/package.json"),
+        r#"{
+  "name": "react-dom",
+  "peerDependencies": {"react": "^18.3.1"},
+  "exports": {"./client": "./client.js"}
+}"#,
+    )
+    .expect("write react-dom package");
+    std::fs::write(
+        parent.join("node_modules/react-dom/client.js"),
+        "export function createRoot() { return { render() {} }; }\n",
+    )
+    .expect("write react-dom client");
+
+    let config = create_config(root);
+    let results = fallow_core::analyze(&config).expect("analysis should succeed");
+    let unused_dep_names: Vec<&str> = results
+        .unused_dependencies
+        .iter()
+        .map(|d| d.package_name.as_str())
+        .collect();
+
+    assert!(
+        !unused_dep_names.contains(&"react"),
+        "react is required as parent-installed react-dom's peer dependency and must not be reported: {unused_dep_names:?}"
+    );
+    assert!(
+        unused_dep_names.contains(&"left-pad"),
+        "unrelated unused dependencies should still be reported: {unused_dep_names:?}"
+    );
+}
+
 // ── Package.json `imports` field (#subpath imports) ─────────
 
 #[test]

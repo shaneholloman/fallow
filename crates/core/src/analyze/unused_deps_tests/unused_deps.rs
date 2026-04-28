@@ -195,6 +195,111 @@ fn script_used_packages_not_flagged() {
 }
 
 #[test]
+fn peer_dependency_of_used_package_not_flagged() {
+    let tmp = tempfile::tempdir().expect("create temp dir");
+    let root = tmp.path();
+    std::fs::create_dir_all(root.join("node_modules/react-dom")).expect("create react-dom dir");
+    std::fs::write(
+        root.join("node_modules/react-dom/package.json"),
+        r#"{"name":"react-dom","peerDependencies":{"react":"^18.0.0"}}"#,
+    )
+    .expect("write react-dom package");
+
+    let (graph, _) = build_graph_with_npm_imports(&[("react-dom", false)]);
+    let pkg = make_pkg(&["react", "react-dom"], &[], &[]);
+    let config = test_config(root.to_path_buf());
+
+    let (unused, _, _) = find_unused_dependencies(&graph, &pkg, &config, None, &[]);
+
+    assert!(
+        !unused.iter().any(|d| d.package_name == "react"),
+        "react is a peer dependency of used react-dom and should not be flagged: {unused:?}"
+    );
+}
+
+#[test]
+fn peer_dependency_of_parent_installed_package_not_flagged() {
+    let tmp = tempfile::tempdir().expect("create temp dir");
+    let root = tmp.path().join("monorepo/packages/app");
+    let parent = tmp.path().join("monorepo");
+    std::fs::create_dir_all(parent.join("node_modules/react-dom"))
+        .expect("create parent react-dom dir");
+    std::fs::write(
+        parent.join("node_modules/react-dom/package.json"),
+        r#"{"name":"react-dom","peerDependencies":{"react":"^18.0.0"}}"#,
+    )
+    .expect("write parent react-dom package");
+
+    let (graph, _) = build_graph_with_npm_imports(&[("react-dom", false)]);
+    let pkg = make_pkg(&["react", "react-dom"], &[], &[]);
+    let config = test_config(root);
+
+    let (unused, _, _) = find_unused_dependencies(&graph, &pkg, &config, None, &[]);
+
+    assert!(
+        !unused.iter().any(|d| d.package_name == "react"),
+        "react is a peer dependency of hoisted react-dom and should not be flagged: {unused:?}"
+    );
+}
+
+#[test]
+fn recursive_peer_dependencies_of_used_package_not_flagged() {
+    let tmp = tempfile::tempdir().expect("create temp dir");
+    let root = tmp.path();
+    std::fs::create_dir_all(root.join("node_modules/plugin-a")).expect("create plugin-a dir");
+    std::fs::create_dir_all(root.join("node_modules/plugin-b")).expect("create plugin-b dir");
+    std::fs::write(
+        root.join("node_modules/plugin-a/package.json"),
+        r#"{"name":"plugin-a","peerDependencies":{"plugin-b":"^1.0.0"}}"#,
+    )
+    .expect("write plugin-a package");
+    std::fs::write(
+        root.join("node_modules/plugin-b/package.json"),
+        r#"{"name":"plugin-b","peerDependencies":{"react":"^18.0.0"}}"#,
+    )
+    .expect("write plugin-b package");
+
+    let (graph, _) = build_graph_with_npm_imports(&[("plugin-a", false)]);
+    let pkg = make_pkg(&["plugin-a", "plugin-b", "react"], &[], &[]);
+    let config = test_config(root.to_path_buf());
+
+    let (unused, _, _) = find_unused_dependencies(&graph, &pkg, &config, None, &[]);
+    let unused_names: Vec<&str> = unused.iter().map(|dep| dep.package_name.as_str()).collect();
+
+    assert!(
+        !unused_names.contains(&"plugin-b") && !unused_names.contains(&"react"),
+        "recursive peer deps should be credited from used plugin-a, got: {unused_names:?}"
+    );
+}
+
+#[test]
+fn optional_peer_dependency_of_used_package_is_still_flagged_when_unused() {
+    let tmp = tempfile::tempdir().expect("create temp dir");
+    let root = tmp.path();
+    std::fs::create_dir_all(root.join("node_modules/plugin-a")).expect("create plugin-a dir");
+    std::fs::write(
+        root.join("node_modules/plugin-a/package.json"),
+        r#"{
+  "name": "plugin-a",
+  "peerDependencies": {"optional-peer": "^1.0.0"},
+  "peerDependenciesMeta": {"optional-peer": {"optional": true}}
+}"#,
+    )
+    .expect("write plugin-a package");
+
+    let (graph, _) = build_graph_with_npm_imports(&[("plugin-a", false)]);
+    let pkg = make_pkg(&["plugin-a", "optional-peer"], &[], &[]);
+    let config = test_config(root.to_path_buf());
+
+    let (unused, _, _) = find_unused_dependencies(&graph, &pkg, &config, None, &[]);
+
+    assert!(
+        unused.iter().any(|d| d.package_name == "optional-peer"),
+        "optional peer dependencies are not required by the used package and should still be reported: {unused:?}"
+    );
+}
+
+#[test]
 fn unused_dep_location_is_correct() {
     let (graph, _) = build_graph_with_npm_imports(&[]);
     let pkg = make_pkg(&["unused-dep"], &["unused-dev"], &["unused-opt"]);
