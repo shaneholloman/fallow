@@ -7,9 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.53.0] - 2026-04-28
+
+### Added
+
+- **Cross-workspace dependency leak detection.** `fallow dead-code` now flags packages declared in one workspace's `package.json` but only consumed from another workspace's source files, surfaced as a new `cross-workspace-dependency` issue with a `move-dependency` action carrying the suggested target workspace path. Helps monorepo maintainers find dependencies that drifted out of their original workspace as code moved around. Available across every output format (human, JSON, SARIF, CodeClimate, markdown, compact); the JSON action `type` enum gains `move-dependency`.
+
 ### Fixed
 
+- **Vue script-instance member access in templates is now credited.** `<script setup> const counter = new Counter(); ...` followed by `<button @click="counter.bump()">{{ counter.value }}</button>` no longer reports `Counter.bump` and `Counter.value` as unused class members. The Vue template scanner threads the script block's instance-binding map through expression and statement evaluation so `counter.bump()` remaps to `Counter.bump`. v-for / v-slot locals continue to shadow the script binding, avoiding false positives. Mirrors the same fix shipped earlier in this cycle for Svelte. Cache version bumped to 53 so existing caches re-extract the new member-access shape.
+- **Svelte 5 `{@attach}` directives and arrow-bound class member calls are now credited as used.** `<div {@attach myAttach}>` no longer reports `myAttach` as an unused export, and `onclick={() => counter.bump()}` plus `{counter.value}` correctly map to the script-local `Counter` instance's `bump` and `value` members through the script's binding-target table. Template locals (e.g., `{#each rows as counter}`) shadow the script binding so genuinely unused names in shadowed scopes still get reported. A small follow-up skips synthetic `this.*` keys when seeding the template scanner's bound targets, trimming dead weight from the reference set. Closes [#200](https://github.com/fallow-rs/fallow/issues/200). Thanks [@kevmodrome](https://github.com/kevmodrome) for the report and [@imwyvern](https://github.com/imwyvern) for [#201](https://github.com/fallow-rs/fallow/pull/201).
 - **Peer dependencies of used packages are no longer reported as unused.** `fallow dead-code` now reads installed packages' required `peerDependencies` and credits them when the package itself is used, recursively. Peers marked optional via `peerDependenciesMeta.<name>.optional: true` are still reported when otherwise unused. Package lookup follows ancestor `node_modules` directories so workspace-local, hoisted monorepo, and scoped-package installs are covered. Closes [#199](https://github.com/fallow-rs/fallow/issues/199).
+- **Linux GNU release binaries now run on glibc 2.31+ (Debian Bullseye, Ubuntu 20.04, RHEL 9, Amazon Linux 2023).** Previous releases inherited the GitHub `ubuntu-latest` runner's glibc 2.39, which broke fallow on most CI images and older distros. The release workflow now compiles `x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu` inside the `rust:1.95-bullseye` container, with a post-build `readelf` gate that fails the release if any shipped binary requires a glibc version newer than 2.31. Forward-only fix: applies to artifacts produced from this tag onward. Closes [#191](https://github.com/fallow-rs/fallow/issues/191). Thanks [@OmerGronich](https://github.com/OmerGronich).
+- **`docs/output-schema.json` now lists `move-dependency` in the action `type` enum.** New emit sites in `crates/cli/src/report/json.rs` introduced a value the schema didn't know about, which would have rejected every cross-workspace finding for consumers validating against the published schema.
 
 ## [2.52.2] - 2026-04-28
 
@@ -1730,7 +1740,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--changed-since` and `--fail-on-issues` for CI
 - Cross-workspace resolution for npm/yarn/pnpm workspaces
 
-[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.52.2...HEAD
+[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.53.0...HEAD
+[2.53.0]: https://github.com/fallow-rs/fallow/compare/v2.52.2...v2.53.0
 [2.52.2]: https://github.com/fallow-rs/fallow/compare/v2.52.1...v2.52.2
 [2.52.1]: https://github.com/fallow-rs/fallow/compare/v2.52.0...v2.52.1
 [2.52.0]: https://github.com/fallow-rs/fallow/compare/v2.51.0...v2.52.0
