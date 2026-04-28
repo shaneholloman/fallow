@@ -100,7 +100,13 @@ fn scan_template_body(
             let Some((tag, next_index)) = scan_html_tag(body, index) else {
                 break;
             };
-            apply_tag(tag, imported_bindings, bound_targets, &mut scopes, &mut usage);
+            apply_tag(
+                tag,
+                imported_bindings,
+                bound_targets,
+                &mut scopes,
+                &mut usage,
+            );
             index = next_index;
             continue;
         }
