@@ -2,6 +2,9 @@ export const greet = () => 'hello';
 export const formatName = (n: string) => n.toUpperCase();
 export const isActive = true;
 export const tooltip = () => ({});
+export const inTernary = () => 'ternary';
+export const inCallback = (n: number) => String(n);
+export const inSpread = () => 'spread';
 export const myAttach = (node: HTMLElement) => {
   node.dataset.attached = 'true';
 };

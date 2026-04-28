@@ -106,15 +106,12 @@ fn scan_delimited_section(
         match byte {
             b'\'' => {
                 in_single = true;
-                index += 1;
             }
             b'"' => {
                 in_double = true;
-                index += 1;
             }
             b'`' => {
                 in_backtick = true;
-                index += 1;
             }
             b if b == open_byte => nested_delimiters += 1,
             b if b == close_byte => {
@@ -224,6 +221,14 @@ mod tests {
         let (inner, next_index) = scan_curly_section(source, 0, 1, 1).expect("expression");
         assert_eq!(inner, r#"format("}")"#);
         assert_eq!(next_index, source.len());
+    }
+
+    #[test]
+    fn scans_curly_sections_with_ternary_empty_string_branch() {
+        let source = "{cond ? inTernary() : ''}</p>";
+        let (inner, next_index) = scan_curly_section(source, 0, 1, 1).expect("expression");
+        assert_eq!(inner, "cond ? inTernary() : ''");
+        assert_eq!(next_index, "{cond ? inTernary() : ''}".len());
     }
 
     #[test]

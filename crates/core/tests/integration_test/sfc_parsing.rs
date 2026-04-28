@@ -271,6 +271,18 @@ fn svelte_imports_mark_exports_used() {
         !unused_export_names.contains(&"myAttach"),
         "myAttach should be used from a Svelte {{@attach}} directive, found: {unused_export_names:?}"
     );
+    assert!(
+        !unused_export_names.contains(&"inTernary"),
+        "inTernary should be used from a Svelte ternary expression, found: {unused_export_names:?}"
+    );
+    assert!(
+        !unused_export_names.contains(&"inCallback"),
+        "inCallback should be used from a Svelte method-chain callback reference, found: {unused_export_names:?}"
+    );
+    assert!(
+        !unused_export_names.contains(&"inSpread"),
+        "inSpread should be used from a Svelte inline spread object, found: {unused_export_names:?}"
+    );
 
     // unusedUtil is not imported anywhere, should be unused
     assert!(

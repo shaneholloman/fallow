@@ -423,7 +423,7 @@ fn apply_markup_tag(
     }
 
     let current = current_locals(scopes);
-    merge_markup_attach_usage(trimmed, usage, imported_bindings, bound_targets, &current);
+    merge_markup_brace_usage(trimmed, usage, imported_bindings, bound_targets, &current);
     if parsed.name.contains('.')
         || parsed
             .name
@@ -472,7 +472,7 @@ fn apply_markup_tag(
     }
 }
 
-fn merge_markup_attach_usage(
+fn merge_markup_brace_usage(
     tag: &str,
     usage: &mut TemplateUsage,
     imported_bindings: &FxHashSet<String>,
@@ -486,10 +486,15 @@ fn merge_markup_attach_usage(
             let Some((section, next_index)) = scan_curly_section(tag, index, 1, 1) else {
                 break;
             };
-            if let Some(expr) = section.trim().strip_prefix("@attach") {
+            let section = section.trim();
+            let expr = section
+                .strip_prefix("@attach")
+                .or_else(|| section.strip_prefix("..."))
+                .map_or(section, str::trim);
+            if !expr.is_empty() {
                 merge_expression_usage_allow_dollar_refs_with_bound_targets(
                     usage,
-                    expr.trim(),
+                    expr,
                     imported_bindings,
                     bound_targets,
                     locals,
@@ -709,6 +714,39 @@ mod tests {
         );
 
         assert!(usage.used_bindings.contains("isActive"));
+    }
+
+    #[test]
+    fn ternary_expression_marks_branch_calls_used() {
+        let usage = collect_template_usage(
+            r#"<p>{cond ? inTernary() : ""}</p>"#,
+            &imported(&["inTernary"]),
+        );
+
+        assert!(
+            usage.used_bindings.contains("inTernary"),
+            "expected inTernary usage, got: {usage:?}"
+        );
+    }
+
+    #[test]
+    fn method_chain_callback_marks_reference_used() {
+        let usage = collect_template_usage(
+            r#"<p>{[1, 2].map(inCallback).join(",")}</p>"#,
+            &imported(&["inCallback"]),
+        );
+
+        assert!(usage.used_bindings.contains("inCallback"));
+    }
+
+    #[test]
+    fn inline_spread_object_marks_nested_expression_used() {
+        let usage = collect_template_usage(
+            r#"<button {...{ "data-x": inSpread() }}>x</button>"#,
+            &imported(&["inSpread"]),
+        );
+
+        assert!(usage.used_bindings.contains("inSpread"));
     }
 
     #[test]
