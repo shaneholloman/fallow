@@ -889,6 +889,38 @@ mod tests {
     }
 
     #[test]
+    fn expand_recursive_glob_preserves_nested_workspace_roots() {
+        let temp_dir = std::env::temp_dir().join("fallow-test-expand-recursive-workspace-prune");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+
+        std::fs::create_dir_all(temp_dir.join("apps/app/packages/nested")).unwrap();
+        std::fs::write(temp_dir.join("apps/app/package.json"), r#"{"name":"app"}"#).unwrap();
+        std::fs::write(
+            temp_dir.join("apps/app/packages/nested/package.json"),
+            r#"{"name":"nested"}"#,
+        )
+        .unwrap();
+
+        let canonical_root = dunce::canonicalize(&temp_dir).unwrap();
+        let results = expand_workspace_glob(&temp_dir, "apps/**", &canonical_root);
+        let mut paths: Vec<_> = results
+            .iter()
+            .map(|(path, _)| path.strip_prefix(&temp_dir).unwrap().to_path_buf())
+            .collect();
+        paths.sort();
+
+        assert_eq!(
+            paths,
+            vec![
+                PathBuf::from("apps/app"),
+                PathBuf::from("apps/app/packages/nested")
+            ]
+        );
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
     fn expand_recursive_glob_prunes_deeply_nested_node_modules() {
         // Even deeply nested node_modules (e.g., pnpm's deep symlink trees)
         // should be pruned during the walk.
