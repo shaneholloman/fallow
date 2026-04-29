@@ -1,8 +1,4 @@
 //! Plugin registry: discovers active plugins, collects patterns, parses configs.
-#![expect(
-    clippy::excessive_nesting,
-    reason = "plugin config parsing requires deep AST matching"
-)]
 
 use rustc_hash::FxHashSet;
 use std::path::{Path, PathBuf};
@@ -198,22 +194,20 @@ impl PluginRegistry {
 
             for (plugin, matchers) in &config_matchers {
                 for (abs_path, rel_path) in &relative_files {
-                    if matchers.iter().any(|m| m.is_match(rel_path.as_str())) {
-                        // Mark as resolved regardless of result to prevent Phase 3b
-                        // from re-parsing a JSON config for the same plugin.
-                        resolved_plugins.insert(plugin.name());
-                        if let Ok(source) = std::fs::read_to_string(abs_path) {
-                            let plugin_result = plugin.resolve_config(abs_path, &source, root);
-                            if !plugin_result.is_empty() {
-                                tracing::debug!(
-                                    plugin = plugin.name(),
-                                    config = rel_path.as_str(),
-                                    entries = plugin_result.entry_patterns.len(),
-                                    deps = plugin_result.referenced_dependencies.len(),
-                                    "resolved config"
-                                );
-                                process_config_result(plugin.name(), plugin_result, &mut result);
-                            }
+                    if matchers.iter().any(|m| m.is_match(rel_path.as_str()))
+                        && let Ok(source) = std::fs::read_to_string(abs_path)
+                    {
+                        let plugin_result = plugin.resolve_config(abs_path, &source, root);
+                        if !plugin_result.is_empty() {
+                            resolved_plugins.insert(plugin.name());
+                            tracing::debug!(
+                                plugin = plugin.name(),
+                                config = rel_path.as_str(),
+                                entries = plugin_result.entry_patterns.len(),
+                                deps = plugin_result.referenced_dependencies.len(),
+                                "resolved config"
+                            );
+                            process_config_result(plugin.name(), plugin_result, &mut result);
                         }
                     }
                 }
@@ -342,11 +336,9 @@ impl PluginRegistry {
                     if matchers.iter().any(|m| m.is_match(rel_path.as_str()))
                         && let Ok(source) = std::fs::read_to_string(abs_path)
                     {
-                        // Mark resolved regardless of result to prevent Phase 3b
-                        // from re-parsing a JSON config for the same plugin.
-                        resolved_ws_plugins.insert(plugin.name());
                         let plugin_result = plugin.resolve_config(abs_path, &source, root);
                         if !plugin_result.is_empty() {
+                            resolved_ws_plugins.insert(plugin.name());
                             tracing::debug!(
                                 plugin = plugin.name(),
                                 config = rel_path.as_str(),
