@@ -19,25 +19,53 @@ use crate::html::is_remote_url;
 
 use super::helpers::{
     extract_angular_component_metadata, extract_class_members, extract_concat_parts,
-    extract_implemented_interface_names, extract_super_class_name, extract_type_annotation_name,
-    has_angular_class_decorator, is_meta_url_arg, regex_pattern_to_suffix,
+    extract_implemented_interface_names, extract_nested_type_bindings, extract_super_class_name,
+    extract_type_annotation_name, has_angular_class_decorator, is_meta_url_arg,
+    regex_pattern_to_suffix,
 };
 use super::{
     ModuleInfoExtractor, try_extract_arrow_wrapped_import, try_extract_dynamic_import,
     try_extract_import_then_callback, try_extract_require,
 };
 
+impl ModuleInfoExtractor {
+    fn record_typed_binding(&mut self, binding_name: &str, type_annotation: &TSTypeAnnotation<'_>) {
+        if let Some(type_name) = extract_type_annotation_name(type_annotation) {
+            self.binding_target_names
+                .insert(binding_name.to_string(), type_name);
+        }
+
+        for (property_path, type_name) in extract_nested_type_bindings(type_annotation) {
+            self.binding_target_names
+                .insert(format!("{binding_name}.{property_path}"), type_name);
+        }
+    }
+
+    fn copy_nested_binding_targets(&mut self, source_binding: &str, target_binding: &str) {
+        let source_prefix = format!("{source_binding}.");
+        let target_prefix = format!("{target_binding}.");
+        let copied: Vec<(String, String)> = self
+            .binding_target_names
+            .iter()
+            .filter_map(|(binding, target)| {
+                binding
+                    .strip_prefix(&source_prefix)
+                    .map(|suffix| (format!("{target_prefix}{suffix}"), target.clone()))
+            })
+            .collect();
+
+        self.binding_target_names.extend(copied);
+    }
+}
+
 impl<'a> Visit<'a> for ModuleInfoExtractor {
     fn visit_formal_parameter(&mut self, param: &FormalParameter<'a>) {
         if let BindingPattern::BindingIdentifier(id) = &param.pattern
             && let Some(type_annotation) = param.type_annotation.as_deref()
-            && let Some(type_name) = extract_type_annotation_name(type_annotation)
         {
-            self.binding_target_names
-                .insert(id.name.to_string(), type_name.clone());
+            self.record_typed_binding(id.name.as_str(), type_annotation);
             if param.accessibility.is_some() {
-                self.binding_target_names
-                    .insert(format!("this.{}", id.name), type_name);
+                self.record_typed_binding(format!("this.{}", id.name).as_str(), type_annotation);
             }
         }
 
@@ -46,11 +74,8 @@ impl<'a> Visit<'a> for ModuleInfoExtractor {
 
     fn visit_property_definition(&mut self, prop: &PropertyDefinition<'a>) {
         if let Some(name) = prop.key.static_name() {
-            if let Some(type_annotation) = prop.type_annotation.as_deref()
-                && let Some(type_name) = extract_type_annotation_name(type_annotation)
-            {
-                self.binding_target_names
-                    .insert(format!("this.{name}"), type_name);
+            if let Some(type_annotation) = prop.type_annotation.as_deref() {
+                self.record_typed_binding(format!("this.{name}").as_str(), type_annotation);
             }
 
             if let Some(Expression::NewExpression(new_expr)) = &prop.value
@@ -421,10 +446,8 @@ impl<'a> Visit<'a> for ModuleInfoExtractor {
         for declarator in &decl.declarations {
             if let BindingPattern::BindingIdentifier(id) = &declarator.id
                 && let Some(type_annotation) = declarator.type_annotation.as_deref()
-                && let Some(type_name) = extract_type_annotation_name(type_annotation)
             {
-                self.binding_target_names
-                    .insert(id.name.to_string(), type_name);
+                self.record_typed_binding(id.name.as_str(), type_annotation);
             }
 
             let Some(init) = &declarator.init else {
@@ -719,34 +742,24 @@ impl<'a> Visit<'a> for ModuleInfoExtractor {
                     self.binding_target_names
                         .insert(format!("this.{}", member.property.name), target_name);
                 }
+                if let Expression::Identifier(ident) = &expr.right {
+                    self.copy_nested_binding_targets(
+                        ident.name.as_str(),
+                        format!("this.{}", member.property.name).as_str(),
+                    );
+                }
             }
         }
         walk::walk_assignment_expression(self, expr);
     }
 
     fn visit_static_member_expression(&mut self, expr: &StaticMemberExpression<'a>) {
-        // Capture `Identifier.member` patterns (e.g., `Status.Active`, `MyClass.create()`)
-        if let Expression::Identifier(obj) = &expr.object {
+        // Capture static member chains. `this.field.method()` is recorded as
+        // object `this.field`; deeper chains like `this.deps.foo.method()` are
+        // recorded as `this.deps.foo` and resolved through typed object bindings.
+        if let Some(object_name) = static_member_object_name(&expr.object) {
             self.member_accesses.push(MemberAccess {
-                object: obj.name.to_string(),
-                member: expr.property.name.to_string(),
-            });
-        }
-        // Capture `this.member` patterns within class bodies — these members are used internally
-        if matches!(expr.object, Expression::ThisExpression(_)) {
-            self.member_accesses.push(MemberAccess {
-                object: "this".to_string(),
-                member: expr.property.name.to_string(),
-            });
-        }
-        // Capture `this.field.member` patterns — chained access through a class field.
-        // Recorded as `MemberAccess { object: "this.field", member }` which is later
-        // resolved via `binding_target_names` when the field points at a known symbol.
-        if let Expression::StaticMemberExpression(inner) = &expr.object
-            && matches!(inner.object, Expression::ThisExpression(_))
-        {
-            self.member_accesses.push(MemberAccess {
-                object: format!("this.{}", inner.property.name),
+                object: object_name,
                 member: expr.property.name.to_string(),
             });
         }
@@ -1007,6 +1020,19 @@ impl<'a> Visit<'a> for ModuleInfoExtractor {
             }
         }
         walk::walk_tagged_template_expression(self, expr);
+    }
+}
+
+fn static_member_object_name(expr: &Expression<'_>) -> Option<String> {
+    match expr {
+        Expression::Identifier(obj) => Some(obj.name.to_string()),
+        Expression::ThisExpression(_) => Some("this".to_string()),
+        Expression::StaticMemberExpression(member) => Some(format!(
+            "{}.{}",
+            static_member_object_name(&member.object)?,
+            member.property.name
+        )),
+        _ => None,
     }
 }
 

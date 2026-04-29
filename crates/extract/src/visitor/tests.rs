@@ -404,6 +404,56 @@ fn instance_property_access_mapped_to_class() {
 }
 
 #[test]
+fn injected_object_member_access_mapped_to_class() {
+    let info = parse(
+        r"
+            import { FooClass } from './foo';
+
+            class MyClass {
+                constructor(private deps: { foo: FooClass }) {}
+
+                test() {
+                    this.deps.foo.foo();
+                }
+            }
+            ",
+    );
+    assert!(
+        info.member_accesses
+            .iter()
+            .any(|a| a.object == "FooClass" && a.member == "foo"),
+        "this.deps.foo.foo() should map to FooClass.foo, found: {:?}",
+        info.member_accesses
+    );
+}
+
+#[test]
+fn assigned_nested_object_member_access_mapped_to_class() {
+    let info = parse(
+        r"
+            import { FooClass } from './foo';
+
+            class MyClass {
+                constructor(deps: { foo: FooClass }) {
+                    this.deps = deps;
+                }
+
+                test() {
+                    this.deps.foo.foo();
+                }
+            }
+            ",
+    );
+    assert!(
+        info.member_accesses
+            .iter()
+            .any(|a| a.object == "FooClass" && a.member == "foo"),
+        "this.deps = deps assignment should propagate nested bindings so this.deps.foo.foo() maps to FooClass.foo, found: {:?}",
+        info.member_accesses
+    );
+}
+
+#[test]
 fn instance_whole_object_use_mapped_to_class() {
     let info = parse(
         r"

@@ -126,6 +126,28 @@ fn cross_package_enum_class_members_credit_re_exported_origin() {
     );
 }
 
+#[test]
+fn injected_dependency_object_credits_class_member_usage() {
+    let root = fixture_path("injected-dependency-class-members");
+    let config = create_config(root);
+    let results = fallow_core::analyze(&config).expect("analysis should succeed");
+
+    let unused_class_members: Vec<(&str, &str)> = results
+        .unused_class_members
+        .iter()
+        .map(|m| (m.parent_name.as_str(), m.member_name.as_str()))
+        .collect();
+
+    assert!(
+        !unused_class_members.contains(&("FooClass", "foo")),
+        "FooClass.foo should be credited through this.deps.foo.foo(), found: {unused_class_members:?}"
+    );
+    assert!(
+        unused_class_members.contains(&("FooClass", "unused")),
+        "the fixture should still report genuinely unused members, found: {unused_class_members:?}"
+    );
+}
+
 // ── Whole-object enum member heuristics ────────────────────────
 
 #[test]

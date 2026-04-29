@@ -4,8 +4,8 @@
 
 use oxc_ast::ast::{
     Argument, ArrayExpressionElement, BinaryExpression, BindingPattern, Class, ClassElement,
-    Expression, MethodDefinitionKind, ObjectPropertyKind, Statement, TSAccessibility, TSType,
-    TSTypeAnnotation, TSTypeName,
+    Expression, MethodDefinitionKind, ObjectPropertyKind, Statement, TSAccessibility, TSSignature,
+    TSType, TSTypeAnnotation, TSTypeName,
 };
 use oxc_span::{GetSpan, Span};
 
@@ -389,6 +389,59 @@ pub fn extract_implemented_interface_names(class: &Class<'_>) -> Vec<String> {
 #[must_use]
 pub fn extract_type_annotation_name(type_annotation: &TSTypeAnnotation<'_>) -> Option<String> {
     extract_type_reference_name(&type_annotation.type_annotation)
+}
+
+/// Extract nested object-type bindings from a type annotation.
+///
+/// For `{ foo: FooClass }`, returns `("foo", "FooClass")`. For nested
+/// structural types, returns dotted paths such as `("deps.foo", "FooClass")`.
+#[must_use]
+pub fn extract_nested_type_bindings(
+    type_annotation: &TSTypeAnnotation<'_>,
+) -> Vec<(String, String)> {
+    let mut bindings = Vec::new();
+    collect_nested_type_bindings(&type_annotation.type_annotation, None, &mut bindings);
+    bindings
+}
+
+fn collect_nested_type_bindings(
+    ty: &TSType<'_>,
+    prefix: Option<&str>,
+    bindings: &mut Vec<(String, String)>,
+) {
+    match ty {
+        TSType::TSTypeLiteral(type_lit) => {
+            for member in &type_lit.members {
+                let TSSignature::TSPropertySignature(prop) = member else {
+                    continue;
+                };
+                let Some(property_name) = prop.key.static_name() else {
+                    continue;
+                };
+                let path = if let Some(prefix) = prefix {
+                    format!("{prefix}.{property_name}")
+                } else {
+                    property_name.to_string()
+                };
+                let Some(type_annotation) = prop.type_annotation.as_deref() else {
+                    continue;
+                };
+                if let Some(type_name) = extract_type_annotation_name(type_annotation) {
+                    bindings.push((path, type_name));
+                } else {
+                    collect_nested_type_bindings(
+                        &type_annotation.type_annotation,
+                        Some(path.as_str()),
+                        bindings,
+                    );
+                }
+            }
+        }
+        TSType::TSParenthesizedType(paren) => {
+            collect_nested_type_bindings(&paren.type_annotation, prefix, bindings);
+        }
+        _ => {}
+    }
 }
 
 /// Extract typed instance bindings from a class: pairs of
