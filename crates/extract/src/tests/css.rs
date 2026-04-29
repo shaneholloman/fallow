@@ -141,6 +141,40 @@ fn css_tailwind_directive_creates_dependency() {
 }
 
 #[test]
+fn css_plugin_directive_creates_plugin_dependency() {
+    let info = parse_css(
+        r#"
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+@plugin "daisyui" {
+    themes: light --default;
+}
+"#,
+        "styles.css",
+    );
+
+    let sources: Vec<&str> = info.imports.iter().map(|i| i.source.as_str()).collect();
+    assert!(sources.contains(&"tailwindcss"));
+    assert!(sources.contains(&"@tailwindcss/typography"));
+    assert!(sources.contains(&"daisyui"));
+}
+
+#[test]
+fn css_plugin_directive_tracks_relative_plugin_file() {
+    let info = parse_css(r#"@plugin "./tailwind-plugin.js";"#, "styles.css");
+    assert_eq!(info.imports.len(), 1);
+    assert_eq!(info.imports[0].source, "./tailwind-plugin.js");
+    assert_eq!(info.imports[0].imported_name, ImportedName::Default);
+}
+
+#[test]
+fn scss_plugin_directive_keeps_package_specifier_bare() {
+    let info = parse_css(r#"@plugin "daisyui";"#, "styles.scss");
+    assert_eq!(info.imports.len(), 1);
+    assert_eq!(info.imports[0].source, "daisyui");
+}
+
+#[test]
 fn css_without_apply_no_tailwind_dependency() {
     let info = parse_css(
         r"
@@ -285,6 +319,21 @@ fn css_commented_tailwind_not_extracted() {
     assert!(
         !info.imports.iter().any(|i| i.source == "tailwindcss"),
         "commented-out @tailwind should NOT create tailwindcss import"
+    );
+}
+
+#[test]
+fn css_commented_plugin_not_extracted() {
+    let info = parse_css(
+        r#"
+/* @plugin "daisyui"; */
+.btn { color: red; }
+"#,
+        "styles.css",
+    );
+    assert!(
+        !info.imports.iter().any(|i| i.source == "daisyui"),
+        "commented-out @plugin should NOT create an import"
     );
 }
 

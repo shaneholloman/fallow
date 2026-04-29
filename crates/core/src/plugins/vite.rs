@@ -174,7 +174,7 @@ define_plugin!(
         // css.preprocessorOptions.{scss,sass,less,stylus}.additionalData →
         // SCSS / Sass strings injected at the top of every preprocessed file.
         // The string body itself is not parsed, but `@use` / `@import` /
-        // `@forward` directives inside it reference real files that no source
+        // `@forward` / `@plugin` directives inside it reference real files that no source
         // file imports directly. Seed those files as entry points so they do
         // not get reported as `unused-files`. Function-form `additionalData`
         // is skipped (out of static-analysis scope) and stylesheet content is

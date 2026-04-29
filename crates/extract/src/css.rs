@@ -1,6 +1,6 @@
 //! CSS/SCSS file parsing and CSS Module class name extraction.
 //!
-//! Handles `@import`, `@use`, `@forward`, `@apply`, `@tailwind` directives,
+//! Handles `@import`, `@use`, `@forward`, `@plugin`, `@apply`, `@tailwind` directives,
 //! and extracts class names as named exports from `.module.css`/`.module.scss` files.
 
 use std::path::Path;
@@ -23,6 +23,11 @@ static CSS_IMPORT_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
 static SCSS_USE_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(r#"@(?:use|forward)\s+["']([^"']+)["']"#).expect("valid regex")
 });
+
+/// Regex to extract Tailwind CSS @plugin sources.
+/// Matches: @plugin "package"; @plugin 'package'; @plugin "./local-plugin.js";
+static CSS_PLUGIN_RE: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r#"@plugin\s+["']([^"']+)["']"#).expect("valid regex"));
 
 /// Regex to extract @apply class references.
 /// Matches: @apply class1 class2 class3;
@@ -62,10 +67,12 @@ pub(crate) fn is_css_file(path: &Path) -> bool {
 /// A CSS import source with both the literal source and fallow's resolver-normalized form.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CssImportSource {
-    /// The import source exactly as it appeared in `@import` / `@use` / `@forward`.
+    /// The import source exactly as it appeared in `@import` / `@use` / `@forward` / `@plugin`.
     pub raw: String,
     /// The source normalized for fallow's resolver (`variables` -> `./variables` in SCSS).
     pub normalized: String,
+    /// Whether this source came from Tailwind CSS `@plugin`.
+    pub is_plugin: bool,
 }
 
 fn is_css_module_file(path: &Path) -> bool {
@@ -137,7 +144,16 @@ fn strip_css_comments(source: &str, is_scss: bool) -> String {
     }
 }
 
-/// Extract `@import` / `@use` / `@forward` source paths from a CSS/SCSS string.
+/// Normalize a Tailwind CSS `@plugin` target.
+///
+/// Unlike SCSS `@use`, extensionless targets such as `daisyui` are package
+/// specifiers, not local partials. Keep bare specifiers bare and only preserve
+/// explicit relative/root-relative paths.
+fn normalize_css_plugin_path(path: String) -> String {
+    path
+}
+
+/// Extract `@import` / `@use` / `@forward` / `@plugin` source paths from a CSS/SCSS string.
 ///
 /// Returns both the raw source and the normalized source. URL imports
 /// (`http://`, `https://`, `data:`) are skipped. Use [`extract_css_imports`]
@@ -160,6 +176,7 @@ pub fn extract_css_import_sources(source: &str, is_scss: bool) -> Vec<CssImportS
             out.push(CssImportSource {
                 normalized: normalize_css_import_path(src.clone(), is_scss),
                 raw: src,
+                is_plugin: false,
             });
         }
     }
@@ -171,6 +188,20 @@ pub fn extract_css_import_sources(source: &str, is_scss: bool) -> Vec<CssImportS
                 out.push(CssImportSource {
                     normalized: normalize_css_import_path(raw.clone(), true),
                     raw,
+                    is_plugin: false,
+                });
+            }
+        }
+    }
+
+    for cap in CSS_PLUGIN_RE.captures_iter(&stripped) {
+        if let Some(m) = cap.get(1) {
+            let raw = m.as_str().trim().to_string();
+            if !raw.is_empty() && !is_css_url_import(&raw) {
+                out.push(CssImportSource {
+                    normalized: normalize_css_plugin_path(raw.clone()),
+                    raw,
+                    is_plugin: true,
                 });
             }
         }
@@ -179,12 +210,12 @@ pub fn extract_css_import_sources(source: &str, is_scss: bool) -> Vec<CssImportS
     out
 }
 
-/// Extract normalized `@import` / `@use` / `@forward` source paths from a CSS/SCSS string.
+/// Extract normalized `@import` / `@use` / `@forward` / `@plugin` source paths from a CSS/SCSS string.
 ///
-/// Returns specifiers normalized via `normalize_css_import_path` so callers can push
-/// them as `SideEffect` imports without further pre-processing. URL imports
-/// (`http://`, `https://`, `data:`) are skipped. Used by the SFC parser to scan
-/// `<style lang="scss">` block bodies and by plugins that only need entry paths.
+/// Returns specifiers normalized via `normalize_css_import_path`. URL imports
+/// (`http://`, `https://`, `data:`) are skipped. Used by callers that only need
+/// entry/dependency source paths; callers that need import kind information
+/// should use [`extract_css_import_sources`].
 #[must_use]
 pub fn extract_css_imports(source: &str, is_scss: bool) -> Vec<String> {
     extract_css_import_sources(source, is_scss)
@@ -217,7 +248,7 @@ pub fn extract_css_module_exports(source: &str) -> Vec<ExportInfo> {
     exports
 }
 
-/// Parse a CSS/SCSS file, extracting @import, @use, @forward, @apply, and @tailwind directives.
+/// Parse a CSS/SCSS file, extracting @import, @use, @forward, @plugin, @apply, and @tailwind directives.
 pub(crate) fn parse_css_to_module(
     file_id: FileId,
     path: &Path,
@@ -268,6 +299,25 @@ pub(crate) fn parse_css_to_module(
                 imports.push(ImportInfo {
                     source: normalize_css_import_path(m.as_str().to_string(), true),
                     imported_name: ImportedName::SideEffect,
+                    local_name: String::new(),
+                    is_type_only: false,
+                    from_style: false,
+                    span: Span::default(),
+                    source_span: Span::default(),
+                });
+            }
+        }
+    }
+
+    // Extract Tailwind CSS @plugin directives. These can reference npm packages
+    // (e.g. `@plugin "daisyui"`) or explicit local plugin files.
+    for cap in CSS_PLUGIN_RE.captures_iter(&stripped) {
+        if let Some(m) = cap.get(1) {
+            let source = m.as_str().trim().to_string();
+            if !source.is_empty() && !is_css_url_import(&source) {
+                imports.push(ImportInfo {
+                    source: normalize_css_plugin_path(source),
+                    imported_name: ImportedName::Default,
                     local_name: String::new(),
                     is_type_only: false,
                     from_style: false,
@@ -850,6 +900,18 @@ mod tests {
             true,
         );
         assert_eq!(imports, vec!["./real"]);
+    }
+
+    #[test]
+    fn extract_css_imports_at_plugin_keeps_package_bare() {
+        let imports = extract_css_imports(r#"@plugin "daisyui";"#, true);
+        assert_eq!(imports, vec!["daisyui"]);
+    }
+
+    #[test]
+    fn extract_css_imports_at_plugin_tracks_relative_file() {
+        let imports = extract_css_imports(r#"@plugin "./tailwind-plugin.js";"#, false);
+        assert_eq!(imports, vec!["./tailwind-plugin.js"]);
     }
 
     #[test]

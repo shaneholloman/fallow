@@ -2,9 +2,10 @@
 //!
 //! Extracts `<script>` block content from `.vue` and `.svelte` files using regex,
 //! handling `lang`, `src`, and `generic` attributes, and filtering HTML comments.
-//! Also extracts `<style>` block sources (`@import` / `@use` / `@forward` and
-//! `<style src="...">`) so referenced CSS / SCSS files become reachable from the
-//! component, preventing false `unused-files` reports on co-located styles.
+//! Also extracts `<style>` block sources (`@import` / `@use` / `@forward` /
+//! `@plugin` and `<style src="...">`) so referenced CSS / SCSS files become
+//! reachable from the component, preventing false `unused-files` reports on
+//! co-located styles.
 
 use std::path::Path;
 use std::sync::LazyLock;
@@ -362,7 +363,7 @@ fn add_script_src_import(module: &mut ModuleInfo, source: &str) {
 }
 
 /// `lang` attribute values whose body we know how to scan for `@import` /
-/// `@use` / `@forward` directives. Plain `<style>` (no `lang`) is treated as
+/// `@use` / `@forward` / `@plugin` directives. Plain `<style>` (no `lang`) is treated as
 /// CSS. `less`, `stylus`, and `postcss` bodies are NOT scanned because their
 /// import syntax differs (`@import (reference)` modifiers, etc.); their
 /// `<style src="...">` references are still seeded.
@@ -398,10 +399,14 @@ fn merge_style_into_module(style: &SfcStyle, combined: &mut ModuleInfo) {
         return;
     }
 
-    for spec in crate::css::extract_css_imports(&style.body, is_scss) {
+    for source in crate::css::extract_css_import_sources(&style.body, is_scss) {
         combined.imports.push(ImportInfo {
-            source: spec,
-            imported_name: ImportedName::SideEffect,
+            source: source.normalized,
+            imported_name: if source.is_plugin {
+                ImportedName::Default
+            } else {
+                ImportedName::SideEffect
+            },
             local_name: String::new(),
             is_type_only: false,
             from_style: true,
@@ -938,6 +943,24 @@ export const foo = 1;
             style_import.imported_name,
             ImportedName::SideEffect
         ));
+    }
+
+    #[test]
+    fn parse_sfc_extracts_style_plugin_as_default_import() {
+        let info = parse_sfc_to_module(
+            FileId(0),
+            Path::new("Foo.vue"),
+            r#"<template/><style>@plugin "./tailwind-plugin.js";</style>"#,
+            0,
+            false,
+        );
+        let plugin_import = info
+            .imports
+            .iter()
+            .find(|i| i.source == "./tailwind-plugin.js")
+            .expect("style @plugin should create an import");
+        assert!(plugin_import.from_style);
+        assert!(matches!(plugin_import.imported_name, ImportedName::Default));
     }
 
     #[test]

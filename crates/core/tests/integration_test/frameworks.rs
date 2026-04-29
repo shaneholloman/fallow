@@ -267,6 +267,62 @@ fn css_apply_marks_tailwind_as_used() {
 }
 
 #[test]
+fn tailwind_plugin_directive_marks_plugin_targets_used() {
+    let root = fixture_path("tailwind-plugin-directive");
+    let config = create_config(root);
+    let results = fallow_core::analyze(&config).expect("analysis should succeed");
+
+    let unused_dep_names: Vec<&str> = results
+        .unused_dependencies
+        .iter()
+        .map(|d| d.package_name.as_str())
+        .collect();
+    assert!(
+        !unused_dep_names.contains(&"@tailwindcss/typography"),
+        "@tailwindcss/typography should be credited via @plugin: {unused_dep_names:?}"
+    );
+    assert!(
+        !unused_dep_names.contains(&"daisyui"),
+        "daisyui should be credited via @plugin: {unused_dep_names:?}"
+    );
+    assert!(
+        unused_dep_names.contains(&"unused-plugin"),
+        "unreferenced dependencies should still be reported: {unused_dep_names:?}"
+    );
+
+    let unused_file_names: Vec<String> = results
+        .unused_files
+        .iter()
+        .filter_map(|f| f.path.file_name())
+        .filter_map(|f| f.to_str())
+        .map(String::from)
+        .collect();
+    assert!(
+        !unused_file_names.contains(&"tailwind-local-plugin.js".to_string()),
+        "relative @plugin target should be reachable: {unused_file_names:?}"
+    );
+    assert!(
+        unused_file_names.contains(&"unused.css".to_string()),
+        "unreferenced CSS files should still be reported: {unused_file_names:?}"
+    );
+
+    let unused_exports: Vec<(&str, &str)> = results
+        .unused_exports
+        .iter()
+        .map(|e| {
+            (
+                e.path.file_name().and_then(|f| f.to_str()).unwrap_or(""),
+                e.export_name.as_str(),
+            )
+        })
+        .collect();
+    assert!(
+        !unused_exports.contains(&("tailwind-local-plugin.js", "default")),
+        "relative @plugin target should consume the plugin default export: {unused_exports:?}"
+    );
+}
+
+#[test]
 fn pandacss_config_is_not_flagged_unused() {
     let root = fixture_path("pandacss-config");
     let config = create_config(root);
