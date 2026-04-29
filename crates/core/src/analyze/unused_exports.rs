@@ -535,6 +535,11 @@ pub fn find_duplicate_exports(
     }
 
     let mut export_locations: FxHashMap<String, Vec<ExportEntry>> = FxHashMap::default();
+    let file_id_by_path: FxHashMap<&std::path::Path, FileId> = graph
+        .modules
+        .iter()
+        .map(|module| (module.path.as_path(), module.file_id))
+        .collect();
 
     for (idx, module) in graph.modules.iter().enumerate() {
         if !module.is_reachable() || module.is_entry_point() {
@@ -635,7 +640,7 @@ pub fn find_duplicate_exports(
             // modules in different directories) that happen to export the same name
             // are not actionable duplicates since they can never be confused at an
             // import site.
-            let has_shared_importer = has_common_importer(&independent, graph);
+            let has_shared_importer = has_common_importer(&independent, graph, &file_id_by_path);
             if has_shared_importer {
                 Some(DuplicateExport {
                     export_name: name,
@@ -654,54 +659,47 @@ pub fn find_duplicate_exports(
 /// from both. This filters out false positives from unrelated leaf modules (e.g.,
 /// SvelteKit route files in different directories) that coincidentally export the
 /// same name but are never imported together.
-fn has_common_importer(locations: &[DuplicateLocation], graph: &ModuleGraph) -> bool {
+fn has_common_importer(
+    locations: &[DuplicateLocation],
+    graph: &ModuleGraph,
+    file_id_by_path: &FxHashMap<&std::path::Path, FileId>,
+) -> bool {
     if locations.len() <= 1 {
         return false;
     }
 
-    // Collect FileIds for the duplicate locations by matching paths
+    // Collect FileIds for the duplicate locations through a pre-built path index.
     let file_ids: Vec<FileId> = locations
         .iter()
-        .filter_map(|loc| {
-            graph
-                .modules
-                .iter()
-                .find(|m| m.path == loc.path)
-                .map(|m| m.file_id)
-        })
+        .filter_map(|loc| file_id_by_path.get(loc.path.as_path()).copied())
         .collect();
 
     if file_ids.len() <= 1 {
         return false;
     }
 
-    // For each pair, check if they share a common importer via reverse_deps
-    for i in 0..file_ids.len() {
-        let idx_i = file_ids[i].0 as usize;
-        if idx_i >= graph.reverse_deps.len() {
+    let duplicate_files: FxHashSet<FileId> = file_ids.iter().copied().collect();
+    let mut importer_owner: FxHashMap<FileId, FileId> = FxHashMap::default();
+
+    for file_id in file_ids {
+        let idx = file_id.0 as usize;
+        if idx >= graph.reverse_deps.len() {
             continue;
         }
-        let importers_i: FxHashSet<FileId> = graph.reverse_deps[idx_i].iter().copied().collect();
-        for j in (i + 1)..file_ids.len() {
-            let idx_j = file_ids[j].0 as usize;
-            if idx_j >= graph.reverse_deps.len() {
-                continue;
-            }
-            // Check if any importer of file j also imports file i
-            if graph.reverse_deps[idx_j]
-                .iter()
-                .any(|imp| importers_i.contains(imp))
-            {
+
+        for &importer in &graph.reverse_deps[idx] {
+            // One duplicate file importing another is also actionable.
+            if duplicate_files.contains(&importer) {
                 return true;
             }
-            // Also check if one directly imports the other
-            if importers_i.contains(&file_ids[j])
-                || graph.reverse_deps[idx_j].contains(&file_ids[i])
+            if let Some(previous_file) = importer_owner.insert(importer, file_id)
+                && previous_file != file_id
             {
                 return true;
             }
         }
     }
+
     false
 }
 
