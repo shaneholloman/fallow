@@ -1,3 +1,5 @@
+use std::sync::LazyLock;
+
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use fallow_config::ResolvedConfig;
@@ -328,11 +330,116 @@ fn is_storybook_file(path: &std::path::Path) -> bool {
         })
 }
 
+/// File-path globs for framework routing conventions where authors share a
+/// per-file private type across multiple exports (e.g., `Page` + `generateMetadata`
+/// both annotated `Props`). Skipping these mirrors the Storybook treatment:
+/// the type IS technically leaked, but the framework convention forces it,
+/// so flagging every route file produces noise without actionable findings.
+///
+/// Patterns match against the project-relative path. Covers Next.js App
+/// Router and Pages Router (with `src/` variants), Remix, TanStack Router,
+/// Gatsby, and Expo Router special files. Vue and Svelte SFCs are silently
+/// below the rule's reach already (the visitor doesn't surface their
+/// `defineProps<T>()` macros as TS type references), so SvelteKit and Nuxt
+/// do not need entries here.
+const ROUTE_CONVENTION_PATTERNS: &[&str] = &[
+    // Next.js App Router (and `src/app` variant). Patterns prefixed with `**/`
+    // so they match in monorepo subpackages too (e.g. `packages/web/src/app/...`).
+    "**/app/**/page.{ts,tsx,js,jsx}",
+    "**/app/**/layout.{ts,tsx,js,jsx}",
+    "**/app/**/template.{ts,tsx,js,jsx}",
+    "**/app/**/loading.{ts,tsx,js,jsx}",
+    "**/app/**/error.{ts,tsx,js,jsx}",
+    "**/app/**/not-found.{ts,tsx,js,jsx}",
+    "**/app/**/route.{ts,tsx,js,jsx}",
+    "**/app/**/default.{ts,tsx,js,jsx}",
+    "**/app/**/global-error.{ts,tsx,js,jsx}",
+    "**/app/**/forbidden.{ts,tsx,js,jsx}",
+    "**/app/**/unauthorized.{ts,tsx,js,jsx}",
+    "**/app/global-not-found.{ts,tsx,js,jsx}",
+    // Next.js App Router top-level convention files (no nested segments).
+    "**/app/page.{ts,tsx,js,jsx}",
+    "**/app/layout.{ts,tsx,js,jsx}",
+    "**/app/template.{ts,tsx,js,jsx}",
+    "**/app/loading.{ts,tsx,js,jsx}",
+    "**/app/error.{ts,tsx,js,jsx}",
+    "**/app/not-found.{ts,tsx,js,jsx}",
+    "**/app/route.{ts,tsx,js,jsx}",
+    "**/app/default.{ts,tsx,js,jsx}",
+    "**/app/global-error.{ts,tsx,js,jsx}",
+    // Next.js App Router metadata files.
+    "**/app/**/opengraph-image.{ts,tsx,js,jsx}",
+    "**/app/**/twitter-image.{ts,tsx,js,jsx}",
+    "**/app/**/icon.{ts,tsx,js,jsx}",
+    "**/app/**/apple-icon.{ts,tsx,js,jsx}",
+    "**/app/**/manifest.{ts,tsx,js,jsx}",
+    "**/app/**/sitemap.{ts,tsx,js,jsx}",
+    "**/app/**/robots.{ts,tsx,js,jsx}",
+    // Next.js Pages Router (every file is a route by definition). The `**/`
+    // prefix lets monorepo subpackages match (e.g., `apps/web/pages/about.tsx`),
+    // which over-skips any non-framework directory named `pages/`
+    // (e.g., `components/pages/Home.tsx`). Acceptable tradeoff: the leak rule's
+    // false-positive rate on Next.js routes (~62 per real project) is the
+    // dominant signal; component directories named `pages/` are uncommon and
+    // their leaks are still caught by other rules.
+    "**/pages/**/*.{ts,tsx,js,jsx}",
+    // Gatsby templates (Gatsby uses `src/templates/`; pages are already covered
+    // by `**/pages/`). Scoped under `src/` so generic `templates/` directories
+    // (email, code-gen, Handlebars partials) keep `private-type-leak` coverage.
+    "**/src/templates/**/*.{ts,tsx,js,jsx}",
+    // Remix v2 flat routes and folder-route entries. Subtrees under
+    // `app/routes/<segment>/` are NOT skipped wholesale: Remix users commonly
+    // co-locate non-route helpers there where private type leaks are still
+    // actionable.
+    "**/routes/*.{ts,tsx,js,jsx}",
+    "**/routes/**/route.{ts,tsx,js,jsx}",
+    "**/routes/**/_layout.{ts,tsx,js,jsx}",
+    "**/routes/**/_index.{ts,tsx,js,jsx}",
+    "**/routes/**/index.{ts,tsx,js,jsx}",
+    // TanStack Router root file.
+    "**/routes/**/__root.{ts,tsx,js,jsx}",
+    // Expo Router special files. Regular Expo route files reuse Next.js
+    // convention names (`page`, `layout`) and are already covered above.
+    "**/app/**/_layout.{ts,tsx,js,jsx}",
+    "**/app/**/+*.{ts,tsx,js,jsx}",
+];
+
+fn build_route_convention_globset() -> globset::GlobSet {
+    let mut builder = globset::GlobSetBuilder::new();
+    for pattern in ROUTE_CONVENTION_PATTERNS {
+        // `literal_separator(true)` matches the project-wide convention so a
+        // single `*` segment cannot cross `/`. Without this,
+        // `**/routes/*.{ts,tsx,...}` would also match `app/routes/utils/format.ts`,
+        // breaking the "subtrees not skipped wholesale" guarantee for Remix
+        // co-located helpers.
+        let glob = globset::GlobBuilder::new(pattern)
+            .literal_separator(true)
+            .build()
+            .expect("static route-convention glob pattern must be valid");
+        builder.add(glob);
+    }
+    builder
+        .build()
+        .expect("static route-convention globset must build")
+}
+
+fn is_route_convention_file(absolute_path: &std::path::Path, root: &std::path::Path) -> bool {
+    let relative = absolute_path.strip_prefix(root).unwrap_or(absolute_path);
+    // Normalize separators so the forward-slash patterns match on Windows where
+    // `Path::strip_prefix` preserves backslashes.
+    let normalized = relative.to_string_lossy().replace('\\', "/");
+    ROUTE_CONVENTION_GLOBSET.is_match(normalized.as_str())
+}
+
+static ROUTE_CONVENTION_GLOBSET: LazyLock<globset::GlobSet> =
+    LazyLock::new(build_route_convention_globset);
+
 /// Find exported signatures that reference same-file type declarations that
 /// are not exported by that same name.
 pub fn find_private_type_leaks(
     graph: &ModuleGraph,
     modules: &[fallow_types::extract::ModuleInfo],
+    config: &ResolvedConfig,
     suppressions: &SuppressionContext<'_>,
     line_offsets_by_file: &LineOffsetsMap<'_>,
 ) -> Vec<PrivateTypeLeak> {
@@ -352,7 +459,7 @@ pub fn find_private_type_leaks(
         let Some(module) = module_by_id.get(&module_info.file_id) else {
             continue;
         };
-        if is_storybook_file(&module.path) {
+        if is_storybook_file(&module.path) || is_route_convention_file(&module.path, &config.root) {
             continue;
         }
         let local_types: FxHashSet<&str> = module_info

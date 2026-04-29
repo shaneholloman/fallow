@@ -135,8 +135,13 @@ pub fn find_dead_code_full(
             suppress_signature_backing_types(&mut results.unused_types, graph, modules);
         }
         if config.rules.private_type_leaks != Severity::Off {
-            results.private_type_leaks =
-                find_private_type_leaks(graph, modules, &suppressions, &line_offsets_by_file);
+            results.private_type_leaks = find_private_type_leaks(
+                graph,
+                modules,
+                config,
+                &suppressions,
+                &line_offsets_by_file,
+            );
         }
         // @expected-unused tags that became stale (export is now used)
         if config.rules.stale_suppressions != Severity::Off {
