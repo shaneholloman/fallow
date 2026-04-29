@@ -234,14 +234,27 @@ pub fn execute_audit(opts: &AuditOptions<'_>) -> Result<AuditResult, ExitCode> {
     let changed_since = Some(base_ref.as_str());
 
     // Run all three analyses.
-    // Audit mirrors combined mode: when dead-code and health use the same
+    // Audit mirrors combined mode: when dead-code and health share the same
     // production settings, retain the parsed dead-code modules so health does
-    // not rediscover and reparse the same project.
+    // not rediscover, reparse, and reanalyze the same project. Dupes piggy-backs
+    // on that retention to skip its own file discovery when its production setting
+    // also matches dead-code (the modules themselves are unused by dupes, since it
+    // runs a different tokenizer).
     let check_production = opts.production_dead_code.unwrap_or(opts.production);
     let health_production = opts.production_health.unwrap_or(opts.production);
+    let dupes_production = opts.production_dupes.unwrap_or(opts.production);
     let share_dead_code_parse_with_health = check_production == health_production;
+    let share_dead_code_files_with_dupes =
+        share_dead_code_parse_with_health && check_production == dupes_production;
     let mut check_result = run_audit_check(opts, changed_since, share_dead_code_parse_with_health)?;
-    let dupes_result = run_audit_dupes(opts, changed_since)?;
+    let dupes_files = if share_dead_code_files_with_dupes {
+        check_result
+            .as_ref()
+            .and_then(|r| r.shared_parse.as_ref().map(|sp| sp.files.clone()))
+    } else {
+        None
+    };
+    let dupes_result = run_audit_dupes(opts, changed_since, dupes_files)?;
     let shared_parse = if share_dead_code_parse_with_health {
         check_result.as_mut().and_then(|r| r.shared_parse.take())
     } else {
@@ -380,6 +393,7 @@ fn run_audit_check<'a>(
 fn run_audit_dupes<'a>(
     opts: &'a AuditOptions<'a>,
     changed_since: Option<&'a str>,
+    pre_discovered: Option<Vec<fallow_types::discover::DiscoveredFile>>,
 ) -> Result<Option<DupesResult>, ExitCode> {
     let dupes_cfg = match crate::load_config_for_analysis(
         opts.root,
@@ -395,7 +409,7 @@ fn run_audit_dupes<'a>(
         Ok(c) => c.duplicates,
         Err(code) => return Err(code),
     };
-    match crate::dupes::execute_dupes(&DupesOptions {
+    let dupes_opts = DupesOptions {
         root: opts.root,
         config_path: opts.config_path,
         output: opts.output,
@@ -421,7 +435,13 @@ fn run_audit_dupes<'a>(
         explain: opts.explain,
         summary: false,
         group_by: opts.group_by,
-    }) {
+    };
+    let dupes_run = if let Some(files) = pre_discovered {
+        crate::dupes::execute_dupes_with_files(&dupes_opts, files)
+    } else {
+        crate::dupes::execute_dupes(&dupes_opts)
+    };
+    match dupes_run {
         Ok(r) => Ok(Some(r)),
         Err(code) => Err(code),
     }
@@ -948,5 +968,76 @@ mod tests {
         let timings = health.timings.expect("performance timings should be kept");
         assert!(timings.discover_ms.abs() < f64::EPSILON);
         assert!(timings.parse_ms.abs() < f64::EPSILON);
+        // Same production settings, so dupes should also have piggy-backed on
+        // the dead-code file list (no separate verifiable signal in DupesResult,
+        // but the run must still produce a non-None result).
+        assert!(
+            result.dupes.is_some(),
+            "dupes should run when changed files exist"
+        );
+    }
+
+    #[test]
+    fn audit_dupes_falls_back_to_own_discovery_when_health_off() {
+        // When health and dupes have different production settings, dupes must
+        // not borrow files from dead-code (the file sets can differ). The two
+        // execution paths should still produce a result.
+        let tmp = tempfile::TempDir::new().expect("temp dir should be created");
+        let root = tmp.path();
+        fs::create_dir_all(root.join("src")).expect("src dir should be created");
+        fs::write(
+            root.join("package.json"),
+            r#"{"name":"audit-dupes-fallback","main":"src/index.ts"}"#,
+        )
+        .expect("package.json should be written");
+        fs::write(
+            root.join("src/index.ts"),
+            "import { used } from './used';\nused();\n",
+        )
+        .expect("index should be written");
+        fs::write(
+            root.join("src/used.ts"),
+            "export function used() {\n  return 1;\n}\n",
+        )
+        .expect("used module should be written");
+
+        git(root, &["init", "-b", "main"]);
+        git(root, &["add", "."]);
+        git(
+            root,
+            &["-c", "commit.gpgsign=false", "commit", "-m", "initial"],
+        );
+        fs::write(
+            root.join("src/used.ts"),
+            "export function used() {\n  return 1;\n}\nexport function changed() {\n  return 2;\n}\n",
+        )
+        .expect("changed module should be written");
+
+        let config_path = None;
+        let opts = AuditOptions {
+            root,
+            config_path: &config_path,
+            output: OutputFormat::Json,
+            no_cache: true,
+            threads: 1,
+            quiet: true,
+            changed_since: Some("HEAD"),
+            production: false,
+            production_dead_code: Some(true),
+            production_health: Some(false),
+            production_dupes: Some(false),
+            workspace: None,
+            changed_workspaces: None,
+            explain: false,
+            performance: true,
+            group_by: None,
+            dead_code_baseline: None,
+            health_baseline: None,
+            dupes_baseline: None,
+            max_crap: None,
+        };
+
+        let result = execute_audit(&opts).expect("audit should execute");
+        assert!(result.dupes.is_some(), "dupes should still run");
     }
 }

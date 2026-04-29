@@ -148,6 +148,23 @@ pub struct DupesResult {
 
 /// Run duplication analysis, filtering, and baseline handling. Returns results without printing.
 pub fn execute_dupes(opts: &DupesOptions<'_>) -> Result<DupesResult, ExitCode> {
+    execute_dupes_inner(opts, None)
+}
+
+/// Run duplication analysis using a pre-discovered file list (e.g. from the dead-code
+/// pipeline). Skips re-running `discover_files`, mirroring the audit/combined-mode path
+/// that already shares parsed modules with health.
+pub fn execute_dupes_with_files(
+    opts: &DupesOptions<'_>,
+    files: Vec<fallow_types::discover::DiscoveredFile>,
+) -> Result<DupesResult, ExitCode> {
+    execute_dupes_inner(opts, Some(files))
+}
+
+fn execute_dupes_inner(
+    opts: &DupesOptions<'_>,
+    pre_discovered: Option<Vec<fallow_types::discover::DiscoveredFile>>,
+) -> Result<DupesResult, ExitCode> {
     let start = Instant::now();
 
     let config = load_config_for_analysis(
@@ -163,7 +180,7 @@ pub fn execute_dupes(opts: &DupesOptions<'_>) -> Result<DupesResult, ExitCode> {
     )?;
 
     let dupes_config = build_dupes_config(opts, &config.duplicates);
-    let files = fallow_core::discover::discover_files(&config);
+    let files = pre_discovered.unwrap_or_else(|| fallow_core::discover::discover_files(&config));
     let mut report = fallow_core::duplicates::find_duplicates(&config.root, &files, &dupes_config);
 
     // Handle trace (diagnostic mode — early return)

@@ -117,52 +117,9 @@ pub fn run_combined(opts: &CombinedOptions<'_>) -> ExitCode {
 
     // Run dupes (duplication analysis)
     if opts.run_dupes {
-        let dupes_cfg = match load_config_for_analysis(
-            opts.root,
-            opts.config_path,
-            opts.output,
-            opts.no_cache,
-            opts.threads,
-            opts.production_dupes
-                .or_else(|| opts.production.then_some(true)),
-            opts.quiet,
-            fallow_config::ProductionAnalysis::Dupes,
-        ) {
-            Ok(c) => c.duplicates,
-            Err(code) => return code,
-        };
-        let dupes_opts = DupesOptions {
-            root: opts.root,
-            config_path: opts.config_path,
-            output: opts.output,
-            no_cache: opts.no_cache,
-            threads: opts.threads,
-            quiet: opts.quiet,
-            mode: opts
-                .dupes_mode
-                .unwrap_or_else(|| DupesMode::from(dupes_cfg.mode)),
-            min_tokens: dupes_cfg.min_tokens,
-            min_lines: dupes_cfg.min_lines,
-            threshold: opts.dupes_threshold.unwrap_or(dupes_cfg.threshold),
-            skip_local: dupes_cfg.skip_local,
-            cross_language: dupes_cfg.cross_language,
-            ignore_imports: dupes_cfg.ignore_imports,
-            top: None,
-            baseline_path: None,
-            save_baseline_path: None,
-            production: opts.production_dupes.unwrap_or(opts.production),
-            production_override: opts.production_dupes,
-            trace: None,
-            changed_since: opts.changed_since,
-            workspace: opts.workspace,
-            changed_workspaces: opts.changed_workspaces,
-            explain: opts.explain,
-            summary: opts.summary,
-            group_by: opts.group_by,
-        };
-        match crate::dupes::execute_dupes(&dupes_opts) {
+        match run_combined_dupes(opts, check_result.as_ref()) {
             Ok(result) => {
-                dupes_result = Some(result);
+                dupes_result = result;
             }
             Err(code) => return code,
         }
@@ -645,6 +602,78 @@ fn print_combined_codeclimate(
             OutputFormat::CodeClimate,
         ),
     }
+}
+
+/// Build the dupes options and dispatch to either `execute_dupes` or
+/// `execute_dupes_with_files` depending on whether dead-code already produced
+/// a reusable file list (set when both health and dupes share dead-code's
+/// production setting). Extracted out of `run_combined` to keep that function
+/// under the cognitive-complexity / line-count limits.
+fn run_combined_dupes(
+    opts: &CombinedOptions<'_>,
+    check_result: Option<&CheckResult>,
+) -> Result<Option<DupesResult>, ExitCode> {
+    let dupes_cfg = load_config_for_analysis(
+        opts.root,
+        opts.config_path,
+        opts.output,
+        opts.no_cache,
+        opts.threads,
+        opts.production_dupes
+            .or_else(|| opts.production.then_some(true)),
+        opts.quiet,
+        fallow_config::ProductionAnalysis::Dupes,
+    )?
+    .duplicates;
+
+    let dupes_opts = DupesOptions {
+        root: opts.root,
+        config_path: opts.config_path,
+        output: opts.output,
+        no_cache: opts.no_cache,
+        threads: opts.threads,
+        quiet: opts.quiet,
+        mode: opts
+            .dupes_mode
+            .unwrap_or_else(|| DupesMode::from(dupes_cfg.mode)),
+        min_tokens: dupes_cfg.min_tokens,
+        min_lines: dupes_cfg.min_lines,
+        threshold: opts.dupes_threshold.unwrap_or(dupes_cfg.threshold),
+        skip_local: dupes_cfg.skip_local,
+        cross_language: dupes_cfg.cross_language,
+        ignore_imports: dupes_cfg.ignore_imports,
+        top: None,
+        baseline_path: None,
+        save_baseline_path: None,
+        production: opts.production_dupes.unwrap_or(opts.production),
+        production_override: opts.production_dupes,
+        trace: None,
+        changed_since: opts.changed_since,
+        workspace: opts.workspace,
+        changed_workspaces: opts.changed_workspaces,
+        explain: opts.explain,
+        summary: opts.summary,
+        group_by: opts.group_by,
+    };
+
+    let check_production = opts.production_dead_code.unwrap_or(opts.production);
+    let health_production = opts.production_health.unwrap_or(opts.production);
+    let dupes_production = opts.production_dupes.unwrap_or(opts.production);
+    let share_files_with_dupes = opts.run_health
+        && check_production == health_production
+        && check_production == dupes_production;
+    let dupes_files = if share_files_with_dupes {
+        check_result.and_then(|r| r.shared_parse.as_ref().map(|sp| sp.files.clone()))
+    } else {
+        None
+    };
+
+    let dupes_run = if let Some(files) = dupes_files {
+        crate::dupes::execute_dupes_with_files(&dupes_opts, files)
+    } else {
+        crate::dupes::execute_dupes(&dupes_opts)
+    };
+    dupes_run.map(Some)
 }
 
 fn build_health_opts<'a>(opts: &'a CombinedOptions<'a>) -> HealthOptions<'a> {
