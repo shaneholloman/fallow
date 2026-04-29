@@ -1,7 +1,7 @@
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
-use fallow_config::{OutputFormat, ResolvedConfig};
+use fallow_config::{OutputFormat, ResolvedConfig, RulesConfig, Severity};
 use fallow_core::results::AnalysisResults;
 
 use crate::baseline::{BaselineData, filter_new_issues};
@@ -52,6 +52,13 @@ impl IssueFilters {
             || self.circular_deps
             || self.boundary_violations
             || self.stale_suppressions
+    }
+
+    /// Enable off-by-default issue types when explicitly requested as filters.
+    pub fn activate_explicit_opt_ins(&self, rules: &mut RulesConfig) {
+        if self.private_type_leaks && rules.private_type_leaks == Severity::Off {
+            rules.private_type_leaks = Severity::Warn;
+        }
     }
 
     /// When any filter is active, clear issue types that were NOT requested.
@@ -196,6 +203,8 @@ pub fn execute_check(opts: &CheckOptions<'_>) -> Result<CheckResult, ExitCode> {
     if opts.include_entry_exports {
         config.include_entry_exports = true;
     }
+
+    opts.filters.activate_explicit_opt_ins(&mut config.rules);
 
     // Workspace filter resolution (either --workspace or --changed-workspaces)
     let ws_roots = filtering::resolve_workspace_scope(
@@ -649,6 +658,18 @@ mod tests {
             boundary_violations: false,
             stale_suppressions: false,
         }
+    }
+
+    #[test]
+    fn private_type_leaks_filter_opts_in_off_by_default_rule() {
+        let mut rules = fallow_config::RulesConfig::default();
+        assert_eq!(rules.private_type_leaks, fallow_config::Severity::Off);
+
+        let mut filters = no_filters();
+        filters.private_type_leaks = true;
+        filters.activate_explicit_opt_ins(&mut rules);
+
+        assert_eq!(rules.private_type_leaks, fallow_config::Severity::Warn);
     }
 
     fn make_results() -> AnalysisResults {

@@ -259,7 +259,7 @@ enum Command {
         #[arg(long)]
         unused_types: bool,
 
-        /// Only report exported signatures that reference same-file private types
+        /// Opt in to private type leak API hygiene findings and only report that issue type
         #[arg(long)]
         private_type_leaks: bool,
 

@@ -57,7 +57,7 @@ impl std::str::FromStr for Severity {
 /// Per-issue-type severity configuration.
 ///
 /// Controls which issue types cause CI failure, are reported as warnings,
-/// or are suppressed entirely. All fields default to `Severity::Error`.
+/// or are suppressed entirely. Most fields default to `Severity::Error`.
 ///
 /// Rule names use kebab-case in config files (e.g., `"unused-files": "error"`).
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
@@ -69,7 +69,7 @@ pub struct RulesConfig {
     pub unused_exports: Severity,
     #[serde(default)]
     pub unused_types: Severity,
-    #[serde(default)]
+    #[serde(default = "Severity::default_off")]
     pub private_type_leaks: Severity,
     #[serde(default)]
     pub unused_dependencies: Severity,
@@ -109,7 +109,7 @@ impl Default for RulesConfig {
             unused_files: Severity::Error,
             unused_exports: Severity::Error,
             unused_types: Severity::Error,
-            private_type_leaks: Severity::Error,
+            private_type_leaks: Severity::Off,
             unused_dependencies: Severity::Error,
             unused_dev_dependencies: Severity::Warn,
             unused_optional_dependencies: Severity::Warn,
@@ -241,12 +241,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rules_default_all_error_except_type_only() {
+    fn rules_default_severities() {
         let rules = RulesConfig::default();
         assert_eq!(rules.unused_files, Severity::Error);
         assert_eq!(rules.unused_exports, Severity::Error);
         assert_eq!(rules.unused_types, Severity::Error);
-        assert_eq!(rules.private_type_leaks, Severity::Error);
+        assert_eq!(rules.private_type_leaks, Severity::Off);
         assert_eq!(rules.unused_dependencies, Severity::Error);
         assert_eq!(rules.unused_dev_dependencies, Severity::Warn);
         assert_eq!(rules.unused_optional_dependencies, Severity::Warn);
