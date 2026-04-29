@@ -1478,6 +1478,8 @@ mod tests {
             complexity: vec![],
             flag_uses: vec![],
             class_heritage: vec![],
+            local_type_declarations: Vec::new(),
+            public_signature_type_references: Vec::new(),
         };
 
         let (cyc, cog, funcs, lines) = aggregate_complexity(&module);
@@ -1507,6 +1509,8 @@ mod tests {
             value_referenced_import_bindings: vec![],
             flag_uses: vec![],
             class_heritage: vec![],
+            local_type_declarations: Vec::new(),
+            public_signature_type_references: Vec::new(),
             line_offsets: vec![0, 10, 20, 30, 40], // 5 lines
             complexity: vec![fallow_types::extract::FunctionComplexity {
                 name: "doStuff".into(),
@@ -1546,6 +1550,8 @@ mod tests {
             value_referenced_import_bindings: vec![],
             flag_uses: vec![],
             class_heritage: vec![],
+            local_type_declarations: Vec::new(),
+            public_signature_type_references: Vec::new(),
             line_offsets: vec![0, 10, 20], // 3 lines
             complexity: vec![
                 fallow_types::extract::FunctionComplexity {
@@ -1815,6 +1821,8 @@ mod tests {
             complexity: functions,
             flag_uses: vec![],
             class_heritage: vec![],
+            local_type_declarations: Vec::new(),
+            public_signature_type_references: Vec::new(),
         }
     }
 

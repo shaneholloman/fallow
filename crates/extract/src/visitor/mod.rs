@@ -16,7 +16,9 @@ use crate::{
     DynamicImportInfo, DynamicImportPattern, ExportInfo, ExportName, ImportInfo, MemberAccess,
     MemberInfo, ModuleInfo, ReExportInfo, RequireCallInfo, VisibilityTag,
 };
-use fallow_types::extract::ClassHeritageInfo;
+use fallow_types::extract::{
+    ClassHeritageInfo, LocalTypeDeclaration, PublicSignatureTypeReference,
+};
 
 #[derive(Debug, Clone)]
 struct LocalClassExportInfo {
@@ -24,6 +26,13 @@ struct LocalClassExportInfo {
     super_class: Option<String>,
     implemented_interfaces: Vec<String>,
     instance_bindings: Vec<(String, String)>,
+}
+
+#[derive(Debug, Clone)]
+struct LocalSignatureTypeReference {
+    owner_name: String,
+    type_name: String,
+    span: Span,
 }
 
 /// One Angular `@Component({ template: \`...\` })` decorator captured during
@@ -74,6 +83,12 @@ pub(crate) struct ModuleInfoExtractor {
     pending_namespace_members: Vec<MemberInfo>,
     /// Heritage metadata for exported classes.
     pub(crate) class_heritage: Vec<ClassHeritageInfo>,
+    /// Module-scope type-capable declarations.
+    pub(crate) local_type_declarations: Vec<LocalTypeDeclaration>,
+    /// Public signature type references already mapped to exported names.
+    pub(crate) public_signature_type_references: Vec<PublicSignatureTypeReference>,
+    /// Public signature type references keyed by local declaration name.
+    local_signature_type_references: Vec<LocalSignatureTypeReference>,
     /// Module-scope local class declarations keyed by local binding name.
     local_class_exports: FxHashMap<String, LocalClassExportInfo>,
     /// Block nesting depth used to distinguish module-scope declarations.
@@ -182,6 +197,30 @@ impl ModuleInfoExtractor {
         self.member_accesses.extend(additional_accesses);
     }
 
+    fn map_local_signature_refs_to_exports(&mut self) {
+        if self.local_signature_type_references.is_empty() {
+            return;
+        }
+
+        for export in &self.exports {
+            let export_name = export.name.to_string();
+            let Some(local_name) = export.local_name.as_deref().or(Some(export_name.as_str()))
+            else {
+                continue;
+            };
+            self.public_signature_type_references.extend(
+                self.local_signature_type_references
+                    .iter()
+                    .filter(|reference| reference.owner_name == local_name)
+                    .map(|reference| PublicSignatureTypeReference {
+                        export_name: export_name.clone(),
+                        type_name: reference.type_name.clone(),
+                        span: reference.span,
+                    }),
+            );
+        }
+    }
+
     /// Map bound member accesses to their target symbol member accesses.
     ///
     /// When `const x = new Foo()` and later `x.bar()`, or `const x: Service`
@@ -235,6 +274,7 @@ impl ModuleInfoExtractor {
         self.enrich_local_class_exports();
         self.record_exported_instance_bindings();
         self.resolve_bound_member_accesses();
+        self.map_local_signature_refs_to_exports();
         ModuleInfo {
             file_id,
             exports: self.exports,
@@ -255,6 +295,8 @@ impl ModuleInfoExtractor {
             complexity: Vec::new(),
             flag_uses: Vec::new(),
             class_heritage: self.class_heritage,
+            local_type_declarations: self.local_type_declarations,
+            public_signature_type_references: self.public_signature_type_references,
         }
     }
 
@@ -280,6 +322,7 @@ impl ModuleInfoExtractor {
         self.enrich_local_class_exports();
         self.record_exported_instance_bindings();
         self.resolve_bound_member_accesses();
+        self.map_local_signature_refs_to_exports();
         info.imports.extend(self.imports);
         info.exports.extend(self.exports);
         info.re_exports.extend(self.re_exports);
@@ -291,6 +334,10 @@ impl ModuleInfoExtractor {
         info.whole_object_uses.extend(self.whole_object_uses);
         info.has_cjs_exports |= self.has_cjs_exports;
         info.class_heritage.extend(self.class_heritage);
+        info.local_type_declarations
+            .extend(self.local_type_declarations);
+        info.public_signature_type_references
+            .extend(self.public_signature_type_references);
     }
 }
 

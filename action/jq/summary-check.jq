@@ -32,6 +32,7 @@ else
     table_row("Unused files"; "unused_files"; "unused-files"),
     table_row("Unused exports"; "unused_exports"; "unused-exports"),
     table_row("Unused types"; "unused_types"; "unused-types"),
+    table_row("Private type leaks"; "private_type_leaks"; "private-type-leaks"),
     table_row("Unused dependencies"; "unused_dependencies"; "unused-dependencies"),
     table_row("Unused devDependencies"; "unused_dev_dependencies"; "unused-dependencies"),
     table_row("Unused optionalDependencies"; "unused_optional_dependencies"; "unused-dependencies"),
@@ -56,6 +57,9 @@ else
   section("Unused types"; "unused_types";
     "Type exports with no known consumers.\n\n| File | Line | Type |\n|------|-----:|------|\n";
     "| `\(.path)` | \(.line) | `\(.export_name)` |") +
+  section("Private type leaks"; "private_type_leaks";
+    "Exported signatures that reference same-file private types.\n\n| File | Line | Export | Private type |\n|------|-----:|--------|--------------|\n";
+    "| `\(.path)` | \(.line) | `\(.export_name)` | `\(.type_name)` |") +
   section("Unused dependencies"; "unused_dependencies";
     "Listed in `dependencies` but never imported by the declaring workspace.\n\n| Package | Imported elsewhere |\n|---------|--------------------|\n";
     "| `\(.package_name)` | \(workspace_context) |") +

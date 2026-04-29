@@ -38,6 +38,8 @@ fn cache_roundtrip() {
         complexity: vec![],
         flag_uses: vec![],
         class_heritage: vec![],
+        local_type_declarations: vec![],
+        public_signature_type_references: vec![],
     };
 
     store.insert(std::path::Path::new("test.ts"), cached);
@@ -186,6 +188,8 @@ fn incremental_cache_prune_stale_entries() {
         complexity: vec![],
         flag_uses: vec![],
         class_heritage: vec![],
+        local_type_declarations: vec![],
+        public_signature_type_references: vec![],
     };
 
     store.insert(std::path::Path::new("/project/existing.ts"), make_module());

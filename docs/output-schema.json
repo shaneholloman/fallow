@@ -75,7 +75,7 @@
     "CheckOutput": {
       "title": "fallow dead-code --format json",
       "type": "object",
-      "required": ["schema_version", "version", "elapsed_ms", "total_issues", "unused_files", "unused_exports", "unused_types", "unused_dependencies", "unused_dev_dependencies", "unused_optional_dependencies", "unused_enum_members", "unused_class_members", "unresolved_imports", "unlisted_dependencies", "duplicate_exports", "type_only_dependencies", "test_only_dependencies", "circular_dependencies", "boundary_violations", "stale_suppressions"],
+      "required": ["schema_version", "version", "elapsed_ms", "total_issues", "unused_files", "unused_exports", "unused_types", "private_type_leaks", "unused_dependencies", "unused_dev_dependencies", "unused_optional_dependencies", "unused_enum_members", "unused_class_members", "unresolved_imports", "unlisted_dependencies", "duplicate_exports", "type_only_dependencies", "test_only_dependencies", "circular_dependencies", "boundary_violations", "stale_suppressions"],
       "properties": {
         "schema_version": { "$ref": "#/definitions/SchemaVersion" },
         "version": { "$ref": "#/definitions/ToolVersion" },
@@ -95,6 +95,10 @@
         "unused_types": {
           "type": "array",
           "items": { "$ref": "#/definitions/UnusedExport" }
+        },
+        "private_type_leaks": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/PrivateTypeLeak" }
         },
         "unused_dependencies": {
           "type": "array",
@@ -202,7 +206,7 @@
     "CheckGroupedEntry": {
       "description": "A single group within grouped dead code output. Contains the group key, a per-group total, and the same issue arrays as CheckOutput.",
       "type": "object",
-      "required": ["key", "total_issues", "unused_files", "unused_exports", "unused_types", "unused_dependencies", "unused_dev_dependencies", "unused_optional_dependencies", "unused_enum_members", "unused_class_members", "unresolved_imports", "unlisted_dependencies", "duplicate_exports", "type_only_dependencies", "test_only_dependencies", "circular_dependencies", "boundary_violations"],
+      "required": ["key", "total_issues", "unused_files", "unused_exports", "unused_types", "private_type_leaks", "unused_dependencies", "unused_dev_dependencies", "unused_optional_dependencies", "unused_enum_members", "unused_class_members", "unresolved_imports", "unlisted_dependencies", "duplicate_exports", "type_only_dependencies", "test_only_dependencies", "circular_dependencies", "boundary_violations"],
       "properties": {
         "key": {
           "type": "string",
@@ -228,6 +232,10 @@
         "unused_types": {
           "type": "array",
           "items": { "$ref": "#/definitions/UnusedExport" }
+        },
+        "private_type_leaks": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/PrivateTypeLeak" }
         },
         "unused_dependencies": {
           "type": "array",
@@ -1461,7 +1469,7 @@
       "properties": {
         "type": {
           "type": "string",
-          "enum": ["remove-export", "delete-file", "remove-dependency", "move-dependency", "remove-enum-member", "remove-class-member", "resolve-import", "install-dependency", "remove-duplicate", "move-to-dev", "refactor-cycle"],
+          "enum": ["remove-export", "delete-file", "remove-dependency", "move-dependency", "remove-enum-member", "remove-class-member", "resolve-import", "install-dependency", "remove-duplicate", "move-to-dev", "refactor-cycle", "refactor-boundary", "export-type"],
           "description": "Kebab-case identifier for the fix action."
         },
         "auto_fixable": {
@@ -1756,6 +1764,41 @@
         "is_re_export": {
           "type": "boolean",
           "description": "Whether this finding comes from a barrel/index re-export rather than the source definition."
+        },
+        "actions": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/Action" },
+          "description": "Suggested actions to resolve this issue."
+        }
+      }
+    },
+    "PrivateTypeLeak": {
+      "type": "object",
+      "required": ["path", "export_name", "type_name", "line", "col", "span_start", "actions"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "File path containing the exported signature."
+        },
+        "export_name": {
+          "type": "string",
+          "description": "Name of the exported symbol whose signature references a private type."
+        },
+        "type_name": {
+          "type": "string",
+          "description": "Name of the same-file private type referenced by the exported signature."
+        },
+        "line": {
+          "type": "integer",
+          "description": "1-based line number."
+        },
+        "col": {
+          "type": "integer",
+          "description": "0-based byte column offset."
+        },
+        "span_start": {
+          "type": "integer",
+          "description": "Byte offset of the private type reference in the source file."
         },
         "actions": {
           "type": "array",
@@ -2289,6 +2332,7 @@
         "unused_files": { "type": "integer" },
         "unused_exports": { "type": "integer" },
         "unused_types": { "type": "integer" },
+        "private_type_leaks": { "type": "integer" },
         "unused_dependencies": { "type": "integer" },
         "unused_dev_dependencies": { "type": "integer" },
         "unused_enum_members": { "type": "integer" },

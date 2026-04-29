@@ -15,6 +15,7 @@ export interface DeadCodeOptions extends AnalysisOptions {
   unusedExports?: boolean;
   unusedDeps?: boolean;
   unusedTypes?: boolean;
+  privateTypeLeaks?: boolean;
   unusedEnumMembers?: boolean;
   unusedClassMembers?: boolean;
   unresolvedImports?: boolean;
@@ -79,6 +80,7 @@ export interface DeadCodeSummary {
   unused_files: number;
   unused_exports: number;
   unused_types: number;
+  private_type_leaks: number;
   unused_dependencies: number;
   unused_enum_members: number;
   unused_class_members: number;
@@ -108,6 +110,17 @@ export interface UnusedExportFinding {
   export_name: string;
   line: number;
   col: number;
+  actions?: AnalysisAction[];
+  [key: string]: unknown;
+}
+
+export interface PrivateTypeLeakFinding {
+  path: string;
+  export_name: string;
+  type_name: string;
+  line: number;
+  col: number;
+  span_start?: number;
   actions?: AnalysisAction[];
   [key: string]: unknown;
 }
@@ -210,6 +223,7 @@ export interface DeadCodeReport {
   unused_files: UnusedFileFinding[];
   unused_exports: UnusedExportFinding[];
   unused_types: UnusedExportFinding[];
+  private_type_leaks: PrivateTypeLeakFinding[];
   unused_dependencies: UnusedDependencyFinding[];
   unused_dev_dependencies: UnusedDependencyFinding[];
   unused_optional_dependencies: UnusedDependencyFinding[];

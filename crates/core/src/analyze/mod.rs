@@ -22,7 +22,10 @@ use unused_deps::{
     find_test_only_dependencies, find_type_only_dependencies, find_unlisted_dependencies,
     find_unresolved_imports, find_unused_dependencies,
 };
-use unused_exports::{collect_export_usages, find_duplicate_exports, find_unused_exports};
+use unused_exports::{
+    collect_export_usages, find_duplicate_exports, find_private_type_leaks, find_unused_exports,
+    suppress_signature_backing_types,
+};
 use unused_files::find_unused_files;
 use unused_members::find_unused_members;
 
@@ -113,7 +116,10 @@ pub fn find_dead_code_full(
         results.unused_files = find_unused_files(graph, &suppressions);
     }
 
-    if config.rules.unused_exports != Severity::Off || config.rules.unused_types != Severity::Off {
+    if config.rules.unused_exports != Severity::Off
+        || config.rules.unused_types != Severity::Off
+        || config.rules.private_type_leaks != Severity::Off
+    {
         let (exports, types, stale_expected) = find_unused_exports(
             graph,
             config,
@@ -126,6 +132,11 @@ pub fn find_dead_code_full(
         }
         if config.rules.unused_types != Severity::Off {
             results.unused_types = types;
+            suppress_signature_backing_types(&mut results.unused_types, graph, modules);
+        }
+        if config.rules.private_type_leaks != Severity::Off {
+            results.private_type_leaks =
+                find_private_type_leaks(graph, modules, &suppressions, &line_offsets_by_file);
         }
         // @expected-unused tags that became stale (export is now used)
         if config.rules.stale_suppressions != Severity::Off {
@@ -511,6 +522,7 @@ mod tests {
                 unused_files: Severity::Off,
                 unused_exports: Severity::Off,
                 unused_types: Severity::Off,
+                private_type_leaks: Severity::Off,
                 unused_dependencies: Severity::Off,
                 unused_dev_dependencies: Severity::Off,
                 unused_optional_dependencies: Severity::Off,
@@ -736,6 +748,8 @@ mod tests {
                 complexity: vec![],
                 flag_uses: vec![],
                 class_heritage: vec![],
+                local_type_declarations: Vec::new(),
+                public_signature_type_references: Vec::new(),
             }];
 
             let rules = RulesConfig {

@@ -33,8 +33,9 @@ use fallow_types::discover::{DiscoveredFile, FileId};
 // Re-export all extract types from fallow-types
 pub use fallow_types::extract::{
     ClassHeritageInfo, DynamicImportInfo, DynamicImportPattern, ExportInfo, ExportName, ImportInfo,
-    ImportedName, MemberAccess, MemberInfo, MemberKind, ModuleInfo, ParseResult, ReExportInfo,
-    RequireCallInfo, VisibilityTag, compute_line_offsets,
+    ImportedName, LocalTypeDeclaration, MemberAccess, MemberInfo, MemberKind, ModuleInfo,
+    ParseResult, PublicSignatureTypeReference, ReExportInfo, RequireCallInfo, VisibilityTag,
+    compute_line_offsets,
 };
 
 // Re-export extraction functions for internal use and fuzzing

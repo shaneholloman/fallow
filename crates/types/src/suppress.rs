@@ -25,6 +25,8 @@ pub enum IssueKind {
     UnusedExport,
     /// An unused type export.
     UnusedType,
+    /// An exported signature that references a same-file private type.
+    PrivateTypeLeak,
     /// An unused dependency.
     UnusedDependency,
     /// An unused dev dependency.
@@ -67,6 +69,7 @@ impl IssueKind {
             "unused-file" => Some(Self::UnusedFile),
             "unused-export" => Some(Self::UnusedExport),
             "unused-type" => Some(Self::UnusedType),
+            "private-type-leak" => Some(Self::PrivateTypeLeak),
             "unused-dependency" => Some(Self::UnusedDependency),
             "unused-dev-dependency" => Some(Self::UnusedDevDependency),
             "unused-enum-member" => Some(Self::UnusedEnumMember),
@@ -94,22 +97,23 @@ impl IssueKind {
             Self::UnusedFile => 1,
             Self::UnusedExport => 2,
             Self::UnusedType => 3,
-            Self::UnusedDependency => 4,
-            Self::UnusedDevDependency => 5,
-            Self::UnusedEnumMember => 6,
-            Self::UnusedClassMember => 7,
-            Self::UnresolvedImport => 8,
-            Self::UnlistedDependency => 9,
-            Self::DuplicateExport => 10,
-            Self::CodeDuplication => 11,
-            Self::CircularDependency => 12,
-            Self::TypeOnlyDependency => 13,
-            Self::TestOnlyDependency => 14,
-            Self::BoundaryViolation => 15,
-            Self::CoverageGaps => 16,
-            Self::FeatureFlag => 17,
-            Self::Complexity => 18,
-            Self::StaleSuppression => 19,
+            Self::PrivateTypeLeak => 4,
+            Self::UnusedDependency => 5,
+            Self::UnusedDevDependency => 6,
+            Self::UnusedEnumMember => 7,
+            Self::UnusedClassMember => 8,
+            Self::UnresolvedImport => 9,
+            Self::UnlistedDependency => 10,
+            Self::DuplicateExport => 11,
+            Self::CodeDuplication => 12,
+            Self::CircularDependency => 13,
+            Self::TypeOnlyDependency => 14,
+            Self::TestOnlyDependency => 15,
+            Self::BoundaryViolation => 16,
+            Self::CoverageGaps => 17,
+            Self::FeatureFlag => 18,
+            Self::Complexity => 19,
+            Self::StaleSuppression => 20,
         }
     }
 
@@ -120,22 +124,23 @@ impl IssueKind {
             1 => Some(Self::UnusedFile),
             2 => Some(Self::UnusedExport),
             3 => Some(Self::UnusedType),
-            4 => Some(Self::UnusedDependency),
-            5 => Some(Self::UnusedDevDependency),
-            6 => Some(Self::UnusedEnumMember),
-            7 => Some(Self::UnusedClassMember),
-            8 => Some(Self::UnresolvedImport),
-            9 => Some(Self::UnlistedDependency),
-            10 => Some(Self::DuplicateExport),
-            11 => Some(Self::CodeDuplication),
-            12 => Some(Self::CircularDependency),
-            13 => Some(Self::TypeOnlyDependency),
-            14 => Some(Self::TestOnlyDependency),
-            15 => Some(Self::BoundaryViolation),
-            16 => Some(Self::CoverageGaps),
-            17 => Some(Self::FeatureFlag),
-            18 => Some(Self::Complexity),
-            19 => Some(Self::StaleSuppression),
+            4 => Some(Self::PrivateTypeLeak),
+            5 => Some(Self::UnusedDependency),
+            6 => Some(Self::UnusedDevDependency),
+            7 => Some(Self::UnusedEnumMember),
+            8 => Some(Self::UnusedClassMember),
+            9 => Some(Self::UnresolvedImport),
+            10 => Some(Self::UnlistedDependency),
+            11 => Some(Self::DuplicateExport),
+            12 => Some(Self::CodeDuplication),
+            13 => Some(Self::CircularDependency),
+            14 => Some(Self::TypeOnlyDependency),
+            15 => Some(Self::TestOnlyDependency),
+            16 => Some(Self::BoundaryViolation),
+            17 => Some(Self::CoverageGaps),
+            18 => Some(Self::FeatureFlag),
+            19 => Some(Self::Complexity),
+            20 => Some(Self::StaleSuppression),
             _ => None,
         }
     }
@@ -189,6 +194,10 @@ mod tests {
             Some(IssueKind::UnusedExport)
         );
         assert_eq!(IssueKind::parse("unused-type"), Some(IssueKind::UnusedType));
+        assert_eq!(
+            IssueKind::parse("private-type-leak"),
+            Some(IssueKind::PrivateTypeLeak)
+        );
         assert_eq!(
             IssueKind::parse("unused-dependency"),
             Some(IssueKind::UnusedDependency)
@@ -271,7 +280,7 @@ mod tests {
     #[test]
     fn discriminant_out_of_range() {
         assert_eq!(IssueKind::from_discriminant(0), None);
-        assert_eq!(IssueKind::from_discriminant(20), None);
+        assert_eq!(IssueKind::from_discriminant(21), None);
         assert_eq!(IssueKind::from_discriminant(u8::MAX), None);
     }
 
@@ -281,6 +290,7 @@ mod tests {
             IssueKind::UnusedFile,
             IssueKind::UnusedExport,
             IssueKind::UnusedType,
+            IssueKind::PrivateTypeLeak,
             IssueKind::UnusedDependency,
             IssueKind::UnusedDevDependency,
             IssueKind::UnusedEnumMember,
@@ -304,7 +314,7 @@ mod tests {
             );
         }
         assert_eq!(IssueKind::from_discriminant(0), None);
-        assert_eq!(IssueKind::from_discriminant(20), None);
+        assert_eq!(IssueKind::from_discriminant(21), None);
     }
 
     // ── Discriminant uniqueness ─────────────────────────────────
@@ -315,6 +325,7 @@ mod tests {
             IssueKind::UnusedFile,
             IssueKind::UnusedExport,
             IssueKind::UnusedType,
+            IssueKind::PrivateTypeLeak,
             IssueKind::UnusedDependency,
             IssueKind::UnusedDevDependency,
             IssueKind::UnusedEnumMember,

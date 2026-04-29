@@ -125,6 +125,7 @@
         "unused-files": "error",
         "unused-exports": "error",
         "unused-types": "error",
+        "private-type-leaks": "error",
         "unused-dependencies": "error",
         "unused-dev-dependencies": "warn",
         "unused-optional-dependencies": "warn",
@@ -748,6 +749,10 @@
           "$ref": "#/$defs/Severity",
           "default": "error"
         },
+        "private-type-leaks": {
+          "$ref": "#/$defs/Severity",
+          "default": "error"
+        },
         "unused-dependencies": {
           "$ref": "#/$defs/Severity",
           "default": "error"
@@ -1083,6 +1088,16 @@
           ]
         },
         "unused-types": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Severity"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "private-type-leaks": {
           "anyOf": [
             {
               "$ref": "#/$defs/Severity"

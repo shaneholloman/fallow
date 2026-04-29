@@ -5,8 +5,8 @@ use std::time::Duration;
 use colored::Colorize;
 use fallow_config::{RulesConfig, Severity};
 use fallow_core::results::{
-    AnalysisResults, TestOnlyDependency, TypeOnlyDependency, UnusedDependency, UnusedExport,
-    UnusedMember,
+    AnalysisResults, PrivateTypeLeak, TestOnlyDependency, TypeOnlyDependency, UnusedDependency,
+    UnusedExport, UnusedMember,
 };
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -240,6 +240,15 @@ fn format_unused_export(e: &UnusedExport) -> String {
     )
 }
 
+fn format_private_type_leak(e: &PrivateTypeLeak) -> String {
+    format!(
+        "{} {} references private type {}",
+        format!(":{}", e.line).dimmed(),
+        e.export_name.bold(),
+        e.type_name.bold()
+    )
+}
+
 fn format_unused_member(m: &UnusedMember) -> String {
     format!(
         "{} {}",
@@ -380,6 +389,7 @@ fn build_unused_code_section(
     let has_unused_code = !results.unused_files.is_empty()
         || !filtered_exports.is_empty()
         || !filtered_types.is_empty()
+        || !results.private_type_leaks.is_empty()
         || !results.unused_enum_members.is_empty()
         || !results.unused_class_members.is_empty();
     if !has_unused_code {
@@ -429,6 +439,17 @@ fn build_unused_code_section(
         &format_unused_export,
     );
     push_suppressed_count_note(lines, suppressed_types);
+
+    build_human_grouped_section(
+        lines,
+        &results.private_type_leaks,
+        "Private type leaks",
+        severity_to_level(rules.private_type_leaks),
+        root,
+        max_grouped_files,
+        |e| e.path.as_path(),
+        &format_private_type_leak,
+    );
 
     build_human_grouped_section(
         lines,
@@ -1076,6 +1097,9 @@ fn collect_matching_rules(
     for e in &results.unused_types {
         check(&e.path);
     }
+    for e in &results.private_type_leaks {
+        check(&e.path);
+    }
     for m in &results.unused_enum_members {
         check(&m.path);
     }
@@ -1401,6 +1425,11 @@ pub(in crate::report) fn print_check_summary(
             "Unused types",
             results.unused_types.len(),
             severity_to_level(rules.unused_types),
+        ),
+        (
+            "Private type leaks",
+            results.private_type_leaks.len(),
+            severity_to_level(rules.private_type_leaks),
         ),
         (
             "Unused dependencies",

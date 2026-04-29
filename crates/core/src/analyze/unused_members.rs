@@ -963,6 +963,8 @@ mod tests {
                 implements: implements.iter().map(ToString::to_string).collect(),
                 instance_bindings: Vec::new(),
             }],
+            local_type_declarations: vec![],
+            public_signature_type_references: vec![],
         }
     }
 

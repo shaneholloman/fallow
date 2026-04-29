@@ -22,6 +22,8 @@ def dependency_action(pkg):
     "::warning file=\(.path | san),line=\(.line),col=\(.col + 1),title=Unused export::\(if .is_re_export then "Re-exported" else "Exported" end) \(if .is_type_only then "type" else "value" end) '\(.export_name | san)' is never imported by other modules.\(nl)\(nl)If this export is part of a public API, consider adding it to the entry configuration.\(nl)Otherwise, remove the export keyword or delete the declaration."),
   (.unused_types[]? |
     "::warning file=\(.path | san),line=\(.line),col=\(.col + 1),title=Unused type::\(if .is_re_export then "Re-exported" else "Exported" end) type '\(.export_name | san)' is never imported by other modules.\(nl)\(nl)If only used internally, remove the export keyword."),
+  (.private_type_leaks[]? |
+    "::warning file=\(.path | san),line=\(.line),col=\(.col + 1),title=Private type leak::Export '\(.export_name | san)' references private type '\(.type_name | san)'.\(nl)\(nl)Export the referenced type or remove it from the public signature."),
   (.unused_dependencies[]? |
     "::warning file=\(.path | san)\(if .line > 0 then ",line=\(.line)" else "" end),title=Unused dependency::Package '\(.package_name | san)' is listed in dependencies but never imported by this package.\(workspace_context)\(nl)\(nl)\(dependency_action(.package_name | san))"),
   (.unused_dev_dependencies[]? |

@@ -266,6 +266,8 @@ fn empty_sfc_module(file_id: FileId, source: &str, content_hash: u64) -> ModuleI
         complexity: Vec::new(),
         flag_uses: Vec::new(),
         class_heritage: vec![],
+        local_type_declarations: Vec::new(),
+        public_signature_type_references: Vec::new(),
     }
 }
 

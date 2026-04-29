@@ -1,6 +1,6 @@
 # Fallow: Rust-native codebase intelligence for TypeScript and JavaScript
 
-Fallow is codebase intelligence for TypeScript and JavaScript. The free static layer finds unused files, exports, dependencies, types, enum members, class members, unresolved imports, unlisted deps, duplicate exports, circular dependencies, boundary violations, code duplication, and complexity hotspots. A paid runtime intelligence layer (Fallow Runtime) adds production execution evidence (hot and cold paths, runtime-backed review, runtime-weighted health, stale-flag evidence, trends, alerts). Rust alternative to [knip](https://github.com/webpro-nl/knip) built on the Oxc parser ecosystem.
+Fallow is codebase intelligence for TypeScript and JavaScript. The free static layer finds unused files, exports, dependencies, types, private type leaks, enum members, class members, unresolved imports, unlisted deps, duplicate exports, circular dependencies, boundary violations, code duplication, and complexity hotspots. A paid runtime intelligence layer (Fallow Runtime) adds production execution evidence (hot and cold paths, runtime-backed review, runtime-weighted health, stale-flag evidence, trends, alerts). Rust alternative to [knip](https://github.com/webpro-nl/knip) built on the Oxc parser ecosystem.
 
 ## Project structure
 

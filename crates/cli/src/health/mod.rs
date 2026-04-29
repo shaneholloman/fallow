@@ -1923,6 +1923,8 @@ mod tests {
             complexity,
             flag_uses: vec![],
             class_heritage: vec![],
+            local_type_declarations: Vec::new(),
+            public_signature_type_references: Vec::new(),
         }
     }
 

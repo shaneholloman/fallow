@@ -202,6 +202,13 @@ pub fn group_analysis_results(
             .unused_types
             .push(item.clone());
     }
+    for item in &results.private_type_leaks {
+        groups
+            .entry(key_for(&item.path))
+            .or_default()
+            .private_type_leaks
+            .push(item.clone());
+    }
     for item in &results.unused_enum_members {
         groups
             .entry(key_for(&item.path))

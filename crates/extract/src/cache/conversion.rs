@@ -13,9 +13,10 @@ use crate::ExportName;
 use fallow_types::extract::VisibilityTag;
 
 use super::types::{
-    CachedDynamicImport, CachedDynamicImportPattern, CachedExport, CachedImport, CachedMember,
-    CachedModule, CachedReExport, CachedRequireCall, CachedSuppression, IMPORT_KIND_DEFAULT,
-    IMPORT_KIND_NAMED, IMPORT_KIND_NAMESPACE, IMPORT_KIND_SIDE_EFFECT,
+    CachedDynamicImport, CachedDynamicImportPattern, CachedExport, CachedImport,
+    CachedLocalTypeDeclaration, CachedMember, CachedModule, CachedPublicSignatureTypeReference,
+    CachedReExport, CachedRequireCall, CachedSuppression, IMPORT_KIND_DEFAULT, IMPORT_KIND_NAMED,
+    IMPORT_KIND_NAMESPACE, IMPORT_KIND_SIDE_EFFECT,
 };
 
 /// Reconstruct a [`ModuleInfo`](crate::ModuleInfo) from a [`CachedModule`].
@@ -25,8 +26,8 @@ pub fn cached_to_module(
     file_id: fallow_types::discover::FileId,
 ) -> crate::ModuleInfo {
     use crate::{
-        DynamicImportInfo, ExportInfo, ImportInfo, ImportedName, MemberInfo, ModuleInfo,
-        ReExportInfo, RequireCallInfo,
+        DynamicImportInfo, ExportInfo, ImportInfo, ImportedName, LocalTypeDeclaration, MemberInfo,
+        ModuleInfo, PublicSignatureTypeReference, ReExportInfo, RequireCallInfo,
     };
 
     let exports = cached
@@ -161,6 +162,23 @@ pub fn cached_to_module(
         complexity: cached.complexity.clone(),
         flag_uses: cached.flag_uses.clone(),
         class_heritage: cached.class_heritage.clone(),
+        local_type_declarations: cached
+            .local_type_declarations
+            .iter()
+            .map(|decl| LocalTypeDeclaration {
+                name: decl.name.clone(),
+                span: Span::new(decl.span_start, decl.span_end),
+            })
+            .collect(),
+        public_signature_type_references: cached
+            .public_signature_type_references
+            .iter()
+            .map(|reference| PublicSignatureTypeReference {
+                export_name: reference.export_name.clone(),
+                type_name: reference.type_name.clone(),
+                span: Span::new(reference.span_start, reference.span_end),
+            })
+            .collect(),
     }
 }
 
@@ -296,5 +314,24 @@ pub fn module_to_cached(
         complexity: module.complexity.clone(),
         flag_uses: module.flag_uses.clone(),
         class_heritage: module.class_heritage.clone(),
+        local_type_declarations: module
+            .local_type_declarations
+            .iter()
+            .map(|decl| CachedLocalTypeDeclaration {
+                name: decl.name.clone(),
+                span_start: decl.span.start,
+                span_end: decl.span.end,
+            })
+            .collect(),
+        public_signature_type_references: module
+            .public_signature_type_references
+            .iter()
+            .map(|reference| CachedPublicSignatureTypeReference {
+                export_name: reference.export_name.clone(),
+                type_name: reference.type_name.clone(),
+                span_start: reference.span.start,
+                span_end: reference.span.end,
+            })
+            .collect(),
     }
 }

@@ -12,6 +12,7 @@ expression: redact_version(&json_str)
     "unused_files": 1,
     "unused_exports": 1,
     "unused_types": 1,
+    "private_type_leaks": 0,
     "unused_dependencies": 3,
     "unused_enum_members": 1,
     "unused_class_members": 1,
@@ -91,6 +92,7 @@ expression: redact_version(&json_str)
       ]
     }
   ],
+  "private_type_leaks": [],
   "unused_dependencies": [
     {
       "package_name": "lodash",

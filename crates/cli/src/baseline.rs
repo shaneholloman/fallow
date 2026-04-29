@@ -41,6 +41,8 @@ pub struct BaselineData {
     pub unused_files: Vec<String>,
     pub unused_exports: Vec<String>,
     pub unused_types: Vec<String>,
+    #[serde(default)]
+    pub private_type_leaks: Vec<String>,
     /// Unused dependencies, keyed by `package.json:package_name`. Legacy
     /// bare `package_name` keys are still matched for back-compat with
     /// baselines saved by older fallow versions.
@@ -107,6 +109,18 @@ impl BaselineData {
                 .unused_types
                 .iter()
                 .map(|e| format!("{}:{}", relative_path(&e.path, root), e.export_name))
+                .collect(),
+            private_type_leaks: results
+                .private_type_leaks
+                .iter()
+                .map(|e| {
+                    format!(
+                        "{}:{}->{}",
+                        relative_path(&e.path, root),
+                        e.export_name,
+                        e.type_name
+                    )
+                })
                 .collect(),
             unused_dependencies: results
                 .unused_dependencies
@@ -195,6 +209,7 @@ impl BaselineData {
         self.unused_files.len()
             + self.unused_exports.len()
             + self.unused_types.len()
+            + self.private_type_leaks.len()
             + self.unused_dependencies.len()
             + self.unused_dev_dependencies.len()
             + self.circular_dependencies.len()
@@ -238,6 +253,28 @@ fn circular_dep_key(dep: &fallow_core::results::CircularDependency, root: &Path)
     paths.join("->")
 }
 
+fn private_type_leak_key(leak: &fallow_core::results::PrivateTypeLeak, root: &Path) -> String {
+    format!(
+        "{}:{}->{}",
+        relative_path(&leak.path, root),
+        leak.export_name,
+        leak.type_name
+    )
+}
+
+fn filter_private_type_leaks(
+    leaks: &mut Vec<fallow_core::results::PrivateTypeLeak>,
+    baseline_keys: &[String],
+    root: &Path,
+) {
+    let baseline_private_type_leaks: FxHashSet<&str> =
+        baseline_keys.iter().map(String::as_str).collect();
+    leaks.retain(|leak| {
+        let key = private_type_leak_key(leak, root);
+        !baseline_private_type_leaks.contains(key.as_str())
+    });
+}
+
 /// Filter results to only include issues not present in the baseline.
 pub fn filter_new_issues(
     mut results: fallow_core::results::AnalysisResults,
@@ -272,6 +309,11 @@ pub fn filter_new_issues(
         let key = format!("{}:{}", relative_path(&e.path, root), e.export_name);
         !baseline_types.contains(key.as_str())
     });
+    filter_private_type_leaks(
+        &mut results.private_type_leaks,
+        &baseline.private_type_leaks,
+        root,
+    );
     results.unused_dependencies.retain(|d| {
         let key = package_json_dependency_key(&d.package_name, &d.path, root);
         !baseline_contains_dependency(&baseline_deps, &d.package_name, key.as_str())
@@ -1126,6 +1168,7 @@ mod tests {
             unused_files: vec!["src/old.ts".to_string()],
             unused_exports: vec![],
             unused_types: vec![],
+            private_type_leaks: vec![],
             unused_dependencies: vec![],
             unused_dev_dependencies: vec![],
             circular_dependencies: vec![],
@@ -1165,6 +1208,7 @@ mod tests {
             unused_files: vec![],
             unused_exports: vec![],
             unused_types: vec![],
+            private_type_leaks: vec![],
             unused_dependencies: vec![],
             unused_dev_dependencies: vec![],
             circular_dependencies: vec![],
@@ -1191,6 +1235,7 @@ mod tests {
             unused_files: vec![],
             unused_exports: vec!["src/utils.ts:helperA".to_string()],
             unused_types: vec![],
+            private_type_leaks: vec![],
             unused_dependencies: vec![],
             unused_dev_dependencies: vec![],
             circular_dependencies: vec![],

@@ -2,7 +2,7 @@ use std::fmt::Write;
 use std::path::Path;
 
 use fallow_core::duplicates::DuplicationReport;
-use fallow_core::results::{AnalysisResults, UnusedExport, UnusedMember};
+use fallow_core::results::{AnalysisResults, PrivateTypeLeak, UnusedExport, UnusedMember};
 
 use super::grouping::ResultGroup;
 use super::{normalize_uri, plural, relative_path};
@@ -61,6 +61,15 @@ pub fn build_markdown(results: &AnalysisResults, root: &Path) -> String {
         root,
         |e| e.path.as_path(),
         format_export,
+    );
+
+    markdown_grouped_section(
+        &mut out,
+        &results.private_type_leaks,
+        "Private type leaks",
+        root,
+        |e| e.path.as_path(),
+        format_private_type_leak,
     );
 
     // ── Unused dependencies ──
@@ -277,6 +286,15 @@ pub(super) fn print_grouped_markdown(groups: &[ResultGroup], root: &Path) {
 fn format_export(e: &UnusedExport) -> String {
     let re = if e.is_re_export { " (re-export)" } else { "" };
     format!(":{} `{}`{re}", e.line, escape_backticks(&e.export_name))
+}
+
+fn format_private_type_leak(e: &PrivateTypeLeak) -> String {
+    format!(
+        ":{} `{}` references private type `{}`",
+        e.line,
+        escape_backticks(&e.export_name),
+        escape_backticks(&e.type_name)
+    )
 }
 
 fn format_member(m: &UnusedMember) -> String {

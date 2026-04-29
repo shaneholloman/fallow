@@ -7,12 +7,15 @@ use oxc_ast::ast::*;
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk;
 use oxc_semantic::ScopeFlags;
+use oxc_span::Span;
 
 use crate::{
     DynamicImportInfo, DynamicImportPattern, ExportInfo, ExportName, ImportInfo, ImportedName,
     MemberAccess, ReExportInfo, RequireCallInfo, VisibilityTag,
 };
-use fallow_types::extract::ClassHeritageInfo;
+use fallow_types::extract::{
+    ClassHeritageInfo, LocalTypeDeclaration, PublicSignatureTypeReference,
+};
 
 use crate::asset_url::normalize_asset_url;
 use crate::html::is_remote_url;
@@ -28,7 +31,239 @@ use super::{
     try_extract_import_then_callback, try_extract_require,
 };
 
+#[derive(Default)]
+struct SignatureTypeCollector {
+    refs: Vec<(String, Span)>,
+}
+
+impl<'a> Visit<'a> for SignatureTypeCollector {
+    fn visit_ts_type_reference(&mut self, type_ref: &TSTypeReference<'a>) {
+        if let Some((name, span)) = type_name_root(&type_ref.type_name) {
+            self.refs.push((name, span));
+        }
+        walk::walk_ts_type_reference(self, type_ref);
+    }
+}
+
+fn type_name_root(name: &TSTypeName<'_>) -> Option<(String, Span)> {
+    match name {
+        TSTypeName::IdentifierReference(ident) => Some((ident.name.to_string(), ident.span)),
+        TSTypeName::QualifiedName(qualified) => type_name_root(&qualified.left),
+        TSTypeName::ThisExpression(_) => None,
+    }
+}
+
+fn expression_root_name(expr: &Expression<'_>) -> Option<(String, Span)> {
+    match expr {
+        Expression::Identifier(ident) => Some((ident.name.to_string(), ident.span)),
+        Expression::StaticMemberExpression(member) => expression_root_name(&member.object),
+        _ => None,
+    }
+}
+
+fn is_private_member_key(key: &PropertyKey<'_>) -> bool {
+    matches!(key, PropertyKey::PrivateIdentifier(_))
+}
+
 impl ModuleInfoExtractor {
+    fn record_local_type_declaration(&mut self, name: &str, span: Span) {
+        if self
+            .local_type_declarations
+            .iter()
+            .any(|decl| decl.name == name)
+        {
+            return;
+        }
+        self.local_type_declarations.push(LocalTypeDeclaration {
+            name: name.to_string(),
+            span,
+        });
+    }
+
+    fn record_local_signature_refs(&mut self, owner_name: &str, refs: Vec<(String, Span)>) {
+        self.local_signature_type_references
+            .extend(
+                refs.into_iter()
+                    .map(|(type_name, span)| super::LocalSignatureTypeReference {
+                        owner_name: owner_name.to_string(),
+                        type_name,
+                        span,
+                    }),
+            );
+    }
+
+    fn record_public_signature_refs(&mut self, export_name: &str, refs: Vec<(String, Span)>) {
+        self.public_signature_type_references
+            .extend(
+                refs.into_iter()
+                    .map(|(type_name, span)| PublicSignatureTypeReference {
+                        export_name: export_name.to_string(),
+                        type_name,
+                        span,
+                    }),
+            );
+    }
+
+    fn collect_type_refs_from_annotation(annotation: &TSTypeAnnotation<'_>) -> Vec<(String, Span)> {
+        let mut collector = SignatureTypeCollector::default();
+        collector.visit_ts_type_annotation(annotation);
+        collector.refs
+    }
+
+    fn collect_function_signature_refs(function: &Function<'_>) -> Vec<(String, Span)> {
+        let mut collector = SignatureTypeCollector::default();
+        if let Some(type_parameters) = function.type_parameters.as_deref() {
+            collector.visit_ts_type_parameter_declaration(type_parameters);
+        }
+        if let Some(this_param) = function.this_param.as_deref() {
+            collector.visit_ts_this_parameter(this_param);
+        }
+        for param in &function.params.items {
+            if let Some(annotation) = param.type_annotation.as_deref() {
+                collector.visit_ts_type_annotation(annotation);
+            }
+        }
+        if let Some(rest) = function.params.rest.as_deref()
+            && let Some(annotation) = rest.type_annotation.as_deref()
+        {
+            collector.visit_ts_type_annotation(annotation);
+        }
+        if let Some(return_type) = function.return_type.as_deref() {
+            collector.visit_ts_type_annotation(return_type);
+        }
+        collector.refs
+    }
+
+    fn collect_arrow_signature_refs(arrow: &ArrowFunctionExpression<'_>) -> Vec<(String, Span)> {
+        let mut collector = SignatureTypeCollector::default();
+        if let Some(type_parameters) = arrow.type_parameters.as_deref() {
+            collector.visit_ts_type_parameter_declaration(type_parameters);
+        }
+        for param in &arrow.params.items {
+            if let Some(annotation) = param.type_annotation.as_deref() {
+                collector.visit_ts_type_annotation(annotation);
+            }
+        }
+        if let Some(rest) = arrow.params.rest.as_deref()
+            && let Some(annotation) = rest.type_annotation.as_deref()
+        {
+            collector.visit_ts_type_annotation(annotation);
+        }
+        if let Some(return_type) = arrow.return_type.as_deref() {
+            collector.visit_ts_type_annotation(return_type);
+        }
+        collector.refs
+    }
+
+    fn collect_variable_signature_refs(declarator: &VariableDeclarator<'_>) -> Vec<(String, Span)> {
+        let mut refs = Vec::new();
+        if let Some(annotation) = declarator.type_annotation.as_deref() {
+            refs.extend(Self::collect_type_refs_from_annotation(annotation));
+        }
+        if let Some(init) = &declarator.init {
+            match init {
+                Expression::ArrowFunctionExpression(arrow) => {
+                    refs.extend(Self::collect_arrow_signature_refs(arrow));
+                }
+                Expression::FunctionExpression(function) => {
+                    refs.extend(Self::collect_function_signature_refs(function));
+                }
+                _ => {}
+            }
+        }
+        refs
+    }
+
+    fn collect_class_signature_refs(class: &Class<'_>) -> Vec<(String, Span)> {
+        let mut collector = SignatureTypeCollector::default();
+        if let Some(type_parameters) = class.type_parameters.as_deref() {
+            collector.visit_ts_type_parameter_declaration(type_parameters);
+        }
+        if let Some(super_class) = class.super_class.as_ref()
+            && let Some((name, span)) = expression_root_name(super_class)
+        {
+            collector.refs.push((name, span));
+        }
+        if let Some(type_arguments) = class.super_type_arguments.as_deref() {
+            collector.visit_ts_type_parameter_instantiation(type_arguments);
+        }
+        for implemented in &class.implements {
+            if let Some((name, span)) = type_name_root(&implemented.expression) {
+                collector.refs.push((name, span));
+            }
+            if let Some(type_arguments) = implemented.type_arguments.as_deref() {
+                collector.visit_ts_type_parameter_instantiation(type_arguments);
+            }
+        }
+        for element in &class.body.body {
+            match element {
+                ClassElement::MethodDefinition(method) => {
+                    if matches!(method.accessibility, Some(TSAccessibility::Private))
+                        || is_private_member_key(&method.key)
+                    {
+                        continue;
+                    }
+                    collector
+                        .refs
+                        .extend(Self::collect_function_signature_refs(&method.value));
+                }
+                ClassElement::PropertyDefinition(prop) => {
+                    if matches!(prop.accessibility, Some(TSAccessibility::Private))
+                        || is_private_member_key(&prop.key)
+                    {
+                        continue;
+                    }
+                    if let Some(annotation) = prop.type_annotation.as_deref() {
+                        collector.visit_ts_type_annotation(annotation);
+                    }
+                }
+                ClassElement::AccessorProperty(prop) => {
+                    if matches!(prop.accessibility, Some(TSAccessibility::Private))
+                        || is_private_member_key(&prop.key)
+                    {
+                        continue;
+                    }
+                    if let Some(annotation) = prop.type_annotation.as_deref() {
+                        collector.visit_ts_type_annotation(annotation);
+                    }
+                }
+                ClassElement::TSIndexSignature(index) => {
+                    collector.visit_ts_index_signature(index);
+                }
+                ClassElement::StaticBlock(_) => {}
+            }
+        }
+        collector.refs
+    }
+
+    fn collect_interface_signature_refs(iface: &TSInterfaceDeclaration<'_>) -> Vec<(String, Span)> {
+        let mut collector = SignatureTypeCollector::default();
+        if let Some(type_parameters) = iface.type_parameters.as_deref() {
+            collector.visit_ts_type_parameter_declaration(type_parameters);
+        }
+        for heritage in &iface.extends {
+            if let Some((name, span)) = expression_root_name(&heritage.expression) {
+                collector.refs.push((name, span));
+            }
+            if let Some(type_arguments) = heritage.type_arguments.as_deref() {
+                collector.visit_ts_type_parameter_instantiation(type_arguments);
+            }
+        }
+        collector.visit_ts_interface_body(&iface.body);
+        collector.refs
+    }
+
+    fn collect_type_alias_signature_refs(
+        alias: &TSTypeAliasDeclaration<'_>,
+    ) -> Vec<(String, Span)> {
+        let mut collector = SignatureTypeCollector::default();
+        if let Some(type_parameters) = alias.type_parameters.as_deref() {
+            collector.visit_ts_type_parameter_declaration(type_parameters);
+        }
+        collector.visit_ts_type(&alias.type_annotation);
+        collector.refs
+    }
+
     fn record_typed_binding(&mut self, binding_name: &str, type_annotation: &TSTypeAnnotation<'_>) {
         if let Some(type_name) = extract_type_annotation_name(type_annotation) {
             self.binding_target_names
@@ -97,25 +332,54 @@ impl<'a> Visit<'a> for ModuleInfoExtractor {
     }
 
     fn visit_declaration(&mut self, decl: &Declaration<'a>) {
-        if self.block_depth == 0
-            && self.function_depth == 0
-            && self.namespace_depth == 0
-            && let Declaration::ClassDeclaration(class) = decl
-            && let Some(id) = class.id.as_ref()
-        {
-            let is_angular = has_angular_class_decorator(class);
-            let instance_bindings = if is_angular {
-                super::helpers::extract_class_instance_bindings(class)
-            } else {
-                Vec::new()
-            };
-            self.record_local_class_export(
-                id.name.to_string(),
-                extract_class_members(class, is_angular),
-                extract_super_class_name(class),
-                extract_implemented_interface_names(class),
-                instance_bindings,
-            );
+        if self.block_depth == 0 && self.function_depth == 0 && self.namespace_depth == 0 {
+            match decl {
+                Declaration::ClassDeclaration(class) => {
+                    if let Some(id) = class.id.as_ref() {
+                        self.record_local_type_declaration(&id.name, id.span);
+                        let is_angular = has_angular_class_decorator(class);
+                        let instance_bindings = if is_angular {
+                            super::helpers::extract_class_instance_bindings(class)
+                        } else {
+                            Vec::new()
+                        };
+                        self.record_local_class_export(
+                            id.name.to_string(),
+                            extract_class_members(class, is_angular),
+                            extract_super_class_name(class),
+                            extract_implemented_interface_names(class),
+                            instance_bindings,
+                        );
+                        let refs = Self::collect_class_signature_refs(class);
+                        self.record_local_signature_refs(&id.name, refs);
+                    }
+                }
+                Declaration::FunctionDeclaration(function) => {
+                    if let Some(id) = function.id.as_ref() {
+                        let refs = Self::collect_function_signature_refs(function);
+                        self.record_local_signature_refs(&id.name, refs);
+                    }
+                }
+                Declaration::TSTypeAliasDeclaration(alias) => {
+                    self.record_local_type_declaration(&alias.id.name, alias.id.span);
+                    let refs = Self::collect_type_alias_signature_refs(alias);
+                    self.record_local_signature_refs(&alias.id.name, refs);
+                }
+                Declaration::TSInterfaceDeclaration(iface) => {
+                    self.record_local_type_declaration(&iface.id.name, iface.id.span);
+                    let refs = Self::collect_interface_signature_refs(iface);
+                    self.record_local_signature_refs(&iface.id.name, refs);
+                }
+                Declaration::TSEnumDeclaration(enumd) => {
+                    self.record_local_type_declaration(&enumd.id.name, enumd.id.span);
+                }
+                Declaration::TSModuleDeclaration(module) => {
+                    if let TSModuleDeclarationName::Identifier(id) = &module.id {
+                        self.record_local_type_declaration(&id.name, id.span);
+                    }
+                }
+                _ => {}
+            }
         }
 
         walk::walk_declaration(self, decl);
@@ -316,12 +580,41 @@ impl<'a> Visit<'a> for ModuleInfoExtractor {
             } else {
                 (vec![], None, vec![], vec![])
             };
-        let local_name =
-            if let ExportDefaultDeclarationKind::ClassDeclaration(class) = &decl.declaration {
+        let local_name = match &decl.declaration {
+            ExportDefaultDeclarationKind::ClassDeclaration(class) => {
                 class.id.as_ref().map(|id| id.name.to_string())
-            } else {
-                None
-            };
+            }
+            ExportDefaultDeclarationKind::FunctionDeclaration(function) => {
+                function.id.as_ref().map(|id| id.name.to_string())
+            }
+            _ => None,
+        };
+
+        match &decl.declaration {
+            ExportDefaultDeclarationKind::ClassDeclaration(class) => {
+                let refs = Self::collect_class_signature_refs(class);
+                if let Some(id) = class.id.as_ref() {
+                    self.record_local_type_declaration(&id.name, id.span);
+                    self.record_local_signature_refs(&id.name, refs);
+                } else {
+                    self.record_public_signature_refs("default", refs);
+                }
+            }
+            ExportDefaultDeclarationKind::FunctionDeclaration(function) => {
+                let refs = Self::collect_function_signature_refs(function);
+                if let Some(id) = function.id.as_ref() {
+                    self.record_local_signature_refs(&id.name, refs);
+                } else {
+                    self.record_public_signature_refs("default", refs);
+                }
+            }
+            ExportDefaultDeclarationKind::TSInterfaceDeclaration(iface) => {
+                self.record_local_type_declaration(&iface.id.name, iface.id.span);
+                let refs = Self::collect_interface_signature_refs(iface);
+                self.record_public_signature_refs("default", refs);
+            }
+            _ => {}
+        }
 
         if super_class.is_some()
             || !implemented_interfaces.is_empty()
@@ -444,6 +737,13 @@ impl<'a> Visit<'a> for ModuleInfoExtractor {
 
     fn visit_variable_declaration(&mut self, decl: &VariableDeclaration<'a>) {
         for declarator in &decl.declarations {
+            if self.block_depth == 0 && self.function_depth == 0 && self.namespace_depth == 0 {
+                let refs = Self::collect_variable_signature_refs(declarator);
+                for id in declarator.id.get_binding_identifiers() {
+                    self.record_local_signature_refs(&id.name, refs.clone());
+                }
+            }
+
             if let BindingPattern::BindingIdentifier(id) = &declarator.id
                 && let Some(type_annotation) = declarator.type_annotation.as_deref()
             {

@@ -5,8 +5,8 @@ use fallow_config::ResolvedConfig;
 use crate::discover::FileId;
 use crate::graph::{ModuleGraph, ModuleNode};
 use crate::results::{
-    DuplicateExport, DuplicateLocation, ExportUsage, ReferenceLocation, StaleSuppression,
-    SuppressionOrigin, UnusedExport,
+    DuplicateExport, DuplicateLocation, ExportUsage, PrivateTypeLeak, ReferenceLocation,
+    StaleSuppression, SuppressionOrigin, UnusedExport,
 };
 use crate::suppress::{IssueKind, SuppressionContext};
 
@@ -265,6 +265,137 @@ pub fn find_unused_exports(
     }
 
     (unused_exports, unused_types, stale_expected_unused)
+}
+
+/// Remove exported type findings when the type is only exported to support
+/// another public signature in the same module.
+pub fn suppress_signature_backing_types(
+    unused_types: &mut Vec<UnusedExport>,
+    graph: &ModuleGraph,
+    modules: &[fallow_types::extract::ModuleInfo],
+) {
+    let path_by_id: FxHashMap<FileId, &std::path::Path> = graph
+        .modules
+        .iter()
+        .map(|module| (module.file_id, module.path.as_path()))
+        .collect();
+    let backing_types: FxHashSet<(std::path::PathBuf, String)> = modules
+        .iter()
+        .filter_map(|module| path_by_id.get(&module.file_id).map(|path| (module, *path)))
+        .flat_map(|(module, path)| {
+            module
+                .public_signature_type_references
+                .iter()
+                .map(move |reference| (path.to_path_buf(), reference.type_name.clone()))
+        })
+        .collect();
+
+    unused_types.retain(|unused| {
+        !backing_types.contains(&(unused.path.clone(), unused.export_name.clone()))
+    });
+}
+
+/// File-name suffixes that idiomatically declare local helper types
+/// (`type Story = StoryObj<typeof Component>`) used by virtually every export.
+/// Skipping these in private-type-leak detection keeps Storybook codebases
+/// from drowning in true-but-unhelpful findings.
+const STORYBOOK_SUFFIXES: &[&str] = &[
+    ".stories.ts",
+    ".stories.tsx",
+    ".stories.js",
+    ".stories.jsx",
+    ".stories.mts",
+    ".stories.cts",
+    ".stories.mjs",
+    ".stories.cjs",
+    ".story.ts",
+    ".story.tsx",
+    ".story.js",
+    ".story.jsx",
+    ".story.mts",
+    ".story.cts",
+    ".story.mjs",
+    ".story.cjs",
+];
+
+fn is_storybook_file(path: &std::path::Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| {
+            STORYBOOK_SUFFIXES
+                .iter()
+                .any(|suffix| name.ends_with(suffix))
+        })
+}
+
+/// Find exported signatures that reference same-file type declarations that
+/// are not exported by that same name.
+pub fn find_private_type_leaks(
+    graph: &ModuleGraph,
+    modules: &[fallow_types::extract::ModuleInfo],
+    suppressions: &SuppressionContext<'_>,
+    line_offsets_by_file: &LineOffsetsMap<'_>,
+) -> Vec<PrivateTypeLeak> {
+    let module_by_id: FxHashMap<FileId, &ModuleNode> = graph
+        .modules
+        .iter()
+        .map(|module| (module.file_id, module))
+        .collect();
+
+    let mut leaks = Vec::new();
+    for module_info in modules {
+        if module_info.public_signature_type_references.is_empty()
+            || module_info.local_type_declarations.is_empty()
+        {
+            continue;
+        }
+        let Some(module) = module_by_id.get(&module_info.file_id) else {
+            continue;
+        };
+        if is_storybook_file(&module.path) {
+            continue;
+        }
+        let local_types: FxHashSet<&str> = module_info
+            .local_type_declarations
+            .iter()
+            .map(|decl| decl.name.as_str())
+            .collect();
+        let exported_names: FxHashSet<String> = module
+            .exports
+            .iter()
+            .map(|export| export.name.to_string())
+            .collect();
+
+        let mut seen: FxHashSet<(String, String)> = FxHashSet::default();
+        for reference in &module_info.public_signature_type_references {
+            if !local_types.contains(reference.type_name.as_str())
+                || exported_names.contains(&reference.type_name)
+            {
+                continue;
+            }
+            if !seen.insert((reference.export_name.clone(), reference.type_name.clone())) {
+                continue;
+            }
+            let (line, col) = byte_offset_to_line_col(
+                line_offsets_by_file,
+                module_info.file_id,
+                reference.span.start,
+            );
+            if suppressions.is_suppressed(module_info.file_id, line, IssueKind::PrivateTypeLeak) {
+                continue;
+            }
+            leaks.push(PrivateTypeLeak {
+                path: module.path.clone(),
+                export_name: reference.export_name.clone(),
+                type_name: reference.type_name.clone(),
+                line,
+                col,
+                span_start: reference.span.start,
+            });
+        }
+    }
+
+    leaks
 }
 
 /// Find exports that appear with the same name in multiple files (potential duplicates).

@@ -87,6 +87,7 @@ pub struct DeadCodeFilters {
     pub unused_exports: bool,
     pub unused_deps: bool,
     pub unused_types: bool,
+    pub private_type_leaks: bool,
     pub unused_enum_members: bool,
     pub unused_class_members: bool,
     pub unresolved_imports: bool,
@@ -363,6 +364,7 @@ fn to_issue_filters(filters: &DeadCodeFilters) -> IssueFilters {
         unused_exports: filters.unused_exports,
         unused_deps: filters.unused_deps,
         unused_types: filters.unused_types,
+        private_type_leaks: filters.private_type_leaks,
         unused_enum_members: filters.unused_enum_members,
         unused_class_members: filters.unused_class_members,
         unresolved_imports: filters.unresolved_imports,
@@ -435,6 +437,7 @@ fn filter_for_circular_dependencies(results: &AnalysisResults) -> AnalysisResult
     filtered.unused_files.clear();
     filtered.unused_exports.clear();
     filtered.unused_types.clear();
+    filtered.private_type_leaks.clear();
     filtered.unused_dependencies.clear();
     filtered.unused_dev_dependencies.clear();
     filtered.unused_optional_dependencies.clear();
@@ -455,6 +458,7 @@ fn filter_for_boundary_violations(results: &AnalysisResults) -> AnalysisResults 
     filtered.unused_files.clear();
     filtered.unused_exports.clear();
     filtered.unused_types.clear();
+    filtered.private_type_leaks.clear();
     filtered.unused_dependencies.clear();
     filtered.unused_dev_dependencies.clear();
     filtered.unused_optional_dependencies.clear();

@@ -55,7 +55,25 @@ pub fn build_cli_schema(cmd: &clap::Command) -> serde_json::Value {
         "commands": commands,
         "default_command": null,
         "default_behavior": "Runs all analyses (check + dupes + health). Use --only/--skip to select.",
-        "issue_types": [
+        "issue_types": issue_types_schema(),
+        "suppression_comments": {
+            "next_line": "// fallow-ignore-next-line [issue-type]",
+            "file": "// fallow-ignore-file [issue-type]",
+            "note": "Omit [issue-type] to suppress all issue types. Unknown tokens are silently ignored."
+        },
+        "output_formats": ["human", "json", "sarif", "compact", "markdown", "codeclimate", "gitlab-codequality", "badge"],
+        "exit_codes": {
+            "0": "Success (no error-severity issues found)",
+            "1": "Error-severity issues found (per rules config, or --fail-on-issues promotes warn→error)",
+            "2": "Error (invalid config, invalid input, etc.). When --format json is active, errors are emitted as structured JSON on stdout: {\"error\": true, \"message\": \"...\", \"exit_code\": 2}"
+        },
+        "environment_variables": environment_variables_schema(),
+        "severity_levels": ["error", "warn", "off"]
+    })
+}
+
+fn issue_types_schema() -> serde_json::Value {
+    serde_json::json!([
             {
                 "id": "unused-file",
                 "description": "File is not reachable from any entry point",
@@ -79,6 +97,14 @@ pub fn build_cli_schema(cmd: &clap::Command) -> serde_json::Value {
                 "fixable": false,
                 "suppressible": true,
                 "suppress_comment": "// fallow-ignore-next-line unused-type"
+            },
+            {
+                "id": "private-type-leak",
+                "description": "Exported signature references a same-file private type",
+                "filter_flag": "--private-type-leaks",
+                "fixable": false,
+                "suppressible": true,
+                "suppress_comment": "// fallow-ignore-next-line private-type-leak"
             },
             {
                 "id": "unused-dependency",
@@ -152,21 +178,7 @@ pub fn build_cli_schema(cmd: &clap::Command) -> serde_json::Value {
                 "suppress_comment": "// fallow-ignore-file circular-dependency",
                 "note": "Only file-level suppression is supported (fallow-ignore-file), not next-line suppression"
             }
-        ],
-        "suppression_comments": {
-            "next_line": "// fallow-ignore-next-line [issue-type]",
-            "file": "// fallow-ignore-file [issue-type]",
-            "note": "Omit [issue-type] to suppress all issue types. Unknown tokens are silently ignored."
-        },
-        "output_formats": ["human", "json", "sarif", "compact", "markdown", "codeclimate", "gitlab-codequality", "badge"],
-        "exit_codes": {
-            "0": "Success (no error-severity issues found)",
-            "1": "Error-severity issues found (per rules config, or --fail-on-issues promotes warn→error)",
-            "2": "Error (invalid config, invalid input, etc.). When --format json is active, errors are emitted as structured JSON on stdout: {\"error\": true, \"message\": \"...\", \"exit_code\": 2}"
-        },
-        "environment_variables": environment_variables_schema(),
-        "severity_levels": ["error", "warn", "off"]
-    })
+    ])
 }
 
 fn environment_variables_schema() -> serde_json::Value {

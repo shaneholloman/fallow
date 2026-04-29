@@ -53,6 +53,13 @@ pub const CHECK_RULES: &[RuleDef] = &[
         docs_path: "explanations/dead-code#unused-types",
     },
     RuleDef {
+        id: "fallow/private-type-leak",
+        name: "Private Type Leaks",
+        short: "Exported signature references a private type",
+        full: "Exported values or types whose public TypeScript signature references a same-file type declaration that is not exported. Consumers cannot name that private type directly, so the backing type should be exported or removed from the public signature.",
+        docs_path: "explanations/dead-code#private-type-leaks",
+    },
+    RuleDef {
         id: "fallow/unused-dependency",
         name: "Unused Dependencies",
         short: "Dependency listed but never imported",
@@ -925,7 +932,7 @@ mod tests {
 
     #[test]
     fn check_rules_count() {
-        assert_eq!(CHECK_RULES.len(), 14);
+        assert_eq!(CHECK_RULES.len(), 15);
     }
 
     #[test]

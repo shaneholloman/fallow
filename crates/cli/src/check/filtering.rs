@@ -28,6 +28,7 @@ pub fn filter_to_workspaces(
     results.unused_files.retain(|f| any_under(&f.path));
     results.unused_exports.retain(|e| any_under(&e.path));
     results.unused_types.retain(|e| any_under(&e.path));
+    results.private_type_leaks.retain(|e| any_under(&e.path));
     results.unused_enum_members.retain(|m| any_under(&m.path));
     results.unused_class_members.retain(|m| any_under(&m.path));
     results.unresolved_imports.retain(|i| any_under(&i.path));

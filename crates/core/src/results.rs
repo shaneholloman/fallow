@@ -1,8 +1,8 @@
 // Re-export all result types from fallow-types
 pub use fallow_types::results::{
     AnalysisResults, BoundaryViolation, CircularDependency, DependencyLocation, DuplicateExport,
-    DuplicateLocation, EntryPointSummary, ExportUsage, ImportSite, ReferenceLocation,
-    StaleSuppression, SuppressionOrigin, TestOnlyDependency, TypeOnlyDependency,
+    DuplicateLocation, EntryPointSummary, ExportUsage, ImportSite, PrivateTypeLeak,
+    ReferenceLocation, StaleSuppression, SuppressionOrigin, TestOnlyDependency, TypeOnlyDependency,
     UnlistedDependency, UnresolvedImport, UnusedDependency, UnusedExport, UnusedFile, UnusedMember,
 };
 

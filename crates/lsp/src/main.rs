@@ -42,6 +42,7 @@ struct AnalysisCompleteParams {
     unused_files: usize,
     unused_exports: usize,
     unused_types: usize,
+    private_type_leaks: usize,
     unused_dependencies: usize,
     unused_dev_dependencies: usize,
     unused_optional_dependencies: usize,
@@ -62,6 +63,7 @@ const ISSUE_TYPE_TO_DIAGNOSTIC_CODE: &[(&str, &str)] = &[
     ("unused-files", "unused-file"),
     ("unused-exports", "unused-export"),
     ("unused-types", "unused-type"),
+    ("private-type-leaks", "private-type-leak"),
     ("unused-dependencies", "unused-dependency"),
     ("unused-dev-dependencies", "unused-dev-dependency"),
     ("unused-optional-dependencies", "unused-optional-dependency"),
@@ -596,6 +598,7 @@ impl FallowLspServer {
                         unused_files: results.unused_files.len(),
                         unused_exports: results.unused_exports.len(),
                         unused_types: results.unused_types.len(),
+                        private_type_leaks: results.private_type_leaks.len(),
                         unused_dependencies: results.unused_dependencies.len(),
                         unused_dev_dependencies: results.unused_dev_dependencies.len(),
                         unused_optional_dependencies: results.unused_optional_dependencies.len(),
@@ -849,6 +852,15 @@ fn dedup_results(target: &mut AnalysisResults) {
     dedup_by_key_preserving_order(&mut target.unused_types, |e| {
         (e.path.clone(), e.export_name.clone(), e.line, e.col)
     });
+    dedup_by_key_preserving_order(&mut target.private_type_leaks, |e| {
+        (
+            e.path.clone(),
+            e.export_name.clone(),
+            e.type_name.clone(),
+            e.line,
+            e.col,
+        )
+    });
     dedup_by_key_preserving_order(&mut target.unused_dependencies, |d| {
         (d.package_name.clone(), d.path.clone(), d.line)
     });
@@ -941,6 +953,7 @@ fn merge_results(target: &mut AnalysisResults, source: AnalysisResults) {
     target.unused_files.extend(source.unused_files);
     target.unused_exports.extend(source.unused_exports);
     target.unused_types.extend(source.unused_types);
+    target.private_type_leaks.extend(source.private_type_leaks);
     target
         .unused_dependencies
         .extend(source.unused_dependencies);
@@ -1711,6 +1724,7 @@ mod tests {
         assert!(keys.contains(&"unused-files"));
         assert!(keys.contains(&"unused-exports"));
         assert!(keys.contains(&"unused-types"));
+        assert!(keys.contains(&"private-type-leaks"));
         assert!(keys.contains(&"unused-dependencies"));
         assert!(keys.contains(&"unused-dev-dependencies"));
         assert!(keys.contains(&"unused-optional-dependencies"));

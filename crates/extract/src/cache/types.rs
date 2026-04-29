@@ -7,7 +7,7 @@ use bitcode::{Decode, Encode};
 use crate::MemberKind;
 
 /// Cache version — bump when the cache format or cached extraction semantics change.
-pub(super) const CACHE_VERSION: u32 = 55;
+pub(super) const CACHE_VERSION: u32 = 56;
 
 /// Maximum cache file size to deserialize (256 MB).
 pub(super) const MAX_CACHE_SIZE: usize = 256 * 1024 * 1024;
@@ -63,6 +63,34 @@ pub struct CachedModule {
     pub flag_uses: Vec<fallow_types::extract::FlagUse>,
     /// Heritage metadata for exported classes.
     pub class_heritage: Vec<fallow_types::extract::ClassHeritageInfo>,
+    /// Local type-capable declarations.
+    pub local_type_declarations: Vec<CachedLocalTypeDeclaration>,
+    /// Type references from exported public signatures.
+    pub public_signature_type_references: Vec<CachedPublicSignatureTypeReference>,
+}
+
+/// Cached local type declaration.
+#[derive(Debug, Clone, Encode, Decode)]
+pub struct CachedLocalTypeDeclaration {
+    /// Local declaration name.
+    pub name: String,
+    /// Byte offset of the declaration span start.
+    pub span_start: u32,
+    /// Byte offset of the declaration span end.
+    pub span_end: u32,
+}
+
+/// Cached public signature type reference.
+#[derive(Debug, Clone, Encode, Decode)]
+pub struct CachedPublicSignatureTypeReference {
+    /// Exported symbol whose signature contains the reference.
+    pub export_name: String,
+    /// Referenced type name.
+    pub type_name: String,
+    /// Byte offset of the reference span start.
+    pub span_start: u32,
+    /// Byte offset of the reference span end.
+    pub span_end: u32,
 }
 
 /// Cached suppression directive.
@@ -72,7 +100,7 @@ pub struct CachedSuppression {
     pub line: u32,
     /// 1-based line where the comment itself appears.
     pub comment_line: u32,
-    /// 0 = suppress all, 1-19 = `IssueKind` discriminant.
+    /// 0 = suppress all, 1-20 = `IssueKind` discriminant.
     pub kind: u8,
 }
 

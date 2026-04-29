@@ -22,6 +22,9 @@ pub fn apply_rules(results: &mut fallow_core::results::AnalysisResults, config: 
         results
             .unused_types
             .retain(|e| config.resolve_rules_for_path(&e.path).unused_types != Severity::Off);
+        results
+            .private_type_leaks
+            .retain(|e| config.resolve_rules_for_path(&e.path).private_type_leaks != Severity::Off);
         results.unused_enum_members.retain(|m| {
             config.resolve_rules_for_path(&m.path).unused_enum_members != Severity::Off
         });
@@ -43,6 +46,9 @@ pub fn apply_rules(results: &mut fallow_core::results::AnalysisResults, config: 
         }
         if rules.unused_types == Severity::Off {
             results.unused_types.clear();
+        }
+        if rules.private_type_leaks == Severity::Off {
+            results.private_type_leaks.clear();
         }
         if rules.unused_enum_members == Severity::Off {
             results.unused_enum_members.clear();
@@ -114,6 +120,9 @@ pub fn has_error_severity_issues(
                 .unused_types
                 .iter()
                 .any(|e| config.resolve_rules_for_path(&e.path).unused_types == Severity::Error)
+            || results.private_type_leaks.iter().any(|e| {
+                config.resolve_rules_for_path(&e.path).private_type_leaks == Severity::Error
+            })
             || results.unused_enum_members.iter().any(|m| {
                 config.resolve_rules_for_path(&m.path).unused_enum_members == Severity::Error
             })
@@ -130,6 +139,8 @@ pub fn has_error_severity_issues(
         (rules.unused_files == Severity::Error && !results.unused_files.is_empty())
             || (rules.unused_exports == Severity::Error && !results.unused_exports.is_empty())
             || (rules.unused_types == Severity::Error && !results.unused_types.is_empty())
+            || (rules.private_type_leaks == Severity::Error
+                && !results.private_type_leaks.is_empty())
             || (rules.unused_enum_members == Severity::Error
                 && !results.unused_enum_members.is_empty())
             || (rules.unused_class_members == Severity::Error
@@ -169,6 +180,9 @@ pub fn promote_warns_to_errors(rules: &mut RulesConfig) {
     }
     if rules.unused_types == Severity::Warn {
         rules.unused_types = Severity::Error;
+    }
+    if rules.private_type_leaks == Severity::Warn {
+        rules.private_type_leaks = Severity::Error;
     }
     if rules.unused_dependencies == Severity::Warn {
         rules.unused_dependencies = Severity::Error;
@@ -393,6 +407,7 @@ mod tests {
             unused_files: Severity::Off,
             unused_exports: Severity::Off,
             unused_types: Severity::Off,
+            private_type_leaks: Severity::Off,
             unused_dependencies: Severity::Off,
             unused_dev_dependencies: Severity::Off,
             unused_optional_dependencies: Severity::Off,
@@ -429,6 +444,10 @@ mod tests {
             (
                 |r| r.unused_types = Severity::Off,
                 |res| res.unused_types.is_empty(),
+            ),
+            (
+                |r| r.private_type_leaks = Severity::Off,
+                |res| res.private_type_leaks.is_empty(),
             ),
             (
                 |r| r.unused_dependencies = Severity::Off,
@@ -496,6 +515,7 @@ mod tests {
             unused_files: Severity::Warn,
             unused_exports: Severity::Warn,
             unused_types: Severity::Warn,
+            private_type_leaks: Severity::Warn,
             unused_dependencies: Severity::Warn,
             unused_dev_dependencies: Severity::Warn,
             unused_optional_dependencies: Severity::Warn,
@@ -525,6 +545,7 @@ mod tests {
             unused_files: Severity::Warn,
             unused_exports: Severity::Warn,
             unused_types: Severity::Warn,
+            private_type_leaks: Severity::Warn,
             unused_dependencies: Severity::Warn,
             unused_dev_dependencies: Severity::Warn,
             unused_optional_dependencies: Severity::Warn,
@@ -712,6 +733,7 @@ mod tests {
             unused_files: Severity::Warn,
             unused_exports: Severity::Warn,
             unused_types: Severity::Warn,
+            private_type_leaks: Severity::Warn,
             unused_dependencies: Severity::Warn,
             unused_dev_dependencies: Severity::Warn,
             unused_optional_dependencies: Severity::Warn,
@@ -733,6 +755,7 @@ mod tests {
         assert_eq!(rules.unused_files, Severity::Error);
         assert_eq!(rules.unused_exports, Severity::Error);
         assert_eq!(rules.unused_types, Severity::Error);
+        assert_eq!(rules.private_type_leaks, Severity::Error);
         assert_eq!(rules.unused_dependencies, Severity::Error);
         assert_eq!(rules.unused_dev_dependencies, Severity::Error);
         assert_eq!(rules.unused_optional_dependencies, Severity::Error);
@@ -753,6 +776,7 @@ mod tests {
             unused_files: Severity::Off,
             unused_exports: Severity::Off,
             unused_types: Severity::Off,
+            private_type_leaks: Severity::Off,
             unused_dependencies: Severity::Off,
             unused_dev_dependencies: Severity::Off,
             unused_optional_dependencies: Severity::Off,
@@ -775,6 +799,7 @@ mod tests {
         assert_eq!(rules.unused_files, Severity::Off);
         assert_eq!(rules.unused_exports, Severity::Off);
         assert_eq!(rules.unused_types, Severity::Off);
+        assert_eq!(rules.private_type_leaks, Severity::Off);
         assert_eq!(rules.circular_dependencies, Severity::Off);
         assert_eq!(rules.coverage_gaps, Severity::Off);
     }

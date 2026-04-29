@@ -26,6 +26,7 @@ pub struct IssueFilters {
     pub unused_exports: bool,
     pub unused_deps: bool,
     pub unused_types: bool,
+    pub private_type_leaks: bool,
     pub unused_enum_members: bool,
     pub unused_class_members: bool,
     pub unresolved_imports: bool,
@@ -42,6 +43,7 @@ impl IssueFilters {
             || self.unused_exports
             || self.unused_deps
             || self.unused_types
+            || self.private_type_leaks
             || self.unused_enum_members
             || self.unused_class_members
             || self.unresolved_imports
@@ -65,6 +67,9 @@ impl IssueFilters {
         }
         if !self.unused_types {
             results.unused_types.clear();
+        }
+        if !self.private_type_leaks {
+            results.private_type_leaks.clear();
         }
         if !self.unused_deps {
             results.unused_dependencies.clear();
@@ -634,6 +639,7 @@ mod tests {
             unused_exports: false,
             unused_deps: false,
             unused_types: false,
+            private_type_leaks: false,
             unused_enum_members: false,
             unused_class_members: false,
             unresolved_imports: false,
@@ -969,6 +975,7 @@ mod tests {
             unused_exports: true,
             unused_deps: true,
             unused_types: true,
+            private_type_leaks: true,
             unused_enum_members: true,
             unused_class_members: true,
             unresolved_imports: true,

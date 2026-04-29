@@ -54,6 +54,15 @@ pub fn build_compact_lines(results: &AnalysisResults, root: &Path) -> Vec<String
             "unused-re-export-type",
         ));
     }
+    for leak in &results.private_type_leaks {
+        lines.push(format!(
+            "private-type-leak:{}:{}:{}->{}",
+            rel(&leak.path),
+            leak.line,
+            leak.export_name,
+            leak.type_name
+        ));
+    }
     for dep in &results.unused_dependencies {
         lines.push(format!("unused-dep:{}", dep.package_name));
     }

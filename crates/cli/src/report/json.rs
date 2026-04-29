@@ -197,6 +197,7 @@ pub fn build_json(
         "unused_files": results.unused_files.len(),
         "unused_exports": results.unused_exports.len(),
         "unused_types": results.unused_types.len(),
+        "private_type_leaks": results.private_type_leaks.len(),
         "unused_dependencies": results.unused_dependencies.len()
             + results.unused_dev_dependencies.len()
             + results.unused_optional_dependencies.len(),
@@ -310,6 +311,14 @@ fn actions_for_issue_type(key: &str) -> Option<ActionSpec> {
             note: None,
             suppress: SuppressKind::InlineComment,
             issue_kind: "unused-type",
+        }),
+        "private_type_leaks" => Some(ActionSpec {
+            fix_type: "export-type",
+            auto_fixable: false,
+            description: "Export the referenced private type by name",
+            note: Some("Keep the type exported while it is part of a public signature"),
+            suppress: SuppressKind::InlineComment,
+            issue_kind: "private-type-leak",
         }),
         "unused_dependencies" => Some(ActionSpec {
             fix_type: "remove-dependency",

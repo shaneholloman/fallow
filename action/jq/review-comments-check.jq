@@ -36,6 +36,12 @@ def dependency_action(pkg):
     line: .line,
     body: ":warning: **Unused type export**\n\n\(if .is_re_export then "Re-exported" else "Exported" end) type `\(.export_name)` is never imported by other modules.\n\n**Action:** Remove the `export` keyword if only used internally.\(footer("unused-types"))"
   }),
+  (.private_type_leaks[]? | {
+    type: "other",
+    path: (prefix + .path),
+    line: .line,
+    body: ":warning: **Private type leak**\n\nExport `\(.export_name)` references same-file private type `\(.type_name)` in its public signature.\n\n**Action:** Export `\(.type_name)` or remove it from the public signature.\(footer("private-type-leaks"))"
+  }),
   (.unused_dependencies[]? | {
     type: "other",
     path: (prefix + .path),

@@ -104,6 +104,7 @@ pub const ISSUE_TYPE_FLAGS: &[(&str, &str)] = &[
     ("unused-files", "--unused-files"),
     ("unused-exports", "--unused-exports"),
     ("unused-types", "--unused-types"),
+    ("private-type-leaks", "--private-type-leaks"),
     ("unused-deps", "--unused-deps"),
     ("unused-enum-members", "--unused-enum-members"),
     ("unused-class-members", "--unused-class-members"),

@@ -904,6 +904,8 @@ mod tests {
             line_offsets: Vec::new(),
             flag_uses: Vec::new(),
             class_heritage: Vec::new(),
+            local_type_declarations: Vec::new(),
+            public_signature_type_references: Vec::new(),
             complexity: vec![fallow_types::extract::FunctionComplexity {
                 name: format!("fn_{id}"),
                 line: id + 1,

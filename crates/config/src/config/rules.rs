@@ -70,6 +70,8 @@ pub struct RulesConfig {
     #[serde(default)]
     pub unused_types: Severity,
     #[serde(default)]
+    pub private_type_leaks: Severity,
+    #[serde(default)]
     pub unused_dependencies: Severity,
     #[serde(default = "Severity::default_warn")]
     pub unused_dev_dependencies: Severity,
@@ -107,6 +109,7 @@ impl Default for RulesConfig {
             unused_files: Severity::Error,
             unused_exports: Severity::Error,
             unused_types: Severity::Error,
+            private_type_leaks: Severity::Error,
             unused_dependencies: Severity::Error,
             unused_dev_dependencies: Severity::Warn,
             unused_optional_dependencies: Severity::Warn,
@@ -137,6 +140,9 @@ impl RulesConfig {
         }
         if let Some(s) = partial.unused_types {
             self.unused_types = s;
+        }
+        if let Some(s) = partial.private_type_leaks {
+            self.private_type_leaks = s;
         }
         if let Some(s) = partial.unused_dependencies {
             self.unused_dependencies = s;
@@ -197,6 +203,8 @@ pub struct PartialRulesConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unused_types: Option<Severity>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub private_type_leaks: Option<Severity>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unused_dependencies: Option<Severity>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unused_dev_dependencies: Option<Severity>,
@@ -238,6 +246,7 @@ mod tests {
         assert_eq!(rules.unused_files, Severity::Error);
         assert_eq!(rules.unused_exports, Severity::Error);
         assert_eq!(rules.unused_types, Severity::Error);
+        assert_eq!(rules.private_type_leaks, Severity::Error);
         assert_eq!(rules.unused_dependencies, Severity::Error);
         assert_eq!(rules.unused_dev_dependencies, Severity::Warn);
         assert_eq!(rules.unused_optional_dependencies, Severity::Warn);
@@ -324,6 +333,7 @@ mod tests {
             unused_files: Some(Severity::Off),
             unused_exports: Some(Severity::Off),
             unused_types: Some(Severity::Off),
+            private_type_leaks: Some(Severity::Off),
             unused_dependencies: Some(Severity::Off),
             unused_dev_dependencies: Some(Severity::Off),
             unused_optional_dependencies: Some(Severity::Off),
@@ -342,6 +352,7 @@ mod tests {
         };
         rules.apply_partial(&partial);
         assert_eq!(rules.unused_files, Severity::Off);
+        assert_eq!(rules.private_type_leaks, Severity::Off);
         assert_eq!(rules.circular_dependencies, Severity::Off);
         assert_eq!(rules.type_only_dependencies, Severity::Off);
         assert_eq!(rules.test_only_dependencies, Severity::Off);

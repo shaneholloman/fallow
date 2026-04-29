@@ -3,7 +3,7 @@ use std::process::ExitCode;
 
 use fallow_config::{RulesConfig, Severity};
 use fallow_core::duplicates::DuplicationReport;
-use fallow_core::results::AnalysisResults;
+use fallow_core::results::{AnalysisResults, PrivateTypeLeak};
 
 use super::grouping::{self, OwnershipResolver};
 use super::{emit_json, normalize_uri, relative_path};
@@ -168,6 +168,38 @@ fn push_unused_export_issues(
             "Bug Risk",
             &path,
             Some(export.line),
+            &fp,
+        ));
+    }
+}
+
+fn push_private_type_leak_issues(
+    issues: &mut Vec<serde_json::Value>,
+    leaks: &[PrivateTypeLeak],
+    root: &Path,
+    severity: Severity,
+) {
+    let level = severity_to_codeclimate(severity);
+    for leak in leaks {
+        let path = cc_path(&leak.path, root);
+        let line_str = leak.line.to_string();
+        let fp = fingerprint_hash(&[
+            "fallow/private-type-leak",
+            &path,
+            &line_str,
+            &leak.export_name,
+            &leak.type_name,
+        ]);
+        issues.push(cc_issue(
+            "fallow/private-type-leak",
+            &format!(
+                "Export '{}' references private type '{}'",
+                leak.export_name, leak.type_name
+            ),
+            level,
+            "Bug Risk",
+            &path,
+            Some(leak.line),
             &fp,
         ));
     }
@@ -471,6 +503,12 @@ pub fn build_codeclimate(
         "Type export",
         "Type re-export",
         rules.unused_types,
+    );
+    push_private_type_leak_issues(
+        &mut issues,
+        &results.private_type_leaks,
+        root,
+        rules.private_type_leaks,
     );
     push_dep_cc_issues(
         &mut issues,

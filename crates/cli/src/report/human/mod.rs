@@ -65,6 +65,10 @@ fn section_footer_text(title: &str) -> Option<(&'static str, &'static str)> {
             "Type exports with no known consumers",
             "https://docs.fallow.tools/explanations/dead-code#unused-types",
         )),
+        "Private type leaks" => Some((
+            "Exported signatures that reference same-file private types",
+            "https://docs.fallow.tools/explanations/dead-code#private-type-leaks",
+        )),
         "Unused dependencies" => Some((
             "Listed in dependencies but never imported",
             "https://docs.fallow.tools/explanations/dead-code#unused-dependencies",
@@ -123,6 +127,7 @@ fn section_suppress_rule(title: &str) -> Option<&'static str> {
         "Unused files" => Some("unused-files"),
         "Unused exports" => Some("unused-exports"),
         "Unused type exports" => Some("unused-types"),
+        "Private type leaks" => Some("private-type-leak"),
         "Unused dependencies" | "Unused devDependencies" | "Unused optionalDependencies" => {
             Some("unused-dependencies")
         }

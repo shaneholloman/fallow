@@ -74,6 +74,7 @@
       }
     ],
     "unused_types": [],
+    "private_type_leaks": [],
     "unused_dependencies": [
       {
         "package_name": "react",

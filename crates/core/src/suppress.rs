@@ -180,6 +180,7 @@ impl<'a> SuppressionContext<'a> {
                         IssueKind::UnusedFile => "unused-file",
                         IssueKind::UnusedExport => "unused-export",
                         IssueKind::UnusedType => "unused-type",
+                        IssueKind::PrivateTypeLeak => "private-type-leak",
                         IssueKind::UnusedDependency => "unused-dependency",
                         IssueKind::UnusedDevDependency => "unused-dev-dependency",
                         IssueKind::UnusedEnumMember => "unused-enum-member",
@@ -296,6 +297,7 @@ mod tests {
             IssueKind::UnusedFile,
             IssueKind::UnusedExport,
             IssueKind::UnusedType,
+            IssueKind::PrivateTypeLeak,
             IssueKind::UnusedDependency,
             IssueKind::UnusedDevDependency,
             IssueKind::UnusedEnumMember,
@@ -318,7 +320,7 @@ mod tests {
             );
         }
         assert_eq!(IssueKind::from_discriminant(0), None);
-        assert_eq!(IssueKind::from_discriminant(20), None);
+        assert_eq!(IssueKind::from_discriminant(21), None);
     }
 
     #[test]

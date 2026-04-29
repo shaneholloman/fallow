@@ -109,6 +109,7 @@ else
       (if (.check.unused_files | length) > 0 then "| [Unused files](\(docs("unused-files"))) | \(.check.unused_files | length) |" else null end),
       (if (.check.unused_exports | length) > 0 then "| [Unused exports](\(docs("unused-exports"))) | \(.check.unused_exports | length) |" else null end),
       (if (.check.unused_types | length) > 0 then "| [Unused types](\(docs("unused-types"))) | \(.check.unused_types | length) |" else null end),
+      (if (.check.private_type_leaks | length) > 0 then "| [Private type leaks](\(docs("private-type-leaks"))) | \(.check.private_type_leaks | length) |" else null end),
       (if (.check.unused_dependencies | length) > 0 then "| [Unused dependencies](\(docs("unused-dependencies"))) | \(.check.unused_dependencies | length) |" else null end),
       (if (.check.unused_dev_dependencies | length) > 0 then "| [Unused devDependencies](\(docs("unused-dependencies"))) | \(.check.unused_dev_dependencies | length) |" else null end),
       (if (.check.unused_optional_dependencies | length) > 0 then "| [Unused optionalDependencies](\(docs("unused-dependencies"))) | \(.check.unused_optional_dependencies | length) |" else null end),

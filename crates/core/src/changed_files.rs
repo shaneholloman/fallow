@@ -301,6 +301,9 @@ pub fn filter_results_by_changed_files(
         .unused_types
         .retain(|e| changed_files.contains(&e.path));
     results
+        .private_type_leaks
+        .retain(|e| changed_files.contains(&e.path));
+    results
         .unused_enum_members
         .retain(|m| changed_files.contains(&m.path));
     results

@@ -59,6 +59,12 @@ pub struct ModuleInfo {
     /// Heritage metadata for exported classes that declare `implements`.
     /// Used to scope `usedClassMembers` rules during analysis.
     pub class_heritage: Vec<ClassHeritageInfo>,
+    /// Local type-capable declarations in this module.
+    /// Used to detect exported signatures that expose a same-file private type.
+    pub local_type_declarations: Vec<LocalTypeDeclaration>,
+    /// Type references that appear in exported symbols' public signatures.
+    /// The analysis layer checks these against `local_type_declarations`.
+    pub public_signature_type_references: Vec<PublicSignatureTypeReference>,
 }
 
 /// Compute a table of line-start byte offsets from source text.
@@ -287,6 +293,28 @@ pub struct ClassHeritageInfo {
     pub instance_bindings: Vec<(String, String)>,
 }
 
+/// A module-scope declaration that can be used as a TypeScript type.
+#[derive(Debug, Clone, serde::Serialize, PartialEq, Eq)]
+pub struct LocalTypeDeclaration {
+    /// Local declaration name.
+    pub name: String,
+    /// Declaration identifier span.
+    #[serde(serialize_with = "serialize_span")]
+    pub span: Span,
+}
+
+/// A reference from an exported symbol's public signature to a type name.
+#[derive(Debug, Clone, serde::Serialize, PartialEq, Eq)]
+pub struct PublicSignatureTypeReference {
+    /// Exported symbol whose signature contains the reference.
+    pub export_name: String,
+    /// Referenced type name. Qualified names are reduced to their root identifier.
+    pub type_name: String,
+    /// Reference span.
+    #[serde(serialize_with = "serialize_span")]
+    pub span: Span,
+}
+
 /// A member of an enum, class, or namespace.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct MemberInfo {
@@ -471,7 +499,7 @@ const _: () = assert!(std::mem::size_of::<ImportedName>() == 24);
 const _: () = assert!(std::mem::size_of::<MemberAccess>() == 48);
 // `ModuleInfo` is the per-file extraction result — stored in a Vec during parallel parsing.
 #[cfg(target_pointer_width = "64")]
-const _: () = assert!(std::mem::size_of::<ModuleInfo>() == 400);
+const _: () = assert!(std::mem::size_of::<ModuleInfo>() == 448);
 
 /// A re-export declaration.
 #[derive(Debug, Clone)]

@@ -4,9 +4,9 @@ use std::process::ExitCode;
 use fallow_config::{RulesConfig, Severity};
 use fallow_core::duplicates::DuplicationReport;
 use fallow_core::results::{
-    AnalysisResults, BoundaryViolation, CircularDependency, DuplicateExport, StaleSuppression,
-    TestOnlyDependency, TypeOnlyDependency, UnlistedDependency, UnresolvedImport, UnusedDependency,
-    UnusedExport, UnusedFile, UnusedMember,
+    AnalysisResults, BoundaryViolation, CircularDependency, DuplicateExport, PrivateTypeLeak,
+    StaleSuppression, TestOnlyDependency, TypeOnlyDependency, UnlistedDependency, UnresolvedImport,
+    UnusedDependency, UnusedExport, UnusedFile, UnusedMember,
 };
 
 use super::grouping::{self, OwnershipResolver};
@@ -127,6 +127,24 @@ fn sarif_export_fields(
         } else {
             None
         },
+    }
+}
+
+fn sarif_private_type_leak_fields(
+    leak: &PrivateTypeLeak,
+    root: &Path,
+    level: &'static str,
+) -> SarifFields {
+    SarifFields {
+        rule_id: "fallow/private-type-leak",
+        level,
+        message: format!(
+            "Export '{}' references private type '{}'",
+            leak.export_name, leak.type_name
+        ),
+        uri: relative_uri(&leak.path, root),
+        region: Some((leak.line, leak.col + 1)),
+        properties: None,
     }
 }
 
@@ -393,6 +411,11 @@ fn build_sarif_rules(rules: &RulesConfig) -> Vec<serde_json::Value> {
             severity_to_sarif_level(rules.unused_types),
         ),
         sarif_rule(
+            "fallow/private-type-leak",
+            "Exported signature references a same-file private type",
+            severity_to_sarif_level(rules.private_type_leaks),
+        ),
+        sarif_rule(
             "fallow/unused-dependency",
             "Dependency listed but never imported",
             severity_to_sarif_level(rules.unused_dependencies),
@@ -470,6 +493,7 @@ pub fn build_sarif(
     let lvl_files = severity_to_sarif_level(rules.unused_files);
     let lvl_exports = severity_to_sarif_level(rules.unused_exports);
     let lvl_types = severity_to_sarif_level(rules.unused_types);
+    let lvl_private_type_leaks = severity_to_sarif_level(rules.private_type_leaks);
     let lvl_deps = severity_to_sarif_level(rules.unused_dependencies);
     let lvl_dev_deps = severity_to_sarif_level(rules.unused_dev_dependencies);
     let lvl_opt_deps = severity_to_sarif_level(rules.unused_optional_dependencies);
@@ -506,6 +530,9 @@ pub fn build_sarif(
             "Type export",
             "Type re-export",
         )
+    });
+    push_sarif_results(&mut sarif_results, &results.private_type_leaks, |e| {
+        sarif_private_type_leak_fields(e, root, lvl_private_type_leaks)
     });
     push_sarif_results(&mut sarif_results, &results.unused_dependencies, |d| {
         sarif_dep_fields(
@@ -1142,12 +1169,13 @@ mod tests {
         let rules = sarif["runs"][0]["tool"]["driver"]["rules"]
             .as_array()
             .expect("rules should be an array");
-        assert_eq!(rules.len(), 16);
+        assert_eq!(rules.len(), 17);
 
         let rule_ids: Vec<&str> = rules.iter().map(|r| r["id"].as_str().unwrap()).collect();
         assert!(rule_ids.contains(&"fallow/unused-file"));
         assert!(rule_ids.contains(&"fallow/unused-export"));
         assert!(rule_ids.contains(&"fallow/unused-type"));
+        assert!(rule_ids.contains(&"fallow/private-type-leak"));
         assert!(rule_ids.contains(&"fallow/unused-dependency"));
         assert!(rule_ids.contains(&"fallow/unused-dev-dependency"));
         assert!(rule_ids.contains(&"fallow/unused-optional-dependency"));

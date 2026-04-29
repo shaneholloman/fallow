@@ -53,6 +53,19 @@ expression: redact_sarif_version(&json_str)
               }
             },
             {
+              "id": "fallow/private-type-leak",
+              "shortDescription": {
+                "text": "Exported signature references a private type"
+              },
+              "fullDescription": {
+                "text": "Exported values or types whose public TypeScript signature references a same-file type declaration that is not exported. Consumers cannot name that private type directly, so the backing type should be exported or removed from the public signature."
+              },
+              "helpUri": "https://docs.fallow.tools/explanations/dead-code#private-type-leaks",
+              "defaultConfiguration": {
+                "level": "error"
+              }
+            },
+            {
               "id": "fallow/unused-dependency",
               "shortDescription": {
                 "text": "Dependency listed but never imported"

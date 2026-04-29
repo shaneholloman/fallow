@@ -55,6 +55,33 @@ pub fn push_export_diagnostics(
             }
         }
     }
+
+    for leak in &results.private_type_leaks {
+        if let Ok(uri) = Url::from_file_path(&leak.path) {
+            let line = leak.line.saturating_sub(1);
+            map.entry(uri).or_default().push(Diagnostic {
+                range: Range {
+                    start: Position {
+                        line,
+                        character: leak.col,
+                    },
+                    end: Position {
+                        line,
+                        character: leak.col + leak.type_name.len() as u32,
+                    },
+                },
+                severity: Some(DiagnosticSeverity::WARNING),
+                source: Some("fallow".to_string()),
+                code: Some(NumberOrString::String("private-type-leak".to_string())),
+                code_description: doc_link("private-type-leaks"),
+                message: format!(
+                    "Export '{}' references private type '{}'",
+                    leak.export_name, leak.type_name
+                ),
+                ..Default::default()
+            });
+        }
+    }
 }
 
 pub fn push_file_diagnostics(map: &mut FxHashMap<Url, Vec<Diagnostic>>, results: &AnalysisResults) {

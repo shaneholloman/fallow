@@ -483,6 +483,22 @@ assert_contains "$SUMMARY" "Boundary violations" "summary has boundary section"
 assert_contains "$SUMMARY" "src/ui/App.ts" "summary mentions file"
 assert_contains "$SUMMARY" "ui" "summary mentions zone"
 
+echo "  private type leak appears in summary:"
+PTL_INPUT='{"total_issues":1,"unused_files":[],"unused_exports":[],"unused_types":[],"private_type_leaks":[{"path":"src/Component.ts","export_name":"Component","type_name":"Props","line":17,"col":33,"span_start":207}],"unused_dependencies":[],"unused_dev_dependencies":[],"unused_optional_dependencies":[],"unused_enum_members":[],"unused_class_members":[],"unresolved_imports":[],"unlisted_dependencies":[],"duplicate_exports":[],"circular_dependencies":[],"boundary_violations":[],"type_only_dependencies":[]}'
+SUMMARY=$(echo "$PTL_INPUT" | jq -rf "$CI_JQ_DIR/summary-check.jq" 2>&1)
+assert_contains "$SUMMARY" "Private type leaks" "summary has private type leaks section"
+assert_contains "$SUMMARY" "src/Component.ts" "summary mentions file"
+assert_contains "$SUMMARY" "Component" "summary mentions export name"
+assert_contains "$SUMMARY" "Props" "summary mentions private type name"
+
+echo "  private type leak appears in review comments:"
+OUT=$(echo "$PTL_INPUT" | MAX=50 jq -f "$SHARED_JQ_DIR/review-comments-check.jq" 2>&1)
+assert_valid_json "$OUT" "private type leak JSON valid"
+assert_json_length "$OUT" "1" "private type leak produces 1 comment"
+assert_contains "$OUT" "Private type leak" "comment mentions Private type leak"
+assert_contains "$OUT" "Component" "comment mentions export name"
+assert_contains "$OUT" "Props" "comment mentions private type name"
+
 echo "  review-body clean state:"
 OUT_CLEAN=$(jq -r -f "$SHARED_JQ_DIR/review-body.jq" "$FIXTURES/combined-clean.json" 2>&1)
 assert_contains "$OUT_CLEAN" "No code issues" "clean: no code issues"

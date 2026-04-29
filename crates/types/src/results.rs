@@ -47,6 +47,8 @@ pub struct AnalysisResults {
     pub unused_exports: Vec<UnusedExport>,
     /// Type exports never imported by other modules.
     pub unused_types: Vec<UnusedExport>,
+    /// Exported symbols whose public signature references same-file private types.
+    pub private_type_leaks: Vec<PrivateTypeLeak>,
     /// Dependencies listed in package.json but never imported.
     pub unused_dependencies: Vec<UnusedDependency>,
     /// Dev dependencies listed in package.json but never imported.
@@ -122,6 +124,7 @@ impl AnalysisResults {
         self.unused_files.len()
             + self.unused_exports.len()
             + self.unused_types.len()
+            + self.private_type_leaks.len()
             + self.unused_dependencies.len()
             + self.unused_dev_dependencies.len()
             + self.unused_optional_dependencies.len()
@@ -164,6 +167,14 @@ impl AnalysisResults {
                 .cmp(&b.path)
                 .then(a.line.cmp(&b.line))
                 .then(a.export_name.cmp(&b.export_name))
+        });
+
+        self.private_type_leaks.sort_by(|a, b| {
+            a.path
+                .cmp(&b.path)
+                .then(a.line.cmp(&b.line))
+                .then(a.export_name.cmp(&b.export_name))
+                .then(a.type_name.cmp(&b.type_name))
         });
 
         self.unused_dependencies.sort_by(|a, b| {
@@ -307,6 +318,24 @@ pub struct UnusedExport {
     pub span_start: u32,
     /// Whether this finding comes from a barrel/index re-export rather than the source definition.
     pub is_re_export: bool,
+}
+
+/// A public export signature that references a same-file private type.
+#[derive(Debug, Clone, Serialize)]
+pub struct PrivateTypeLeak {
+    /// File containing the exported symbol.
+    #[serde(serialize_with = "serde_path::serialize")]
+    pub path: PathBuf,
+    /// Export whose public signature leaks the private type.
+    pub export_name: String,
+    /// Private type referenced by the public signature.
+    pub type_name: String,
+    /// 1-based line number of the leaking type reference.
+    pub line: u32,
+    /// 0-based byte column offset.
+    pub col: u32,
+    /// Byte offset of the type reference.
+    pub span_start: u32,
 }
 
 /// A dependency that is listed in package.json but never imported.

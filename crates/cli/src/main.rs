@@ -259,6 +259,10 @@ enum Command {
         #[arg(long)]
         unused_types: bool,
 
+        /// Only report exported signatures that reference same-file private types
+        #[arg(long)]
+        private_type_leaks: bool,
+
         /// Only report unused enum members
         #[arg(long)]
         unused_enum_members: bool,
@@ -1557,6 +1561,7 @@ fn dispatch_subcommand(
             unused_exports,
             unused_deps,
             unused_types,
+            private_type_leaks,
             unused_enum_members,
             unused_class_members,
             unresolved_imports,
@@ -1590,6 +1595,7 @@ fn dispatch_subcommand(
                 unused_exports,
                 unused_deps,
                 unused_types,
+                private_type_leaks,
                 unused_enum_members,
                 unused_class_members,
                 unresolved_imports,
