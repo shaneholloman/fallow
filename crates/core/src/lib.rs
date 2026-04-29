@@ -943,32 +943,23 @@ fn run_plugins(
     let root_active_plugins: rustc_hash::FxHashSet<&str> =
         result.active_plugins.iter().map(String::as_str).collect();
 
-    // Pre-compile config matchers and relative files once for all workspace runs.
-    // This avoids re-compiling glob patterns and re-computing relative paths per workspace
-    // (previously O(workspaces × plugins × files) glob compilations).
+    // Pre-compile config matchers once and bucket source files by workspace.
+    // Workspace config matching can then scan only files below that workspace
+    // instead of every project file for every active matcher.
     let precompiled_matchers = registry.precompile_config_matchers();
-    let relative_files: Vec<(&std::path::PathBuf, String)> = file_paths
-        .iter()
-        .map(|f| {
-            let rel = f
-                .strip_prefix(&config.root)
-                .unwrap_or(f)
-                .to_string_lossy()
-                .into_owned();
-            (f, rel)
-        })
-        .collect();
+    let workspace_relative_files = bucket_files_by_workspace(workspace_pkgs, &file_paths);
 
     // Run plugins for each workspace package in parallel, then merge results.
     let ws_results: Vec<_> = workspace_pkgs
         .par_iter()
-        .filter_map(|(ws, ws_pkg)| {
+        .zip(workspace_relative_files.par_iter())
+        .filter_map(|((ws, ws_pkg), relative_files)| {
             let ws_result = registry.run_workspace_fast(
                 ws_pkg,
                 &ws.root,
                 &config.root,
                 &precompiled_matchers,
-                &relative_files,
+                relative_files,
                 &root_active_plugins,
             );
             if ws_result.active_plugins.is_empty() {
@@ -1074,6 +1065,24 @@ fn run_plugins(
     result
 }
 
+fn bucket_files_by_workspace(
+    workspace_pkgs: &[LoadedWorkspacePackage<'_>],
+    file_paths: &[std::path::PathBuf],
+) -> Vec<Vec<(std::path::PathBuf, String)>> {
+    let mut buckets = vec![Vec::new(); workspace_pkgs.len()];
+
+    for file_path in file_paths {
+        for (idx, (ws, _)) in workspace_pkgs.iter().enumerate() {
+            if let Ok(relative) = file_path.strip_prefix(&ws.root) {
+                buckets[idx].push((file_path.clone(), relative.to_string_lossy().into_owned()));
+                break;
+            }
+        }
+    }
+
+    buckets
+}
+
 fn collect_config_search_roots(
     root: &Path,
     file_paths: &[std::path::PathBuf],
@@ -1154,7 +1163,9 @@ fn num_cpus() -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{collect_config_search_roots, format_undeclared_workspace_warning};
+    use super::{
+        bucket_files_by_workspace, collect_config_search_roots, format_undeclared_workspace_warning,
+    };
     use std::path::{Path, PathBuf};
 
     use fallow_config::WorkspaceDiagnostic;
@@ -1224,6 +1235,63 @@ mod tests {
                 root.join("packages/shared"),
                 root.join("packages/shared/lib"),
             ]
+        );
+    }
+
+    #[test]
+    fn bucket_files_by_workspace_uses_workspace_relative_paths() {
+        let root = PathBuf::from("/repo");
+        let ui = fallow_config::WorkspaceInfo {
+            root: root.join("apps/ui"),
+            name: "ui".to_string(),
+            is_internal_dependency: false,
+        };
+        let api = fallow_config::WorkspaceInfo {
+            root: root.join("apps/api"),
+            name: "api".to_string(),
+            is_internal_dependency: false,
+        };
+        let workspace_pkgs = vec![
+            (
+                &ui,
+                fallow_config::PackageJson {
+                    name: Some("ui".to_string()),
+                    ..Default::default()
+                },
+            ),
+            (
+                &api,
+                fallow_config::PackageJson {
+                    name: Some("api".to_string()),
+                    ..Default::default()
+                },
+            ),
+        ];
+        let files = vec![
+            root.join("apps/ui/vite.config.ts"),
+            root.join("apps/ui/src/main.ts"),
+            root.join("apps/api/src/server.ts"),
+            root.join("tools/build.ts"),
+        ];
+
+        let buckets = bucket_files_by_workspace(&workspace_pkgs, &files);
+
+        assert_eq!(
+            buckets[0],
+            vec![
+                (
+                    root.join("apps/ui/vite.config.ts"),
+                    "vite.config.ts".to_string()
+                ),
+                (root.join("apps/ui/src/main.ts"), "src/main.ts".to_string()),
+            ]
+        );
+        assert_eq!(
+            buckets[1],
+            vec![(
+                root.join("apps/api/src/server.ts"),
+                "src/server.ts".to_string()
+            )]
         );
     }
 }

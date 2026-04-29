@@ -172,7 +172,7 @@ impl PluginRegistry {
         // String allocations.
         let needs_relative_files = !config_matchers.is_empty()
             || active.iter().any(|p| p.package_json_config_key().is_some());
-        let relative_files: Vec<(&PathBuf, String)> = if needs_relative_files {
+        let relative_files: Vec<(PathBuf, String)> = if needs_relative_files {
             discovered_files
                 .iter()
                 .map(|f| {
@@ -181,7 +181,7 @@ impl PluginRegistry {
                         .unwrap_or(f)
                         .to_string_lossy()
                         .into_owned();
-                    (f, rel)
+                    (f.clone(), rel)
                 })
                 .collect()
         } else {
@@ -282,7 +282,7 @@ impl PluginRegistry {
         root: &Path,
         project_root: &Path,
         precompiled_config_matchers: &[(&dyn Plugin, Vec<globset::GlobMatcher>)],
-        relative_files: &[(&PathBuf, String)],
+        relative_files: &[(PathBuf, String)],
         skip_config_plugins: &FxHashSet<&str>,
     ) -> AggregatedPluginResult {
         let _span = tracing::info_span!("run_plugins").entered();

@@ -1303,7 +1303,7 @@ fn check_has_config_file_returns_true_when_file_matches() {
     let next_plugin: &dyn Plugin = &super::super::nextjs::NextJsPlugin;
     // A file matching next.config.ts should be detected
     let abs = PathBuf::from("/project/next.config.ts");
-    let relative_files: Vec<(&PathBuf, String)> = vec![(&abs, "next.config.ts".to_string())];
+    let relative_files = vec![(abs, "next.config.ts".to_string())];
 
     assert!(
         check_has_config_file(next_plugin, &matchers, &relative_files),
@@ -1318,7 +1318,7 @@ fn check_has_config_file_returns_false_when_no_match() {
 
     let next_plugin: &dyn Plugin = &super::super::nextjs::NextJsPlugin;
     let abs = PathBuf::from("/project/src/index.ts");
-    let relative_files: Vec<(&PathBuf, String)> = vec![(&abs, "src/index.ts".to_string())];
+    let relative_files = vec![(abs, "src/index.ts".to_string())];
 
     assert!(
         !check_has_config_file(next_plugin, &matchers, &relative_files),
@@ -1334,7 +1334,7 @@ fn check_has_config_file_returns_false_for_plugin_without_config_patterns() {
     // MSW plugin has no config_patterns
     let msw_plugin: &dyn Plugin = &super::super::msw::MswPlugin;
     let abs = PathBuf::from("/project/something.ts");
-    let relative_files: Vec<(&PathBuf, String)> = vec![(&abs, "something.ts".to_string())];
+    let relative_files = vec![(abs, "something.ts".to_string())];
 
     assert!(
         !check_has_config_file(msw_plugin, &matchers, &relative_files),
@@ -1538,7 +1538,7 @@ fn run_workspace_fast_returns_empty_for_no_active_plugins() {
     let registry = PluginRegistry::default();
     let matchers = registry.precompile_config_matchers();
     let pkg = PackageJson::default();
-    let relative_files: Vec<(&PathBuf, String)> = vec![];
+    let relative_files = vec![];
     let result = registry.run_workspace_fast(
         &pkg,
         Path::new("/workspace/pkg"),
@@ -1558,7 +1558,7 @@ fn run_workspace_fast_detects_active_plugins() {
     let registry = PluginRegistry::default();
     let matchers = registry.precompile_config_matchers();
     let pkg = make_pkg(&["next"]);
-    let relative_files: Vec<(&PathBuf, String)> = vec![];
+    let relative_files = vec![];
     let result = registry.run_workspace_fast(
         &pkg,
         Path::new("/workspace/pkg"),
@@ -1579,7 +1579,7 @@ fn run_workspace_fast_filters_matchers_to_active_plugins() {
     // With only 'next' in deps, config matchers for other plugins (jest, vite, etc.)
     // should be excluded from the workspace run.
     let pkg = make_pkg(&["next"]);
-    let relative_files: Vec<(&PathBuf, String)> = vec![];
+    let relative_files = vec![];
     let result = registry.run_workspace_fast(
         &pkg,
         Path::new("/workspace/pkg"),
@@ -1593,6 +1593,63 @@ fn run_workspace_fast_filters_matchers_to_active_plugins() {
     assert!(
         !result.active_plugins.contains(&"jest".to_string()),
         "jest should not be active without jest dep"
+    );
+}
+
+#[test]
+fn run_workspace_fast_resolves_config_from_workspace_relative_paths() {
+    // End-to-end regression coverage for the workspace-relative bucketing in
+    // `bucket_files_by_workspace`. Confirms the full chain:
+    // bucket -> run_workspace_fast -> matcher.is_match -> plugin.resolve_config.
+    // If `run_workspace_fast` ever stopped invoking `resolve_config` for
+    // workspace-local config files, this assertion would fail because the
+    // custom entry only appears when the parser actually runs.
+    //
+    // Note on coverage: `run_workspace_fast` has both Phase 3a (matcher
+    // iteration over `relative_files`) and Phase 3b (filesystem scan of
+    // workspace + project roots) for finding config files. Pair this test
+    // with `bucket_files_by_workspace_uses_workspace_relative_paths` to
+    // cover both halves of the chain.
+    let registry = PluginRegistry::default();
+    let matchers = registry.precompile_config_matchers();
+    let pkg = make_pkg(&["vite"]);
+
+    let tmp = tempfile::tempdir().unwrap();
+    let project_root = tmp.path();
+    let workspace_root = project_root.join("apps/web");
+    std::fs::create_dir_all(&workspace_root).unwrap();
+    let config_path = workspace_root.join("vite.config.ts");
+    std::fs::write(
+        &config_path,
+        r"export default {
+            build: { rollupOptions: { input: 'src/custom-entry.ts' } }
+        };",
+    )
+    .unwrap();
+
+    let workspace_relative = vec![(config_path, "vite.config.ts".to_string())];
+    let result = registry.run_workspace_fast(
+        &pkg,
+        &workspace_root,
+        project_root,
+        &matchers,
+        &workspace_relative,
+        &FxHashSet::default(),
+    );
+
+    let entry_patterns: Vec<String> = result
+        .entry_patterns
+        .iter()
+        .map(|(rule, _)| rule.pattern.clone())
+        .collect();
+    assert!(
+        entry_patterns.iter().any(|p| p == "src/custom-entry.ts"),
+        "vite plugin should pick up rollupOptions.input from workspace-local config; \
+         got entry_patterns={entry_patterns:?}"
+    );
+    assert!(
+        result.active_plugins.iter().any(|p| p == "vite"),
+        "vite plugin should be active when 'vite' is a workspace dep"
     );
 }
 

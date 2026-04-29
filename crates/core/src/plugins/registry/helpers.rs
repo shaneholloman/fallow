@@ -295,7 +295,7 @@ pub fn process_config_result(
 pub fn check_has_config_file(
     plugin: &dyn Plugin,
     config_matchers: &[(&dyn Plugin, Vec<globset::GlobMatcher>)],
-    relative_files: &[(&PathBuf, String)],
+    relative_files: &[(PathBuf, String)],
 ) -> bool {
     !plugin.config_patterns().is_empty()
         && config_matchers.iter().any(|(p, matchers)| {
