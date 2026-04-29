@@ -161,6 +161,27 @@ impl ModuleInfoExtractor {
         }
     }
 
+    fn record_exported_instance_bindings(&mut self) {
+        if self.binding_target_names.is_empty() {
+            return;
+        }
+
+        let additional_accesses: Vec<MemberAccess> = self
+            .exports
+            .iter()
+            .filter_map(|export| {
+                let local_name = export.local_name.as_deref()?;
+                let target_name = self.binding_target_names.get(local_name)?;
+                Some(MemberAccess {
+                    object: format!("{}{}", crate::INSTANCE_EXPORT_SENTINEL, export.name),
+                    member: target_name.clone(),
+                })
+            })
+            .collect();
+
+        self.member_accesses.extend(additional_accesses);
+    }
+
     /// Map bound member accesses to their target symbol member accesses.
     ///
     /// When `const x = new Foo()` and later `x.bar()`, or `const x: Service`
@@ -212,6 +233,7 @@ impl ModuleInfoExtractor {
         suppressions: Vec<Suppression>,
     ) -> ModuleInfo {
         self.enrich_local_class_exports();
+        self.record_exported_instance_bindings();
         self.resolve_bound_member_accesses();
         ModuleInfo {
             file_id,
@@ -256,6 +278,7 @@ impl ModuleInfoExtractor {
              merge step before relying on this assertion"
         );
         self.enrich_local_class_exports();
+        self.record_exported_instance_bindings();
         self.resolve_bound_member_accesses();
         info.imports.extend(self.imports);
         info.exports.extend(self.exports);

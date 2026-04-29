@@ -2,7 +2,9 @@ use fallow_config::{ScopedUsedClassMemberRule, UsedClassMemberRule};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::discover::FileId;
-use crate::extract::{ANGULAR_TPL_SENTINEL, ExportName, MemberKind, ModuleInfo};
+use crate::extract::{
+    ANGULAR_TPL_SENTINEL, ExportName, INSTANCE_EXPORT_SENTINEL, MemberKind, ModuleInfo,
+};
 use crate::graph::ModuleGraph;
 use crate::resolve::{ResolveResult, ResolvedModule};
 use crate::results::UnusedMember;
@@ -253,6 +255,81 @@ fn propagate_whole_object_through_re_exports(
     }
 }
 
+fn push_export_key(keys: &mut Vec<ExportKey>, key: ExportKey) {
+    if !keys.contains(&key) {
+        keys.push(key);
+    }
+}
+
+fn build_instance_export_targets(
+    graph: &ModuleGraph,
+    resolved_modules: &[ResolvedModule],
+) -> FxHashMap<ExportKey, Vec<ExportKey>> {
+    let mut targets_by_instance: FxHashMap<ExportKey, Vec<ExportKey>> = FxHashMap::default();
+
+    for resolved in resolved_modules {
+        let local_to_export_keys = build_local_to_export_keys(resolved);
+        for access in &resolved.member_accesses {
+            let Some(instance_export_name) = access.object.strip_prefix(INSTANCE_EXPORT_SENTINEL)
+            else {
+                continue;
+            };
+            let Some(target_keys) = local_to_export_keys.get(access.member.as_str()) else {
+                continue;
+            };
+
+            let instance_key = ExportKey::new(resolved.file_id, instance_export_name);
+            let instance_targets = targets_by_instance.entry(instance_key).or_default();
+            for target_key in target_keys {
+                push_export_key(instance_targets, target_key.clone());
+                for origin in walk_re_export_origins(
+                    graph,
+                    target_key.file_id,
+                    target_key.export_name.as_str(),
+                ) {
+                    push_export_key(instance_targets, origin);
+                }
+            }
+        }
+    }
+
+    targets_by_instance
+}
+
+fn propagate_accesses_through_instance_exports(
+    instance_targets: &FxHashMap<ExportKey, Vec<ExportKey>>,
+    accessed_members: &mut FxHashMap<ExportKey, FxHashSet<String>>,
+    whole_object_used_exports: &mut FxHashSet<ExportKey>,
+) {
+    if instance_targets.is_empty() {
+        return;
+    }
+
+    let accessed_snapshot: Vec<(ExportKey, Vec<String>)> = accessed_members
+        .iter()
+        .map(|(key, members)| (key.clone(), members.iter().cloned().collect()))
+        .collect();
+    for (instance_key, members) in accessed_snapshot {
+        let Some(target_keys) = instance_targets.get(&instance_key) else {
+            continue;
+        };
+        for target_key in target_keys {
+            accessed_members
+                .entry(target_key.clone())
+                .or_default()
+                .extend(members.iter().cloned());
+        }
+    }
+
+    let whole_snapshot: Vec<ExportKey> = whole_object_used_exports.iter().cloned().collect();
+    for instance_key in whole_snapshot {
+        let Some(target_keys) = instance_targets.get(&instance_key) else {
+            continue;
+        };
+        whole_object_used_exports.extend(target_keys.iter().cloned());
+    }
+}
+
 /// Build `parent_export -> [child_export, ...]` from each exported class's
 /// `extends` clause (resolved through the importing module's
 /// `local_to_export_keys`). Output is deduplicated per-parent.
@@ -443,6 +520,9 @@ pub fn find_unused_members(
         let local_to_export_keys = build_local_to_export_keys(resolved);
 
         for access in &resolved.member_accesses {
+            if access.object.starts_with(INSTANCE_EXPORT_SENTINEL) {
+                continue;
+            }
             // Track `this.member` accesses per-file for internal class usage
             if access.object == "this" {
                 self_accessed_members
@@ -474,6 +554,12 @@ pub fn find_unused_members(
     // file's `members`. See issue #178.
     propagate_accesses_through_re_exports(graph, &mut accessed_members);
     propagate_whole_object_through_re_exports(graph, &mut whole_object_used_exports);
+    let instance_targets = build_instance_export_targets(graph, resolved_modules);
+    propagate_accesses_through_instance_exports(
+        &instance_targets,
+        &mut accessed_members,
+        &mut whole_object_used_exports,
+    );
 
     if !interface_to_implementers.is_empty() {
         let mut propagations: Vec<(ExportKey, Vec<String>)> = Vec::new();
@@ -541,7 +627,11 @@ pub fn find_unused_members(
             let chains: Vec<(&str, &str)> = m
                 .member_accesses
                 .iter()
-                .filter(|a| a.object != ANGULAR_TPL_SENTINEL && a.object != "this")
+                .filter(|a| {
+                    a.object != ANGULAR_TPL_SENTINEL
+                        && a.object != "this"
+                        && !a.object.starts_with(INSTANCE_EXPORT_SENTINEL)
+                })
                 .map(|a| (a.object.as_str(), a.member.as_str()))
                 .collect();
             if chains.is_empty() {

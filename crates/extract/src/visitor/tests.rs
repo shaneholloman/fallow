@@ -559,6 +559,24 @@ fn multiple_instances_same_class() {
     );
 }
 
+#[test]
+fn exported_instance_binding_is_recorded() {
+    let info = parse(
+        r"
+            import { Box } from './box';
+            export const box = new Box();
+            ",
+    );
+
+    assert!(
+        info.member_accesses.iter().any(|a| {
+            a.object == format!("{}box", crate::INSTANCE_EXPORT_SENTINEL) && a.member == "Box"
+        }),
+        "exported instance binding should be recorded, found: {:?}",
+        info.member_accesses
+    );
+}
+
 // ── Factory initializer instance tracking ──────────────────
 
 #[test]

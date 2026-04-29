@@ -44,6 +44,13 @@ pub use mdx::extract_mdx_statements;
 pub use sfc::{extract_sfc_scripts, is_sfc_file};
 pub use sfc_template::angular::ANGULAR_TPL_SENTINEL;
 
+/// Synthetic member-access object used to carry exported-instance bindings.
+///
+/// `MemberAccess { object: format!("{INSTANCE_EXPORT_SENTINEL}{export_name}"), member: target }`
+/// means the exported value named `export_name` is an instance of the local
+/// class/interface symbol named `target`.
+pub const INSTANCE_EXPORT_SENTINEL: &str = "__fallow_instance_export__:";
+
 use parse::parse_source_to_module;
 
 /// Parse all files in parallel, extracting imports and exports.

@@ -49,6 +49,32 @@ fn enum_class_members_detects_unused_members() {
     );
 }
 
+#[test]
+fn exported_instance_class_members_are_credited_to_class() {
+    let root = fixture_path("exported-instance-class-members");
+    let config = create_config(root);
+    let results = fallow_core::analyze(&config).expect("analysis should succeed");
+
+    let unused_class_members: Vec<String> = results
+        .unused_class_members
+        .iter()
+        .map(|m| format!("{}.{}", m.parent_name, m.member_name))
+        .collect();
+
+    assert!(
+        !unused_class_members.contains(&"Box.bump".to_string()),
+        "Box.bump should be credited through exported instance usage, found: {unused_class_members:?}"
+    );
+    assert!(
+        !unused_class_members.contains(&"Box.current".to_string()),
+        "Box.current getter/setter should be credited through exported instance usage, found: {unused_class_members:?}"
+    );
+    assert!(
+        unused_class_members.contains(&"Box.unused".to_string()),
+        "Box.unused should still be reported, found: {unused_class_members:?}"
+    );
+}
+
 // ── Cross-package enum/class member access (issue #178) ────────
 
 #[test]
