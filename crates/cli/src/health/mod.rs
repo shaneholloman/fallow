@@ -373,8 +373,9 @@ fn execute_health_inner(
     };
 
     // Run file scoring and churn fetch in parallel when both are needed.
-    // Churn fetch involves a `git log` shell-out that dominates health timing.
-    let needs_churn = opts.hotspots || opts.targets || opts.force_full;
+    // Churn fetch involves a `git log` shell-out that dominates health timing,
+    // so keep it tied to sections that actually consume churn data.
+    let needs_churn = opts.hotspots || opts.targets;
     let (file_score_result, file_scores_ms, churn_fetch) = if needs_file_scores && needs_churn {
         std::thread::scope(|s| {
             let churn_handle = s.spawn(|| hotspots::fetch_churn_data(opts, &config.cache_dir));

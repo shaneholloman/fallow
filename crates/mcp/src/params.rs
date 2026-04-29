@@ -450,7 +450,8 @@ pub struct HealthParams {
     pub coverage_gaps: Option<bool>,
 
     /// Show only the project health score (0–100) with letter grade (A/B/C/D/F).
-    /// Forces full pipeline for maximum accuracy.
+    /// Runs duplication analysis automatically; pair with `hotspots=true` (or
+    /// `targets=true`) for the churn-backed hotspot penalty.
     pub score: Option<bool>,
 
     /// Fail if the health score is below this threshold (0–100). Implies --score.

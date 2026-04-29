@@ -461,6 +461,13 @@ fn health_score_flag_shows_score() {
         json.get("score").is_some() || json.get("health_score").is_some(),
         "health --score should include score data"
     );
+    let penalties = json["health_score"]["penalties"]
+        .as_object()
+        .expect("health --score should include penalty breakdown");
+    assert!(
+        !penalties.contains_key("hotspots"),
+        "health --score should not run churn-backed hotspot analysis unless --hotspots is requested"
+    );
     assert!(
         json.get("file_scores").is_none(),
         "health --score should not render file_scores"
@@ -476,6 +483,119 @@ fn health_score_flag_shows_score() {
     assert!(
         json.get("vital_signs").is_none(),
         "health --score should not render vital signs"
+    );
+}
+
+#[test]
+fn health_score_save_snapshot_keeps_hotspot_vital_signs() {
+    let temp = tempdir().expect("create temp dir");
+    let root = temp.path();
+    write_file(
+        &root.join("package.json"),
+        r#"{"name":"health-score-snapshot","version":"1.0.0","type":"module"}"#,
+    );
+    write_file(
+        &root.join("src/index.ts"),
+        "export function risky(x: number) { if (x > 1) { if (x > 2) { if (x > 3) { if (x > 4) { if (x > 5) { return x; } } } } } return 0; }\n",
+    );
+    git(root, &["init"]);
+    git(root, &["config", "user.email", "review@example.test"]);
+    git(root, &["config", "user.name", "Review"]);
+    git(root, &["add", "."]);
+    git(root, &["commit", "-m", "initial"]);
+    write_file(
+        &root.join("src/index.ts"),
+        "export function risky(x: number) { if (x > 1) { if (x > 2) { if (x > 3) { if (x > 4) { if (x > 5) { if (x > 6) { return x; } } } } } } return 0; }\n",
+    );
+    git(root, &["add", "."]);
+    git(root, &["commit", "-m", "increase churn"]);
+
+    let score_only = run_fallow_in_root(
+        "health",
+        root,
+        &[
+            "--score",
+            "--min-commits",
+            "1",
+            "--since",
+            "10y",
+            "--format",
+            "json",
+            "--quiet",
+        ],
+    );
+    let score_json = parse_json(&score_only);
+    assert!(
+        !score_json["health_score"]["penalties"]
+            .as_object()
+            .expect("score penalties")
+            .contains_key("hotspots"),
+        "plain --score should not compute churn-backed hotspot penalties"
+    );
+
+    let snapshot = run_fallow_in_root(
+        "health",
+        root,
+        &[
+            "--score",
+            "--save-snapshot",
+            "--min-commits",
+            "1",
+            "--since",
+            "10y",
+            "--format",
+            "json",
+            "--quiet",
+        ],
+    );
+    let snapshot_json = parse_json(&snapshot);
+    assert!(
+        snapshot_json["health_score"]["penalties"]
+            .as_object()
+            .expect("snapshot score penalties")
+            .contains_key("hotspots"),
+        "snapshot score should include the hotspot penalty when hotspot vitals were computed"
+    );
+
+    let snapshot_dir = root.join(".fallow/snapshots");
+    let snapshot_path = std::fs::read_dir(&snapshot_dir)
+        .expect("read snapshot dir")
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .find(|path| path.extension().is_some_and(|ext| ext == "json"))
+        .expect("snapshot json should be saved");
+    let saved_snapshot: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(snapshot_path).expect("read snapshot"))
+            .expect("parse snapshot json");
+    assert_eq!(
+        saved_snapshot["vital_signs"]["hotspot_count"].as_u64(),
+        Some(1),
+        "--score --save-snapshot should still save hotspot vital signs"
+    );
+
+    let trend = run_fallow_in_root(
+        "health",
+        root,
+        &[
+            "--trend",
+            "--min-commits",
+            "1",
+            "--since",
+            "10y",
+            "--format",
+            "json",
+            "--quiet",
+        ],
+    );
+    let trend_json = parse_json(&trend);
+    let trend_metrics = trend_json["health_trend"]["metrics"]
+        .as_array()
+        .expect("trend metrics");
+    assert!(
+        trend_metrics
+            .iter()
+            .any(|metric| metric["name"] == "hotspot_count"),
+        "--trend should compare hotspot counts from complete snapshot data"
     );
 }
 

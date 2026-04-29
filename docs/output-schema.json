@@ -1388,7 +1388,7 @@
 
     "HealthScore": {
       "type": "object",
-      "description": "Project-level health score. Score = 100 minus penalties from dead code, complexity, maintainability, hotspots, unused deps, and circular deps. Use --score to force full pipeline for maximum accuracy.",
+      "description": "Project-level health score. Score = 100 minus available penalties from dead code, complexity, maintainability, hotspots, unused deps, circular deps, unit size, coupling, and duplication. Missing metrics do not penalize; --score computes the score and duplication penalty, while churn-backed hotspot penalties require hotspot analysis (--hotspots, or --targets with --score).",
       "required": ["score", "grade", "penalties"],
       "properties": {
         "score": { "type": "number", "description": "Overall score (0-100, higher is better). Reproducible: 100 - sum(penalties) == score." },

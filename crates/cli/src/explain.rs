@@ -385,7 +385,7 @@ pub fn health_meta() -> Value {
             },
             "health_score": {
                 "name": "Health Score",
-                "description": "Project-level aggregate score computed from vital signs: dead code, complexity, maintainability, hotspots, unused dependencies, and circular dependencies. Penalties subtracted from 100. Missing metrics (from pipelines that didn't run) don't penalize. Use --score to force full pipeline for maximum accuracy.",
+                "description": "Project-level aggregate score computed from vital signs: dead code, complexity, maintainability, hotspots, unused dependencies, and circular dependencies. Penalties subtracted from 100. Missing metrics (from pipelines that didn't run) don't penalize. Use --score to compute the score; add --hotspots, or --targets with --score, when the score should include the churn-backed hotspot penalty.",
                 "range": "[0, 100]",
                 "interpretation": "higher is better; A (85\u{2013}100), B (70\u{2013}84), C (55\u{2013}69), D (40\u{2013}54), F (0\u{2013}39)"
             },

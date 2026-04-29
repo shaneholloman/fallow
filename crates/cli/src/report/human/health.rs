@@ -414,7 +414,7 @@ fn render_health_score(lines: &mut Vec<String>, report: &crate::health_types::He
         lines.push(format!(
             "  {}",
             format!(
-                "N/A: {} (run --score for full pipeline)",
+                "N/A: {} (enable the corresponding analysis flags)",
                 na_parts.join(", ")
             )
             .dimmed()
@@ -2285,7 +2285,7 @@ mod tests {
         let lines = build_health_human_lines(&report, &root);
         let text = plain(&lines);
         assert!(text.contains("N/A: dead code, maintainability, hotspots"));
-        assert!(text.contains("run --score for full pipeline"));
+        assert!(text.contains("enable the corresponding analysis flags"));
     }
 
     #[test]

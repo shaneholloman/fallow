@@ -42,8 +42,10 @@ pub const MI_DENSITY_MIN_LINES: f64 = 50.0;
 ///   - min(max(0, duplication_pct − 5) × 1.0, 10)        [duplication]
 /// ```
 ///
-/// Missing metrics (from pipelines that didn't run) don't penalize — run
-/// `--score` (which forces full pipeline) for the most accurate result.
+/// Missing metrics (from pipelines that didn't run) don't penalize. `--score`
+/// computes the score and duplication penalty, but churn-backed hotspot
+/// penalties are only available when hotspot analysis runs (`--hotspots`, or
+/// target analysis that needs hotspot data).
 ///
 /// ## Letter Grades
 ///

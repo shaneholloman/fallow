@@ -616,7 +616,7 @@ fn build_complexity_options<'a>(
     } else {
         true
     } || force_full;
-    let eff_hotspots = if any_section { hotspots } else { true } || force_full;
+    let eff_hotspots = if any_section { hotspots } else { true };
     let eff_complexity = if any_section {
         options.complexity
     } else {

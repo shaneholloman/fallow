@@ -2088,13 +2088,16 @@ fn dispatch_health(
     // --save-snapshot and --trend are orthogonal (not section flags) but force score.
     let any_section = complexity || file_scores || coverage_gaps || hotspots || targets || score;
     let eff_score = if any_section { score } else { true } || snapshot_requested;
-    // Score needs full pipeline for accuracy
+    // Score needs dead-code/file-score inputs and duplication for accuracy.
+    // Plain --score keeps churn-backed hotspot penalties tied to --hotspots/--targets,
+    // but snapshots and trend comparisons need complete vital signs.
     let force_full = snapshot_requested || eff_score;
+    let needs_hotspot_vitals = snapshot_requested || trend;
     let score_only_output =
         score && !complexity && !file_scores && !coverage_gaps && !hotspots && !targets && !trend;
     let eff_file_scores = if any_section { file_scores } else { true } || force_full;
     let eff_coverage_gaps = if any_section { coverage_gaps } else { false };
-    let eff_hotspots = if any_section { hotspots } else { true } || force_full;
+    let eff_hotspots = if any_section { hotspots } else { true } || needs_hotspot_vitals;
     let eff_complexity = if any_section { complexity } else { true };
     let eff_targets = if any_section { targets } else { true };
     let runtime_coverage = if let Some(path) = runtime_coverage {

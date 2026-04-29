@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`fallow health --score` no longer auto-runs churn-backed hotspot analysis.** Plain `--score` now computes the score using duplication, dead-code, complexity, maintainability, unused-deps, circular-deps, unit-size, and coupling penalties. The `hotspots` penalty is only included when hotspot analysis runs (via `--hotspots`, or `--targets` with `--score`). The previous behavior forced every `--score` invocation to run a `git log` shell-out, which dominated health timing on large repos. Snapshot (`--save-snapshot`) and trend (`--trend`) flows still trigger hotspot vital signs so saved snapshots remain complete. Score numbers can rise on projects that previously took a non-zero hotspot penalty; CI `--min-score` gates may need re-baselining. The human output now hints `N/A: hotspots (enable the corresponding analysis flags)` and the JSON `health_score.penalties.hotspots` field is omitted when the penalty was not computed.
+
+### Performance
+
+- **Workspace plugin runs see only their own files.** `run_plugins` now buckets discovered files by workspace root before parallel plugin execution and passes each workspace its own pre-computed relative paths, instead of feeding every workspace the full project file list. Cuts the per-workspace plugin matcher work from `O(workspaces × all_files × matchers)` to `O(workspace_files × matchers)` on monorepos. End-to-end plugin detection is unchanged because the filesystem-fallback Phase 3b still scans workspace and project roots for unmatched config files.
+- **Duplicate-export importer overlap is single-pass.** `find_duplicate_exports` pre-builds an `FxHashMap<&Path, FileId>` index instead of scanning every module per location, and `has_common_importer` walks each duplicate file's `reverse_deps` once into an `importer_owner` map instead of comparing every pair of importer sets. Same output, lower complexity on projects with many duplicate-export groups.
+
+### Internal
+
+- New regression test asserts `expand_recursive_workspace_pattern` preserves nested workspace roots (e.g., `apps/app/packages/nested/`) when both parent and child have a `package.json`.
+- New end-to-end test asserts `run_workspace_fast` invokes `plugin.resolve_config()` for workspace-local config files and surfaces the parsed entry pattern.
+
 ## [2.54.3] - 2026-04-29
 
 ### Fixed
