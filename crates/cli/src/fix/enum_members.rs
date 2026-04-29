@@ -3,12 +3,108 @@ use std::path::{Path, PathBuf};
 
 use fallow_config::OutputFormat;
 
+use super::enum_helpers::{
+    EnumDeclarationRange, declares_exported_enum, removable_exported_enum_range,
+};
 use super::io::{read_source, write_fixed_content};
 
 pub(super) struct EnumMemberFix {
     line_idx: usize,
     member_name: String,
     parent_name: String,
+}
+
+struct FoldedEnum {
+    parent_name: String,
+    decl_line: usize,
+    range: EnumDeclarationRange,
+}
+
+/// Locate `export enum <name>` (allowing `const` / `declare` modifiers) in
+/// the file's source lines. Returns the line index of the declaration.
+fn find_enum_declaration_line(lines: &[&str], enum_name: &str) -> Option<usize> {
+    lines
+        .iter()
+        .position(|line| declares_exported_enum(line, enum_name))
+}
+
+/// Returns true if removing every member name in `removed_members` from the
+/// enum body would leave the body entirely free of member declarations.
+/// Comments and blank lines do not count as remaining content.
+fn enum_body_drained_after_removal(
+    lines: &[&str],
+    range: EnumDeclarationRange,
+    removed_members: &[&str],
+) -> bool {
+    if range.start_line == range.end_line {
+        let line = lines[range.start_line];
+        let Some(open) = line.find('{') else {
+            return false;
+        };
+        let Some(close) = line.rfind('}') else {
+            return false;
+        };
+        if open >= close {
+            return false;
+        }
+        line[open + 1..close]
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .all(|spec| {
+                let ident = spec.split('=').next().unwrap_or(spec).trim();
+                removed_members.contains(&ident)
+            })
+    } else {
+        (range.start_line + 1..range.end_line).all(|i| {
+            let trimmed = lines[i].trim();
+            if trimmed.is_empty()
+                || trimmed.starts_with("//")
+                || trimmed.starts_with('*')
+                || trimmed.starts_with("/*")
+            {
+                return true;
+            }
+            let token = trimmed
+                .split(|c: char| c == ',' || c == '=' || c.is_whitespace())
+                .next()
+                .unwrap_or("");
+            !token.is_empty() && removed_members.contains(&token)
+        })
+    }
+}
+
+/// Determine which enums in the file should have their entire declaration
+/// removed because every member is in the fix list. Each entry corresponds to
+/// one folded enum; per-member edits for these enums are skipped in favour of
+/// a single whole-block delete.
+fn detect_folded_enums(lines: &[&str], member_fixes: &[EnumMemberFix]) -> Vec<FoldedEnum> {
+    let mut by_parent: FxHashMap<&str, Vec<&str>> = FxHashMap::default();
+    for fix in member_fixes {
+        by_parent
+            .entry(&fix.parent_name)
+            .or_default()
+            .push(&fix.member_name);
+    }
+
+    let mut folded = Vec::new();
+    for (parent_name, member_names) in &by_parent {
+        let Some(decl_line) = find_enum_declaration_line(lines, parent_name) else {
+            continue;
+        };
+        let Some(range) = removable_exported_enum_range(lines, decl_line, parent_name) else {
+            continue;
+        };
+        if !enum_body_drained_after_removal(lines, range, member_names) {
+            continue;
+        }
+        folded.push(FoldedEnum {
+            parent_name: (*parent_name).to_string(),
+            decl_line,
+            range,
+        });
+    }
+    folded
 }
 
 /// Apply enum member fixes to source files, returning JSON fix entries.
@@ -64,8 +160,15 @@ pub(super) fn apply_enum_member_fixes(
 
         let relative = path.strip_prefix(root).unwrap_or(path);
 
+        let folded = detect_folded_enums(&lines, &member_fixes);
+        let folded_parents: rustc_hash::FxHashSet<&str> =
+            folded.iter().map(|f| f.parent_name.as_str()).collect();
+
         if dry_run {
             for fix in &member_fixes {
+                if folded_parents.contains(fix.parent_name.as_str()) {
+                    continue;
+                }
                 if !matches!(output, OutputFormat::Json) {
                     eprintln!(
                         "Would remove enum member from {}:{} `{}.{}`",
@@ -83,54 +186,51 @@ pub(super) fn apply_enum_member_fixes(
                     "name": fix.member_name,
                 }));
             }
+            for fold in &folded {
+                if !matches!(output, OutputFormat::Json) {
+                    eprintln!(
+                        "Would remove enum declaration from {}:{} `{}` (every member is unused; \
+                         importers in other files will need cleanup, run your TypeScript build to find them)",
+                        relative.display(),
+                        fold.decl_line + 1,
+                        fold.parent_name,
+                    );
+                }
+                fixes.push(serde_json::json!({
+                    "type": "remove_export",
+                    "path": relative.display().to_string(),
+                    "line": fold.decl_line + 1,
+                    "name": fold.parent_name,
+                }));
+            }
         } else {
             let mut new_lines: Vec<String> = lines.iter().map(ToString::to_string).collect();
+            let mut lines_to_delete: Vec<usize> = Vec::new();
 
-            // Check if this is a single-line enum (opening and closing brace on same line)
-            // by looking for patterns like `enum Foo { A, B, C }`
-            // We need to handle multi-member single-line enums differently.
-            //
-            // Build a set of line indices to remove for multi-line enums.
-            // For single-line enums, we edit the line in-place.
-
-            // Process fixes in descending line order
             for fix in &member_fixes {
+                if folded_parents.contains(fix.parent_name.as_str()) {
+                    // Folded ranges are deleted as full blocks; skip per-member edits.
+                    continue;
+                }
                 let line = &new_lines[fix.line_idx];
-
-                // Detect single-line enum: line contains both `{` and `}`
                 if line.contains('{') && line.contains('}') {
                     // Single-line enum: remove the member token from the line
                     let new_line = remove_member_from_single_line(line, &fix.member_name);
                     new_lines[fix.line_idx] = new_line;
                 } else {
                     // Multi-line enum: mark this line for removal
-                    // We remove the line entirely, then fix trailing comma issues
                     new_lines[fix.line_idx] = String::new();
+                    lines_to_delete.push(fix.line_idx);
                 }
             }
 
-            // For multi-line removals, clean up: remove empty lines and fix trailing commas.
-            // We need to find enum bodies and ensure the last member doesn't have a dangling comma issue.
-            // Actually, we need to handle a subtlety: if we removed the LAST member in a multi-line
-            // enum, the previous member's line now becomes the last one and may not need a trailing comma
-            // (though trailing commas in TS enums are always valid, so we leave them).
-            //
-            // The main task: remove the blank lines we created.
-            // We also need to handle the case where ALL members were removed from an enum.
+            for fold in &folded {
+                lines_to_delete.extend(fold.range.start_line..=fold.range.end_line);
+            }
 
-            // Remove blank lines that were marked for deletion, working backwards
-            let remove_indices: Vec<usize> = member_fixes
-                .iter()
-                .filter(|f| {
-                    // Only remove lines from multi-line enums (not single-line which were edited in-place)
-                    let orig_line = &lines[f.line_idx];
-                    !(orig_line.contains('{') && orig_line.contains('}'))
-                })
-                .map(|f| f.line_idx)
-                .collect();
-
-            // Remove in descending order (already sorted)
-            for &idx in &remove_indices {
+            lines_to_delete.sort_unstable();
+            lines_to_delete.dedup();
+            for &idx in lines_to_delete.iter().rev() {
                 new_lines.remove(idx);
             }
 
@@ -144,12 +244,31 @@ pub(super) fn apply_enum_member_fixes(
             };
 
             for fix in &member_fixes {
+                if folded_parents.contains(fix.parent_name.as_str()) {
+                    continue;
+                }
                 fixes.push(serde_json::json!({
                     "type": "remove_enum_member",
                     "path": relative.display().to_string(),
                     "line": fix.line_idx + 1,
                     "parent": fix.parent_name,
                     "name": fix.member_name,
+                    "applied": success,
+                }));
+            }
+            for fold in &folded {
+                if success && !matches!(output, OutputFormat::Json) {
+                    eprintln!(
+                        "Removed unused enum `{}` from {}; importers in other files will need cleanup, run your TypeScript build to find them.",
+                        fold.parent_name,
+                        relative.display(),
+                    );
+                }
+                fixes.push(serde_json::json!({
+                    "type": "remove_export",
+                    "path": relative.display().to_string(),
+                    "line": fold.decl_line + 1,
+                    "name": fold.parent_name,
                     "applied": success,
                 }));
             }
@@ -293,7 +412,7 @@ mod tests {
     }
 
     #[test]
-    fn enum_fix_removes_all_members_leaves_empty_body() {
+    fn enum_fix_folds_when_every_member_of_exported_enum_unused() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         let file = root.join("status.ts");
@@ -314,8 +433,11 @@ mod tests {
         );
 
         let content = std::fs::read_to_string(&file).unwrap();
-        assert_eq!(content, "export enum Status {\n}\n");
-        assert_eq!(fixes.len(), 2);
+        assert_eq!(content, "\n");
+        assert_eq!(fixes.len(), 1);
+        assert_eq!(fixes[0]["type"], "remove_export");
+        assert_eq!(fixes[0]["name"], "Status");
+        assert_eq!(fixes[0]["applied"], true);
     }
 
     #[test]
@@ -773,5 +895,159 @@ mod tests {
         let result =
             remove_member_from_single_line("export enum Status { Active, Inactive }", "Active");
         assert_eq!(result, "export enum Status { Inactive }");
+    }
+
+    #[test]
+    fn fold_does_not_fire_when_only_some_members_are_unused() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let file = root.join("status.ts");
+        std::fs::write(
+            &file,
+            "export enum Status {\n  Active,\n  Inactive,\n  Pending,\n}\n",
+        )
+        .unwrap();
+
+        let m1 = make_enum_member(&file, "Status", "Active", 2);
+        let mut members_by_file: FxHashMap<PathBuf, Vec<&UnusedMember>> = FxHashMap::default();
+        members_by_file.insert(file.clone(), vec![&m1]);
+
+        let mut fixes = Vec::new();
+        apply_enum_member_fixes(
+            root,
+            &members_by_file,
+            OutputFormat::Human,
+            false,
+            &mut fixes,
+        );
+
+        let content = std::fs::read_to_string(&file).unwrap();
+        assert_eq!(
+            content,
+            "export enum Status {\n  Inactive,\n  Pending,\n}\n"
+        );
+        assert_eq!(fixes.len(), 1);
+        assert_eq!(fixes[0]["type"], "remove_enum_member");
+    }
+
+    #[test]
+    fn fold_fires_on_single_line_exported_enum_with_all_members_unused() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let file = root.join("status.ts");
+        std::fs::write(&file, "export enum Status { Active, Inactive }\n").unwrap();
+
+        let m1 = make_enum_member(&file, "Status", "Active", 1);
+        let m2 = make_enum_member(&file, "Status", "Inactive", 1);
+        let mut members_by_file: FxHashMap<PathBuf, Vec<&UnusedMember>> = FxHashMap::default();
+        members_by_file.insert(file.clone(), vec![&m1, &m2]);
+
+        let mut fixes = Vec::new();
+        apply_enum_member_fixes(
+            root,
+            &members_by_file,
+            OutputFormat::Human,
+            false,
+            &mut fixes,
+        );
+
+        let content = std::fs::read_to_string(&file).unwrap();
+        assert_eq!(content, "\n");
+        assert_eq!(fixes.len(), 1);
+        assert_eq!(fixes[0]["type"], "remove_export");
+        assert_eq!(fixes[0]["name"], "Status");
+    }
+
+    #[test]
+    fn fold_does_not_fire_when_enum_name_is_used_locally() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let file = root.join("status.ts");
+        std::fs::write(
+            &file,
+            "export enum Status {\n  Active,\n  Inactive,\n}\nconsole.log(typeof Status);\n",
+        )
+        .unwrap();
+
+        let m1 = make_enum_member(&file, "Status", "Active", 2);
+        let m2 = make_enum_member(&file, "Status", "Inactive", 3);
+        let mut members_by_file: FxHashMap<PathBuf, Vec<&UnusedMember>> = FxHashMap::default();
+        members_by_file.insert(file.clone(), vec![&m1, &m2]);
+
+        let mut fixes = Vec::new();
+        apply_enum_member_fixes(
+            root,
+            &members_by_file,
+            OutputFormat::Human,
+            false,
+            &mut fixes,
+        );
+
+        let content = std::fs::read_to_string(&file).unwrap();
+        assert_eq!(
+            content,
+            "export enum Status {\n}\nconsole.log(typeof Status);\n"
+        );
+        assert_eq!(fixes.len(), 2);
+        assert_eq!(fixes[0]["type"], "remove_enum_member");
+    }
+
+    #[test]
+    fn fold_dry_run_emits_remove_export_not_remove_enum_member() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let file = root.join("status.ts");
+        std::fs::write(&file, "export enum Status {\n  Active,\n  Inactive,\n}\n").unwrap();
+
+        let m1 = make_enum_member(&file, "Status", "Active", 2);
+        let m2 = make_enum_member(&file, "Status", "Inactive", 3);
+        let mut members_by_file: FxHashMap<PathBuf, Vec<&UnusedMember>> = FxHashMap::default();
+        members_by_file.insert(file.clone(), vec![&m1, &m2]);
+
+        let mut fixes = Vec::new();
+        apply_enum_member_fixes(
+            root,
+            &members_by_file,
+            OutputFormat::Human,
+            true,
+            &mut fixes,
+        );
+
+        // File is untouched on dry-run
+        let content = std::fs::read_to_string(&file).unwrap();
+        assert_eq!(content, "export enum Status {\n  Active,\n  Inactive,\n}\n");
+        assert_eq!(fixes.len(), 1);
+        assert_eq!(fixes[0]["type"], "remove_export");
+        assert_eq!(fixes[0]["name"], "Status");
+        // Dry-run entries should NOT carry an applied key.
+        assert!(fixes[0].get("applied").is_none());
+    }
+
+    #[test]
+    fn fold_skipped_for_non_exported_enum() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let file = root.join("status.ts");
+        std::fs::write(&file, "enum Status {\n  Active,\n  Inactive,\n}\n").unwrap();
+
+        let m1 = make_enum_member(&file, "Status", "Active", 2);
+        let m2 = make_enum_member(&file, "Status", "Inactive", 3);
+        let mut members_by_file: FxHashMap<PathBuf, Vec<&UnusedMember>> = FxHashMap::default();
+        members_by_file.insert(file.clone(), vec![&m1, &m2]);
+
+        let mut fixes = Vec::new();
+        apply_enum_member_fixes(
+            root,
+            &members_by_file,
+            OutputFormat::Human,
+            false,
+            &mut fixes,
+        );
+
+        // Non-exported enum: fold does not fire, members removed individually.
+        let content = std::fs::read_to_string(&file).unwrap();
+        assert_eq!(content, "enum Status {\n}\n");
+        assert_eq!(fixes.len(), 2);
+        assert_eq!(fixes[0]["type"], "remove_enum_member");
     }
 }

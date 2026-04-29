@@ -107,6 +107,64 @@ fn fix_removes_unused_exported_enum_declaration() {
     assert!(json["fixes"].as_array().unwrap().is_empty());
 }
 
+#[test]
+fn fix_folds_imported_enum_with_all_members_unused() {
+    // Regression for issue #232: an exported enum that has importers but
+    // whose members are all unused should be removed entirely, not stripped
+    // member-by-member into a zombie `export enum X {}` shell.
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("package.json"),
+        r#"{"name":"enum-fold","main":"src/index.ts"}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src/index.ts"),
+        "import { MyEnum } from './enum';\nconsole.log(typeof MyEnum);\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src/enum.ts"),
+        "export enum MyEnum {\n  A,\n  B,\n}\n",
+    )
+    .unwrap();
+
+    let output = run_fallow_in_root("fix", root, &["--dry-run", "--format", "json", "--quiet"]);
+    let json = parse_json(&output);
+    let fixes = json["fixes"].as_array().unwrap();
+    assert_eq!(
+        fixes.len(),
+        1,
+        "fold should collapse the per-member fixes into a single remove_export entry"
+    );
+    assert_eq!(fixes[0]["type"], "remove_export");
+    assert_eq!(fixes[0]["name"], "MyEnum");
+
+    let output = run_fallow_in_root("fix", root, &["--yes", "--quiet"]);
+    assert_eq!(
+        output.code, 0,
+        "fix should exit 0, stdout: {}, stderr: {}",
+        output.stdout, output.stderr
+    );
+
+    let after = std::fs::read_to_string(root.join("src/enum.ts")).unwrap();
+    assert_eq!(
+        after, "\n",
+        "enum.ts should be empty after the fold (single trailing newline)"
+    );
+
+    // Second pass: the empty-shell zombie that 2.54.3 would have left behind
+    // must not be present, and the fold must not produce any new fix.
+    let output = run_fallow_in_root("fix", root, &["--dry-run", "--format", "json", "--quiet"]);
+    let json = parse_json(&output);
+    assert!(
+        json["fixes"].as_array().unwrap().is_empty(),
+        "second pass should find nothing more to fix"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // fix without --yes in non-TTY
 // ---------------------------------------------------------------------------
