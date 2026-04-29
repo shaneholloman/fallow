@@ -1,6 +1,18 @@
 #!/usr/bin/env bash
 set -e
 
+# When pushing from a bare-config'd worktree, git invokes this hook with
+# GIT_DIR/GIT_WORK_TREE in the environment so its own commands resolve to
+# the right repo. Those env vars then leak into `cargo test`, where each
+# integration test spawns the fallow binary with `--root <fixture>`. The
+# spawned process inherits GIT_DIR=.git, which points at a non-existent
+# `.git` directory inside the fixture, so any feature that shells out to
+# `git` (hotspots, churn) fails and emits a JSON error blob alongside the
+# normal report. Tests that parse stdout as a single JSON document then
+# explode with "trailing characters". Unsetting these makes spawned
+# children fall back to discovering the repo from their own cwd.
+unset GIT_DIR GIT_WORK_TREE
+
 echo "=== Pre-push CI check ==="
 
 # Quick checks first (fail fast)
