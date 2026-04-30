@@ -7,7 +7,8 @@ Thanks for your interest in contributing to fallow! This guide covers everything
 ```bash
 git clone https://github.com/fallow-rs/fallow.git
 cd fallow
-git config core.hooksPath .githooks    # Enable pre-commit hooks (fmt + clippy)
+git config core.hooksPath .githooks    # Enable commit-msg/pre-commit/pre-push hooks
+npm install                            # Install repo tooling such as commitlint
 cargo build --workspace
 cargo test --workspace
 ```
@@ -87,6 +88,7 @@ See the [Plugin Authoring Guide](docs/plugin-authoring.md) for the full trait AP
 ## Git conventions
 
 - **Conventional commits**: `feat:`, `fix:`, `chore:`, `refactor:`, `test:`, `docs:`
+- **Commit linting**: `npm run commitlint -- --last --verbose` uses the same rule set as CI
 - **Signed commits**: `git commit -S`
 - Pre-commit hooks run `cargo fmt` and `cargo clippy` automatically
 
