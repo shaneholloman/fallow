@@ -114,6 +114,7 @@ pub(super) fn print_grouped_json(
 /// backwards-incompatible way (removing/renaming fields, changing types).
 /// Adding new fields is always backwards-compatible and does not require a bump.
 const SCHEMA_VERSION: u32 = 4;
+const RUNTIME_COVERAGE_SCHEMA_VERSION: &str = "1";
 
 /// Build a JSON envelope with standard metadata fields at the top.
 ///
@@ -140,6 +141,45 @@ fn build_json_envelope(report_value: serde_json::Value, elapsed: Duration) -> se
         }
     }
     serde_json::Value::Object(map)
+}
+
+fn inject_runtime_coverage_schema_version(output: &mut serde_json::Value) {
+    let serde_json::Value::Object(map) = output else {
+        return;
+    };
+
+    if let Some(report) = map.get_mut("runtime_coverage") {
+        inject_runtime_coverage_report_schema_version(report);
+    }
+
+    if let Some(serde_json::Value::Array(groups)) = map.get_mut("groups") {
+        for group in groups {
+            if let Some(report) = group
+                .as_object_mut()
+                .and_then(|group| group.get_mut("runtime_coverage"))
+            {
+                inject_runtime_coverage_report_schema_version(report);
+            }
+        }
+    }
+}
+
+fn inject_runtime_coverage_report_schema_version(report: &mut serde_json::Value) {
+    let serde_json::Value::Object(report_map) = report else {
+        return;
+    };
+
+    let mut ordered = serde_json::Map::new();
+    ordered.insert(
+        "schema_version".to_string(),
+        serde_json::json!(RUNTIME_COVERAGE_SCHEMA_VERSION),
+    );
+    for (key, value) in std::mem::take(report_map) {
+        if key != "schema_version" {
+            ordered.insert(key, value);
+        }
+    }
+    *report_map = ordered;
 }
 
 /// Build the JSON output value for analysis results.
@@ -1277,6 +1317,7 @@ pub fn build_health_json(
     let mut output = build_json_envelope(report_value, elapsed);
     let root_prefix = format!("{}/", root.display());
     strip_root_prefix(&mut output, &root_prefix);
+    inject_runtime_coverage_schema_version(&mut output);
     inject_health_actions(&mut output, action_opts);
     if explain {
         insert_meta(&mut output, explain::health_meta());
@@ -1331,6 +1372,7 @@ pub fn build_grouped_health_json(
     let report_value = serde_json::to_value(report)?;
     let mut output = build_json_envelope(report_value, elapsed);
     strip_root_prefix(&mut output, &root_prefix);
+    inject_runtime_coverage_schema_version(&mut output);
     inject_health_actions(&mut output, action_opts);
 
     if let serde_json::Value::Object(ref mut map) = output {
@@ -1350,6 +1392,7 @@ pub fn build_grouped_health_json(
         .map(|g| {
             let mut value = serde_json::to_value(g)?;
             strip_root_prefix(&mut value, &root_prefix);
+            inject_runtime_coverage_schema_version(&mut value);
             inject_health_actions(&mut value, action_opts);
             Ok(value)
         })
@@ -1643,11 +1686,16 @@ mod tests {
         let report_value = serde_json::to_value(&report).expect("should serialize health report");
         let mut output = build_json_envelope(report_value, Duration::from_millis(7));
         strip_root_prefix(&mut output, "/project/");
+        inject_runtime_coverage_schema_version(&mut output);
         inject_health_actions(&mut output, HealthActionOptions::default());
 
         assert_eq!(
             output["runtime_coverage"]["verdict"],
             serde_json::Value::String("cold-code-detected".to_owned())
+        );
+        assert_eq!(
+            output["runtime_coverage"]["schema_version"],
+            serde_json::Value::String("1".to_owned())
         );
         assert_eq!(
             output["runtime_coverage"]["summary"]["functions_tracked"],

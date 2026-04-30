@@ -71,6 +71,7 @@ fn check_runtime_coverage_params_require_coverage() {
     assert!(params.min_invocations_hot.is_none());
     assert!(params.min_observation_volume.is_none());
     assert!(params.low_traffic_threshold.is_none());
+    assert!(params.top.is_none());
     assert!(params.group_by.is_none());
 }
 
@@ -88,6 +89,7 @@ fn check_runtime_coverage_params_all_fields_deserialize() {
         "no_cache": true,
         "threads": 4,
         "max_crap": 35.0,
+        "top": 10,
         "group_by": "owner"
     }"#;
     let params: CheckRuntimeCoverageParams = serde_json::from_str(json).unwrap();
@@ -102,6 +104,7 @@ fn check_runtime_coverage_params_all_fields_deserialize() {
     assert_eq!(params.no_cache, Some(true));
     assert_eq!(params.threads, Some(4));
     assert_eq!(params.max_crap, Some(35.0));
+    assert_eq!(params.top, Some(10));
     assert_eq!(params.group_by.as_deref(), Some("owner"));
 }
 

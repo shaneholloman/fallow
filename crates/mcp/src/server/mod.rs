@@ -11,9 +11,11 @@ use crate::params::{
 use crate::tools::{
     build_analyze_args, build_audit_args, build_check_changed_args,
     build_check_runtime_coverage_args, build_feature_flags_args, build_find_dupes_args,
-    build_fix_apply_args, build_fix_preview_args, build_health_args, build_list_boundaries_args,
-    build_project_info_args, build_trace_clone_args, build_trace_dependency_args,
-    build_trace_export_args, build_trace_file_args, run_fallow,
+    build_fix_apply_args, build_fix_preview_args, build_get_blast_radius_args,
+    build_get_cleanup_candidates_args, build_get_hot_paths_args, build_get_importance_args,
+    build_health_args, build_list_boundaries_args, build_project_info_args, build_trace_clone_args,
+    build_trace_dependency_args, build_trace_export_args, build_trace_file_args, run_fallow,
+    run_fallow_with_top_level_warnings,
 };
 
 #[cfg(test)]
@@ -249,6 +251,54 @@ impl FallowMcp {
         let args = build_check_runtime_coverage_args(&params.0);
         run_fallow(&self.binary, &args).await
     }
+
+    #[tool(
+        description = "(paid) Return production hot paths from a local V8 or Istanbul runtime coverage dump. Pass `coverage` as a V8 coverage directory, single V8 JSON file, or Istanbul `coverage-final.json`. Requires an active runtime-coverage license. Returns the standard health JSON; agents should read `runtime_coverage.hot_paths`, which is sorted by percentile and invocation count. Use `top` to cap the returned hot paths.",
+        annotations(read_only_hint = true, open_world_hint = true)
+    )]
+    async fn get_hot_paths(
+        &self,
+        params: Parameters<CheckRuntimeCoverageParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let args = build_get_hot_paths_args(&params.0);
+        run_fallow_with_top_level_warnings(&self.binary, &args).await
+    }
+
+    #[tool(
+        description = "(paid) Return blast-radius context alongside local runtime coverage. Pass `coverage` as a V8 coverage directory, single V8 JSON file, or Istanbul `coverage-final.json`. Requires an active runtime-coverage license. Returns the standard health JSON; until the first-class `runtime_coverage.blast_radius` field ships, agents should use `file_scores[].fan_in` for file-level blast radius and combine it with `runtime_coverage.hot_paths` and `runtime_coverage.findings`.",
+        annotations(read_only_hint = true, open_world_hint = true)
+    )]
+    async fn get_blast_radius(
+        &self,
+        params: Parameters<CheckRuntimeCoverageParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let args = build_get_blast_radius_args(&params.0);
+        run_fallow_with_top_level_warnings(&self.binary, &args).await
+    }
+
+    #[tool(
+        description = "(paid) Return production-importance context from local runtime coverage plus static health signals. Pass `coverage` as a V8 coverage directory, single V8 JSON file, or Istanbul `coverage-final.json`. Requires an active runtime-coverage license. Returns the standard health JSON; until the first-class `runtime_coverage.importance` field ships, agents should combine `runtime_coverage.hot_paths`, `file_scores`, `hotspots`, and `targets`.",
+        annotations(read_only_hint = true, open_world_hint = true)
+    )]
+    async fn get_importance(
+        &self,
+        params: Parameters<CheckRuntimeCoverageParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let args = build_get_importance_args(&params.0);
+        run_fallow_with_top_level_warnings(&self.binary, &args).await
+    }
+
+    #[tool(
+        description = "(paid) Return cleanup candidates grounded in local runtime coverage. Pass `coverage` as a V8 coverage directory, single V8 JSON file, or Istanbul `coverage-final.json`. Requires an active runtime-coverage license. Returns the standard health JSON; agents should read `runtime_coverage.findings` for `safe_to_delete`, `review_required`, `low_traffic`, and `coverage_unavailable` verdicts.",
+        annotations(read_only_hint = true, open_world_hint = true)
+    )]
+    async fn get_cleanup_candidates(
+        &self,
+        params: Parameters<CheckRuntimeCoverageParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let args = build_get_cleanup_candidates_args(&params.0);
+        run_fallow_with_top_level_warnings(&self.binary, &args).await
+    }
 }
 
 // ── ServerHandler ──────────────────────────────────────────────────
@@ -269,6 +319,7 @@ impl ServerHandler for FallowMcp {
                  trace_export / trace_file / trace_dependency / trace_clone (graph and clone evidence), \
                  check_health (code complexity metrics), \
                  check_runtime_coverage (paid; merges a V8 or Istanbul runtime coverage dump into the health report), \
+                 get_hot_paths / get_blast_radius / get_importance / get_cleanup_candidates (paid runtime context slices), \
                  audit (combined dead-code + complexity + duplication for changed files, returns verdict), \
                  list_boundaries (architecture boundary zones and access rules), \
                  feature_flags (detect feature flag patterns). \

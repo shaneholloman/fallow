@@ -13,7 +13,10 @@ mod trace;
 pub use analyze::build_analyze_args;
 pub use audit::build_audit_args;
 pub use check_changed::build_check_changed_args;
-pub use check_runtime_coverage::build_check_runtime_coverage_args;
+pub use check_runtime_coverage::{
+    build_check_runtime_coverage_args, build_get_blast_radius_args,
+    build_get_cleanup_candidates_args, build_get_hot_paths_args, build_get_importance_args,
+};
 pub use dupes::build_find_dupes_args;
 pub use fix::{build_fix_apply_args, build_fix_preview_args};
 pub use flags::build_feature_flags_args;
@@ -29,7 +32,7 @@ use std::process::Stdio;
 use std::time::Duration;
 
 use rmcp::ErrorData as McpError;
-use rmcp::model::{CallToolResult, Content};
+use rmcp::model::{CallToolResult, Content, RawContent};
 use tokio::process::Command;
 
 /// Default subprocess timeout in seconds.
@@ -233,4 +236,35 @@ pub async fn run_fallow(binary: &str, args: &[String]) -> Result<CallToolResult,
     Ok(CallToolResult::success(vec![Content::text(
         stdout.to_string(),
     )]))
+}
+
+/// Execute fallow and ensure successful JSON responses have a top-level
+/// `warnings` array for agent-facing runtime context tools.
+pub async fn run_fallow_with_top_level_warnings(
+    binary: &str,
+    args: &[String],
+) -> Result<CallToolResult, McpError> {
+    let result = run_fallow(binary, args).await?;
+    if result.is_error == Some(true) {
+        return Ok(result);
+    }
+
+    let Some(content) = result.content.first() else {
+        return Ok(result);
+    };
+    let RawContent::Text(text) = &content.raw else {
+        return Ok(result);
+    };
+    let Ok(mut value) = serde_json::from_str::<serde_json::Value>(&text.text) else {
+        return Ok(result);
+    };
+    let Some(map) = value.as_object_mut() else {
+        return Ok(result);
+    };
+
+    map.entry("warnings".to_string())
+        .or_insert_with(|| serde_json::Value::Array(Vec::new()));
+
+    let text = serde_json::to_string_pretty(&value).unwrap_or_else(|_| text.text.clone());
+    Ok(CallToolResult::success(vec![Content::text(text)]))
 }

@@ -825,6 +825,10 @@ enum CoverageCli {
         /// Print instructions instead of prompting.
         #[arg(long)]
         non_interactive: bool,
+
+        /// Emit deterministic setup instructions as JSON. Implies --non-interactive.
+        #[arg(long)]
+        json: bool,
     },
     /// Upload a static function inventory to fallow cloud (Production
     /// Coverage, paid). Unlocks the `untracked` filter on the dashboard by
@@ -2006,9 +2010,11 @@ fn map_coverage_subcommand(sub: &CoverageCli) -> coverage::CoverageSubcommand {
         CoverageCli::Setup {
             yes,
             non_interactive,
+            json,
         } => coverage::CoverageSubcommand::Setup(coverage::SetupArgs {
             yes: *yes,
-            non_interactive: *non_interactive,
+            non_interactive: *non_interactive || *json,
+            json: *json,
         }),
         CoverageCli::UploadInventory {
             api_key,

@@ -14,7 +14,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
-use fallow_config::PackageJson;
+use fallow_config::{PackageJson, WorkspaceInfo, discover_workspaces};
 use fallow_license::{DEFAULT_HARD_FAIL_DAYS, LicenseStatus};
 
 use crate::health::coverage as runtime_coverage;
@@ -42,6 +42,8 @@ pub struct SetupArgs {
     pub yes: bool,
     /// Print instructions instead of prompting.
     pub non_interactive: bool,
+    /// Emit deterministic JSON instructions without prompts, writes, installs, or network calls.
+    pub json: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,6 +54,7 @@ enum FrameworkKind {
     SvelteKit,
     Astro,
     Remix,
+    ViteBrowser,
     PlainNode,
     Other,
 }
@@ -65,8 +68,33 @@ impl FrameworkKind {
             Self::SvelteKit => "SvelteKit app",
             Self::Astro => "Astro app",
             Self::Remix => "Remix app",
+            Self::ViteBrowser => "Vite browser app",
             Self::PlainNode => "Node service",
             Self::Other => "custom project",
+        }
+    }
+
+    const fn id(self) -> &'static str {
+        match self {
+            Self::NextJs => "nextjs",
+            Self::NestJs => "nestjs",
+            Self::Nuxt => "nuxt",
+            Self::SvelteKit => "sveltekit",
+            Self::Astro => "astro",
+            Self::Remix => "remix",
+            Self::ViteBrowser => "vite",
+            Self::PlainNode => "plain_node",
+            Self::Other => "unknown",
+        }
+    }
+
+    const fn runtime_targets(self) -> &'static [&'static str] {
+        match self {
+            Self::NextJs | Self::Nuxt | Self::SvelteKit | Self::Astro | Self::Remix => {
+                &["node", "browser"]
+            }
+            Self::ViteBrowser => &["browser"],
+            Self::NestJs | Self::PlainNode | Self::Other => &["node"],
         }
     }
 }
@@ -86,6 +114,15 @@ impl PackageManager {
             Self::Pnpm => "pnpm",
             Self::Yarn => "yarn",
             Self::Bun => "bun",
+        }
+    }
+
+    fn add_runtime_package_command(self, package: &str) -> String {
+        match self {
+            Self::Npm => format!("npm install {package}"),
+            Self::Pnpm => format!("pnpm add {package}"),
+            Self::Yarn => format!("yarn add {package}"),
+            Self::Bun => format!("bun add {package}"),
         }
     }
 
@@ -134,6 +171,14 @@ struct CoverageSetupContext {
     has_build_script: bool,
     has_start_script: bool,
     has_preview_script: bool,
+    node_entry_path: String,
+}
+
+#[derive(Debug, Clone)]
+struct CoverageSetupMember {
+    name: String,
+    root: PathBuf,
+    context: CoverageSetupContext,
 }
 
 impl CoverageSetupContext {
@@ -151,6 +196,9 @@ impl CoverageSetupContext {
             FrameworkKind::Astro => Some(self.script_runner().exec_binary("astro", &["build"])),
             FrameworkKind::Remix => Some(self.script_runner().exec_binary("remix", &["build"])),
             FrameworkKind::SvelteKit => Some(self.script_runner().exec_binary("vite", &["build"])),
+            FrameworkKind::ViteBrowser => {
+                Some(self.script_runner().exec_binary("vite", &["build"]))
+            }
             FrameworkKind::NestJs | FrameworkKind::PlainNode | FrameworkKind::Other => None,
         }
     }
@@ -171,7 +219,9 @@ impl CoverageSetupContext {
             FrameworkKind::NextJs => self.script_runner().exec_binary("next", &["start"]),
             FrameworkKind::Nuxt => self.script_runner().exec_binary("nuxi", &["preview"]),
             FrameworkKind::Astro => self.script_runner().exec_binary("astro", &["preview"]),
-            FrameworkKind::SvelteKit => self.script_runner().exec_binary("vite", &["preview"]),
+            FrameworkKind::SvelteKit | FrameworkKind::ViteBrowser => {
+                self.script_runner().exec_binary("vite", &["preview"])
+            }
             FrameworkKind::Remix => "node ./build/index.js".to_owned(),
             FrameworkKind::NestJs => "node dist/main.js".to_owned(),
             FrameworkKind::PlainNode | FrameworkKind::Other => "node dist/server.js".to_owned(),
@@ -188,6 +238,10 @@ pub fn run(subcommand: CoverageSubcommand, root: &Path) -> ExitCode {
 }
 
 fn run_setup(args: SetupArgs, root: &Path) -> ExitCode {
+    if args.json {
+        return run_setup_json(root);
+    }
+
     println!("fallow coverage setup");
     println!();
     println!("What \"runtime coverage\" means: fallow looks at which functions actually");
@@ -246,6 +300,204 @@ fn run_setup(args: SetupArgs, root: &Path) -> ExitCode {
     println!("  -> Run your app with the instrumentation on, then re-run this command.");
     print_upload_inventory_hint();
     ExitCode::SUCCESS
+}
+
+fn run_setup_json(root: &Path) -> ExitCode {
+    let payload = build_setup_json(root);
+    let stdout = std::io::stdout();
+    let mut handle = stdout.lock();
+    if let Err(err) = serde_json::to_writer_pretty(&mut handle, &payload) {
+        eprintln!("fallow coverage setup: failed to write JSON output: {err}");
+        return ExitCode::from(2);
+    }
+    println!();
+    ExitCode::SUCCESS
+}
+
+fn build_setup_json(root: &Path) -> serde_json::Value {
+    let members = detect_setup_members(root);
+    let primary_member = members.first();
+    let fallback = detect_setup_context(root);
+    let primary = primary_member.map_or_else(|| fallback.clone(), |member| member.context.clone());
+    let package_manager = primary.script_runner();
+    let primary_prefix = primary_member
+        .map(|member| member_path_prefix(&display_member_path(root, &member.root)))
+        .unwrap_or_default();
+    let snippets = primary_member.map_or_else(Vec::new, |_| setup_snippets(&primary));
+    let files_to_edit = snippets_to_files(&snippets, &primary_prefix);
+    let snippet_values = snippets_to_json(&snippets, &primary_prefix);
+    let runtime_targets = union_runtime_targets(members.iter().map(|member| &member.context));
+    let member_values: Vec<serde_json::Value> = members
+        .iter()
+        .map(|member| setup_member_json(root, member))
+        .collect();
+    let mut warnings = primary_member.map_or_else(
+        || setup_json_warnings(root, &fallback),
+        |_| setup_json_warnings(root, &primary),
+    );
+    if primary_member.is_none() {
+        warnings.push(
+            "No runtime workspace members were detected; emitted install commands only.".to_owned(),
+        );
+    }
+
+    serde_json::json!({
+        "schema_version": "1",
+        "framework_detected": primary_member.map_or("unknown", |_| primary.framework.id()),
+        "package_manager": primary.package_manager.map(PackageManager::label),
+        "runtime_targets": runtime_targets,
+        "members": member_values,
+        "config_written": null,
+        "commands": [
+            package_manager.add_runtime_package_command("@fallow-cli/beacon"),
+            package_manager.install_command(),
+        ],
+        "files_to_edit": files_to_edit,
+        "snippets": snippet_values,
+        "dockerfile_snippet": primary_member
+            .map_or(serde_json::Value::Null, |_| dockerfile_snippet(&primary)),
+        "next_steps": [
+            "Add the snippets to your application.",
+            "Deploy with the beacon enabled.",
+            "Run fallow health --runtime-coverage ./coverage --format json after collecting a local capture.",
+            "Set FALLOW_API_KEY in CI before running fallow coverage upload-inventory."
+        ],
+        "warnings": warnings,
+    })
+}
+
+struct SetupSnippet {
+    label: &'static str,
+    path: String,
+    reason: &'static str,
+    content: String,
+}
+
+fn setup_member_json(root: &Path, member: &CoverageSetupMember) -> serde_json::Value {
+    let member_path = display_member_path(root, &member.root);
+    let prefix = member_path_prefix(&member_path);
+    let snippets = setup_snippets(&member.context);
+    serde_json::json!({
+        "name": member.name,
+        "path": member_path,
+        "framework_detected": member.context.framework.id(),
+        "package_manager": member.context.package_manager.map(PackageManager::label),
+        "runtime_targets": member.context.framework.runtime_targets(),
+        "files_to_edit": snippets_to_files(&snippets, &prefix),
+        "snippets": snippets_to_json(&snippets, &prefix),
+        "dockerfile_snippet": dockerfile_snippet(&member.context),
+        "warnings": setup_json_warnings(&member.root, &member.context),
+    })
+}
+
+fn snippets_to_files(snippets: &[SetupSnippet], prefix: &str) -> Vec<serde_json::Value> {
+    snippets
+        .iter()
+        .map(|snippet| {
+            serde_json::json!({
+                "path": prefixed_member_path(prefix, &snippet.path),
+                "reason": snippet.reason,
+            })
+        })
+        .collect()
+}
+
+fn snippets_to_json(snippets: &[SetupSnippet], prefix: &str) -> Vec<serde_json::Value> {
+    snippets
+        .iter()
+        .map(|snippet| {
+            serde_json::json!({
+                "label": snippet.label,
+                "path": prefixed_member_path(prefix, &snippet.path),
+                "content": snippet.content,
+            })
+        })
+        .collect()
+}
+
+fn setup_snippets(context: &CoverageSetupContext) -> Vec<SetupSnippet> {
+    match context.framework {
+        FrameworkKind::NextJs => vec![SetupSnippet {
+            label: "Next.js instrumentation",
+            path: "instrumentation.ts".to_owned(),
+            reason: "Initialize the Node runtime beacon during Next.js startup.",
+            content: "export async function register() {\n  if (process.env.NEXT_RUNTIME === \"nodejs\") {\n    const { createNodeBeacon } = await import(\"@fallow-cli/beacon\");\n    const beacon = createNodeBeacon({\n      apiKey: process.env.FALLOW_API_KEY,\n      projectId: process.env.FALLOW_PROJECT_ID ?? \"my-app\",\n      endpoint: process.env.FALLOW_API_URL ?? \"https://api.fallow.cloud\",\n      transport: process.env.FALLOW_TRANSPORT === \"fs\" ? \"fs\" : \"http\",\n      writeToDir: process.env.FALLOW_WRITE_TO_DIR,\n    });\n    beacon.start();\n  }\n}\n"
+                .to_owned(),
+        }],
+        FrameworkKind::NestJs => vec![SetupSnippet {
+            label: "NestJS bootstrap",
+            path: "src/main.ts".to_owned(),
+            reason: "Start the Node runtime beacon before creating the Nest app.",
+            content: "import { createNodeBeacon } from \"@fallow-cli/beacon\";\n\nconst fallowBeacon = createNodeBeacon({\n  apiKey: process.env.FALLOW_API_KEY,\n  projectId: process.env.FALLOW_PROJECT_ID ?? \"my-app\",\n  endpoint: process.env.FALLOW_API_URL ?? \"https://api.fallow.cloud\",\n  transport: process.env.FALLOW_TRANSPORT === \"fs\" ? \"fs\" : \"http\",\n  writeToDir: process.env.FALLOW_WRITE_TO_DIR,\n});\n\nfallowBeacon.start();\n"
+                .to_owned(),
+        }],
+        FrameworkKind::Nuxt => vec![SetupSnippet {
+            label: "Nuxt server plugin",
+            path: "server/plugins/fallow.ts".to_owned(),
+            reason: "Start the Node runtime beacon when the Nuxt server boots.",
+            content: "export default defineNitroPlugin(async () => {\n  const { createNodeBeacon } = await import(\"@fallow-cli/beacon\");\n  const beacon = createNodeBeacon({\n    apiKey: process.env.FALLOW_API_KEY,\n    projectId: process.env.FALLOW_PROJECT_ID ?? \"my-app\",\n    endpoint: process.env.FALLOW_API_URL ?? \"https://api.fallow.cloud\",\n    transport: process.env.FALLOW_TRANSPORT === \"fs\" ? \"fs\" : \"http\",\n    writeToDir: process.env.FALLOW_WRITE_TO_DIR,\n  });\n  beacon.start();\n});\n"
+                .to_owned(),
+        }],
+        FrameworkKind::SvelteKit => vec![SetupSnippet {
+            label: "SvelteKit server hook",
+            path: "src/hooks.server.ts".to_owned(),
+            reason: "Start the Node runtime beacon before handling server requests.",
+            content: "import { createNodeBeacon } from \"@fallow-cli/beacon\";\n\nconst fallowBeacon = createNodeBeacon({\n  apiKey: process.env.FALLOW_API_KEY,\n  projectId: process.env.FALLOW_PROJECT_ID ?? \"my-app\",\n  endpoint: process.env.FALLOW_API_URL ?? \"https://api.fallow.cloud\",\n  transport: process.env.FALLOW_TRANSPORT === \"fs\" ? \"fs\" : \"http\",\n  writeToDir: process.env.FALLOW_WRITE_TO_DIR,\n});\n\nfallowBeacon.start();\n"
+                .to_owned(),
+        }],
+        FrameworkKind::Astro => vec![SetupSnippet {
+            label: "Astro middleware",
+            path: "src/middleware.ts".to_owned(),
+            reason: "Start the Node runtime beacon from the server middleware module.",
+            content: "import { createNodeBeacon } from \"@fallow-cli/beacon\";\n\nconst fallowBeacon = createNodeBeacon({\n  apiKey: process.env.FALLOW_API_KEY,\n  projectId: process.env.FALLOW_PROJECT_ID ?? \"my-app\",\n  endpoint: process.env.FALLOW_API_URL ?? \"https://api.fallow.cloud\",\n  transport: process.env.FALLOW_TRANSPORT === \"fs\" ? \"fs\" : \"http\",\n  writeToDir: process.env.FALLOW_WRITE_TO_DIR,\n});\n\nfallowBeacon.start();\n"
+                .to_owned(),
+        }],
+        FrameworkKind::Remix => vec![SetupSnippet {
+            label: "Remix server entry",
+            path: "app/entry.server.tsx".to_owned(),
+            reason: "Start the Node runtime beacon from the server entry module.",
+            content: "import { createNodeBeacon } from \"@fallow-cli/beacon\";\n\nconst fallowBeacon = createNodeBeacon({\n  apiKey: process.env.FALLOW_API_KEY,\n  projectId: process.env.FALLOW_PROJECT_ID ?? \"my-app\",\n  endpoint: process.env.FALLOW_API_URL ?? \"https://api.fallow.cloud\",\n  transport: process.env.FALLOW_TRANSPORT === \"fs\" ? \"fs\" : \"http\",\n  writeToDir: process.env.FALLOW_WRITE_TO_DIR,\n});\n\nfallowBeacon.start();\n"
+                .to_owned(),
+        }],
+        FrameworkKind::ViteBrowser => vec![SetupSnippet {
+            label: "Vite browser entry",
+            path: "src/main.ts".to_owned(),
+            reason: "Start the browser runtime beacon from the client entry module.",
+            content: "import { createBrowserBeacon } from \"@fallow-cli/beacon/browser\";\n\nconst fallowBeacon = createBrowserBeacon({\n  apiKey: import.meta.env.VITE_FALLOW_API_KEY,\n  projectId: import.meta.env.VITE_FALLOW_PROJECT_ID ?? \"my-app\",\n  endpoint: import.meta.env.VITE_FALLOW_API_URL ?? \"https://api.fallow.cloud\",\n  sampleRate: 0.01,\n});\n\nfallowBeacon.start();\n"
+                .to_owned(),
+        }],
+        FrameworkKind::PlainNode | FrameworkKind::Other => vec![SetupSnippet {
+            label: "Node entrypoint",
+            path: context.node_entry_path.clone(),
+            reason: "Start the Node runtime beacon before application code handles traffic.",
+            content: "import { createNodeBeacon } from \"@fallow-cli/beacon\";\n\nconst fallowBeacon = createNodeBeacon({\n  apiKey: process.env.FALLOW_API_KEY,\n  projectId: process.env.FALLOW_PROJECT_ID ?? \"my-app\",\n  endpoint: process.env.FALLOW_API_URL ?? \"https://api.fallow.cloud\",\n  transport: process.env.FALLOW_TRANSPORT === \"fs\" ? \"fs\" : \"http\",\n  writeToDir: process.env.FALLOW_WRITE_TO_DIR,\n});\n\nfallowBeacon.start();\n"
+                .to_owned(),
+        }],
+    }
+}
+
+fn dockerfile_snippet(context: &CoverageSetupContext) -> serde_json::Value {
+    if context.framework.runtime_targets().contains(&"node") {
+        serde_json::json!("ENV FALLOW_TRANSPORT=fs\nENV FALLOW_WRITE_TO_DIR=/tmp/fallow-coverage")
+    } else {
+        serde_json::Value::Null
+    }
+}
+
+fn setup_json_warnings(root: &Path, context: &CoverageSetupContext) -> Vec<String> {
+    let mut warnings = Vec::new();
+    if context.framework == FrameworkKind::Other {
+        warnings.push(
+            "Framework was not detected; emitted the plain Node fallback snippet.".to_owned(),
+        );
+    }
+    if context.package_manager.is_none() {
+        warnings.push("Package manager was not detected; npm commands were emitted.".to_owned());
+    }
+    if detect_coverage_artifact(root).is_none() {
+        warnings.push("No local coverage artifact was detected yet.".to_owned());
+    }
+    warnings
 }
 
 /// Nudge the user toward `fallow coverage upload-inventory`. The runtime
@@ -546,6 +798,69 @@ fn detect_setup_context(root: &Path) -> CoverageSetupContext {
         has_build_script: scripts.is_some_and(|scripts| scripts.contains_key("build")),
         has_start_script: scripts.is_some_and(|scripts| scripts.contains_key("start")),
         has_preview_script: scripts.is_some_and(|scripts| scripts.contains_key("preview")),
+        node_entry_path: detect_node_entry_path(root, package_json.as_ref()),
+    }
+}
+
+fn detect_setup_members(root: &Path) -> Vec<CoverageSetupMember> {
+    let root_package_manager = detect_package_manager(root);
+    let root_package_json = PackageJson::load(&root.join("package.json")).ok();
+    let mut workspaces = discover_workspaces(root);
+    workspaces.sort_by(|a, b| a.root.cmp(&b.root));
+    let has_workspaces = !workspaces.is_empty();
+    let mut members = Vec::new();
+
+    if should_include_root_setup_member(root_package_json.as_ref(), has_workspaces, root) {
+        members.push(CoverageSetupMember {
+            name: root_package_json
+                .as_ref()
+                .and_then(|package_json| package_json.name.clone())
+                .unwrap_or_else(|| "(root)".to_owned()),
+            root: root.to_path_buf(),
+            context: detect_setup_context_with_package_manager(root, root_package_manager),
+        });
+    }
+
+    members.extend(workspaces.into_iter().filter_map(|workspace| {
+        setup_member_from_workspace(root, workspace, root_package_manager)
+    }));
+    members
+}
+
+fn setup_member_from_workspace(
+    project_root: &Path,
+    workspace: WorkspaceInfo,
+    root_package_manager: Option<PackageManager>,
+) -> Option<CoverageSetupMember> {
+    if same_path(project_root, &workspace.root) {
+        return None;
+    }
+    let package_json = PackageJson::load(&workspace.root.join("package.json")).ok()?;
+    if !is_runtime_workspace_package(&workspace.root, &package_json) {
+        return None;
+    }
+    Some(CoverageSetupMember {
+        name: workspace.name,
+        context: detect_setup_context_with_package_manager(&workspace.root, root_package_manager),
+        root: workspace.root,
+    })
+}
+
+fn detect_setup_context_with_package_manager(
+    root: &Path,
+    fallback_package_manager: Option<PackageManager>,
+) -> CoverageSetupContext {
+    let package_json = PackageJson::load(&root.join("package.json")).ok();
+    let framework = detect_framework(package_json.as_ref());
+    let package_manager = detect_package_manager(root).or(fallback_package_manager);
+    let scripts = package_json.as_ref().and_then(|pkg| pkg.scripts.as_ref());
+    CoverageSetupContext {
+        framework,
+        package_manager,
+        has_build_script: scripts.is_some_and(|scripts| scripts.contains_key("build")),
+        has_start_script: scripts.is_some_and(|scripts| scripts.contains_key("start")),
+        has_preview_script: scripts.is_some_and(|scripts| scripts.contains_key("preview")),
+        node_entry_path: detect_node_entry_path(root, package_json.as_ref()),
     }
 }
 
@@ -572,11 +887,167 @@ fn detect_framework(package_json: Option<&PackageJson>) -> FrameworkKind {
         .any(|name| name == "remix" || name.starts_with("@remix-run/"))
     {
         FrameworkKind::Remix
+    } else if dependencies
+        .iter()
+        .any(|name| is_node_server_framework(name))
+    {
+        FrameworkKind::PlainNode
+    } else if dependencies.iter().any(|name| name == "vite") {
+        FrameworkKind::ViteBrowser
     } else if package_json.name.is_some() {
         FrameworkKind::PlainNode
     } else {
         FrameworkKind::Other
     }
+}
+
+fn is_node_server_framework(name: &str) -> bool {
+    matches!(
+        name,
+        "elysia" | "express" | "fastify" | "hono" | "koa" | "@koa/router" | "@trpc/server"
+    )
+}
+
+fn should_include_root_setup_member(
+    package_json: Option<&PackageJson>,
+    has_workspaces: bool,
+    root: &Path,
+) -> bool {
+    if !has_workspaces {
+        return true;
+    }
+
+    package_json.is_some_and(|package_json| is_runtime_workspace_package(root, package_json))
+}
+
+fn is_runtime_workspace_package(root: &Path, package_json: &PackageJson) -> bool {
+    match detect_framework(Some(package_json)) {
+        FrameworkKind::ViteBrowser => is_vite_browser_app(root, package_json),
+        FrameworkKind::PlainNode | FrameworkKind::Other => {
+            has_node_server_dependency(package_json) || has_runtime_script(package_json)
+        }
+        FrameworkKind::NextJs
+        | FrameworkKind::NestJs
+        | FrameworkKind::Nuxt
+        | FrameworkKind::SvelteKit
+        | FrameworkKind::Astro
+        | FrameworkKind::Remix => true,
+    }
+}
+
+fn has_node_server_dependency(package_json: &PackageJson) -> bool {
+    package_json
+        .all_dependency_names()
+        .iter()
+        .any(|name| is_node_server_framework(name))
+}
+
+fn has_runtime_script(package_json: &PackageJson) -> bool {
+    package_json.scripts.as_ref().is_some_and(|scripts| {
+        scripts.contains_key("start")
+            || scripts.contains_key("preview")
+            || scripts.contains_key("dev")
+    })
+}
+
+fn is_vite_browser_app(root: &Path, package_json: &PackageJson) -> bool {
+    let has_vite_dependency = package_json
+        .all_dependency_names()
+        .iter()
+        .any(|name| name == "vite");
+    if !has_vite_dependency {
+        return false;
+    }
+
+    package_json.scripts.as_ref().is_some_and(|scripts| {
+        ["dev", "preview"]
+            .iter()
+            .filter_map(|script_name| scripts.get(*script_name))
+            .any(|script| script_invokes_vite_app(script))
+    }) || [
+        "index.html",
+        "src/main.ts",
+        "src/main.tsx",
+        "src/main.js",
+        "src/main.jsx",
+        "src/main.mts",
+        "src/main.mjs",
+    ]
+    .iter()
+    .any(|candidate| root.join(candidate).is_file())
+}
+
+fn script_invokes_vite_app(script: &str) -> bool {
+    script
+        .split(|character: char| {
+            character.is_whitespace()
+                || matches!(character, '"' | '\'' | ':' | ';' | '&' | '|' | '(' | ')')
+        })
+        .any(|token| matches!(token, "vite" | "vite-preview" | "vite-plus" | "vp"))
+}
+
+fn detect_node_entry_path(root: &Path, package_json: Option<&PackageJson>) -> String {
+    for candidate in [
+        "src/index.ts",
+        "src/server.ts",
+        "src/main.ts",
+        "src/app.ts",
+        "index.ts",
+        "server.ts",
+    ] {
+        if root.join(candidate).is_file() {
+            return candidate.to_owned();
+        }
+    }
+
+    if let Some(package_json) = package_json {
+        for entry in package_json.entry_points() {
+            let normalized = entry.trim_start_matches("./");
+            if root.join(normalized).is_file() {
+                return path_to_json_string(Path::new(normalized));
+            }
+        }
+        if package_json
+            .all_dependency_names()
+            .iter()
+            .any(|name| is_node_server_framework(name))
+        {
+            return "src/index.ts".to_owned();
+        }
+    }
+
+    "src/server.ts".to_owned()
+}
+
+fn union_runtime_targets<'a>(
+    contexts: impl IntoIterator<Item = &'a CoverageSetupContext>,
+) -> Vec<&'static str> {
+    let mut has_node = false;
+    let mut has_browser = false;
+    for context in contexts {
+        for target in context.framework.runtime_targets() {
+            match *target {
+                "node" => has_node = true,
+                "browser" => has_browser = true,
+                _ => {}
+            }
+        }
+    }
+
+    let mut targets = Vec::new();
+    if has_node {
+        targets.push("node");
+    }
+    if has_browser {
+        targets.push("browser");
+    }
+    targets
+}
+
+fn same_path(left: &Path, right: &Path) -> bool {
+    let left = dunce::canonicalize(left).unwrap_or_else(|_| left.to_path_buf());
+    let right = dunce::canonicalize(right).unwrap_or_else(|_| right.to_path_buf());
+    left == right
 }
 
 fn detect_package_manager(root: &Path) -> Option<PackageManager> {
@@ -629,6 +1100,7 @@ fn recipe_contents(context: &CoverageSetupContext) -> String {
         FrameworkKind::SvelteKit => "SvelteKit",
         FrameworkKind::Astro => "Astro",
         FrameworkKind::Remix => "Remix",
+        FrameworkKind::ViteBrowser => "Vite",
         FrameworkKind::PlainNode => "Node service",
         FrameworkKind::Other => {
             return format!(
@@ -737,11 +1209,40 @@ fn display_relative(root: &Path, path: &Path) -> String {
     )
 }
 
+fn display_member_path(root: &Path, path: &Path) -> String {
+    let relative = path.strip_prefix(root).unwrap_or(path);
+    if relative.as_os_str().is_empty() {
+        ".".to_owned()
+    } else {
+        path_to_json_string(relative)
+    }
+}
+
+fn member_path_prefix(member_path: &str) -> String {
+    if member_path == "." {
+        String::new()
+    } else {
+        member_path.to_owned()
+    }
+}
+
+fn prefixed_member_path(prefix: &str, path: &str) -> String {
+    if prefix.is_empty() {
+        path.to_owned()
+    } else {
+        format!("{prefix}/{path}")
+    }
+}
+
+fn path_to_json_string(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        CoverageSetupContext, FrameworkKind, PackageManager, detect_coverage_artifact,
-        detect_framework, detect_package_manager, recipe_contents,
+        CoverageSetupContext, FrameworkKind, PackageManager, build_setup_json,
+        detect_coverage_artifact, detect_framework, detect_package_manager, recipe_contents,
     };
     use fallow_config::PackageJson;
     use tempfile::tempdir;
@@ -753,6 +1254,31 @@ mod tests {
                 .expect("package.json should parse");
 
         assert_eq!(detect_framework(Some(&package_json)), FrameworkKind::Nuxt);
+    }
+
+    #[test]
+    fn detect_framework_recognizes_vite_browser_projects() {
+        let package_json: PackageJson =
+            serde_json::from_str(r#"{"name":"demo","devDependencies":{"vite":"^6.0.0"}}"#)
+                .expect("package.json should parse");
+
+        assert_eq!(
+            detect_framework(Some(&package_json)),
+            FrameworkKind::ViteBrowser
+        );
+    }
+
+    #[test]
+    fn detect_framework_prefers_node_server_frameworks_over_vite() {
+        let package_json: PackageJson = serde_json::from_str(
+            r#"{"name":"api","dependencies":{"elysia":"^1.0.0"},"devDependencies":{"vite":"^6.0.0"}}"#,
+        )
+        .expect("package.json should parse");
+
+        assert_eq!(
+            detect_framework(Some(&package_json)),
+            FrameworkKind::PlainNode
+        );
     }
 
     #[test]
@@ -773,6 +1299,255 @@ mod tests {
     }
 
     #[test]
+    fn setup_json_emits_workspace_members_and_union_runtime_targets() {
+        let dir = tempdir().expect("tempdir should be created");
+        std::fs::write(
+            dir.path().join("package.json"),
+            r#"{
+  "name": "@demo/api",
+  "private": true,
+  "packageManager": "pnpm@9.0.0",
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": { "start": "node dist/server.js" },
+  "dependencies": { "elysia": "^1.0.0" },
+  "devDependencies": { "vite": "^6.0.0" }
+}"#,
+        )
+        .expect("root package.json should be written");
+        std::fs::create_dir_all(dir.path().join("src")).expect("root src dir should be created");
+        std::fs::write(
+            dir.path().join("src/index.ts"),
+            "export const api = true;\n",
+        )
+        .expect("root entry should be written");
+
+        for (path, name) in [
+            ("apps/admin", "@demo/admin"),
+            ("apps/marketing", "@demo/marketing"),
+        ] {
+            let workspace_dir = dir.path().join(path);
+            std::fs::create_dir_all(&workspace_dir).expect("workspace dir should be created");
+            std::fs::write(
+                workspace_dir.join("package.json"),
+                format!(
+                    r#"{{"name":"{name}","scripts":{{"dev":"vite","build":"vite build"}},"devDependencies":{{"vite":"^6.0.0"}}}}"#
+                ),
+            )
+            .expect("workspace package.json should be written");
+        }
+        let library_dir = dir.path().join("packages/shared");
+        std::fs::create_dir_all(&library_dir).expect("library dir should be created");
+        std::fs::write(
+            library_dir.join("package.json"),
+            r#"{"name":"@demo/shared","scripts":{"build":"tsc"},"devDependencies":{"typescript":"^6.0.0"}}"#,
+        )
+        .expect("library package.json should be written");
+
+        let payload = build_setup_json(dir.path());
+
+        assert_eq!(payload["framework_detected"], "plain_node");
+        assert_eq!(
+            payload["runtime_targets"],
+            serde_json::json!(["node", "browser"])
+        );
+        assert_eq!(payload["files_to_edit"][0]["path"], "src/index.ts");
+        assert_eq!(
+            payload["members"].as_array().map(Vec::len),
+            Some(3),
+            "root plus two workspace members should be emitted: {payload:#}"
+        );
+
+        let members = payload["members"].as_array().expect("members array");
+        assert!(
+            members
+                .iter()
+                .all(|member| member["path"] != "packages/shared"),
+            "build-only library workspaces should not receive runtime setup recipes: {payload:#}"
+        );
+        let root_member = members
+            .iter()
+            .find(|member| member["path"] == ".")
+            .expect("root member should be present");
+        assert_eq!(root_member["name"], "@demo/api");
+        assert_eq!(root_member["framework_detected"], "plain_node");
+        assert_eq!(root_member["runtime_targets"], serde_json::json!(["node"]));
+        assert_eq!(root_member["snippets"][0]["path"], "src/index.ts");
+
+        for path in ["apps/admin", "apps/marketing"] {
+            let member = members
+                .iter()
+                .find(|member| member["path"] == path)
+                .unwrap_or_else(|| panic!("missing workspace member {path}: {payload:#}"));
+            assert_eq!(member["framework_detected"], "vite");
+            assert_eq!(member["package_manager"], "pnpm");
+            assert_eq!(member["runtime_targets"], serde_json::json!(["browser"]));
+            assert_eq!(member["snippets"][0]["path"], format!("{path}/src/main.ts"));
+        }
+    }
+
+    /// Snapshot test that locks the full `coverage setup --json` workspace
+    /// shape. Adding a new field to the payload (e.g. a future `_meta` block)
+    /// is an intentional contract change, so the snapshot must be reviewed
+    /// with `cargo insta review`. Reverting the workspace-aware fix or the
+    /// Vite-app heuristic regenerates a different snapshot.
+    #[test]
+    fn setup_json_workspace_payload_matches_snapshot() {
+        let dir = tempdir().expect("tempdir should be created");
+        std::fs::write(
+            dir.path().join("package.json"),
+            r#"{
+  "name": "@demo/api",
+  "private": true,
+  "packageManager": "pnpm@9.0.0",
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": { "start": "node dist/server.js" },
+  "dependencies": { "elysia": "^1.0.0" },
+  "devDependencies": { "vite": "^6.0.0" }
+}"#,
+        )
+        .expect("root package.json should be written");
+        std::fs::create_dir_all(dir.path().join("src")).expect("root src dir should be created");
+        std::fs::write(
+            dir.path().join("src/index.ts"),
+            "export const api = true;\n",
+        )
+        .expect("root entry should be written");
+
+        for (path, name) in [
+            ("apps/admin", "@demo/admin"),
+            ("apps/marketing", "@demo/marketing"),
+        ] {
+            let workspace_dir = dir.path().join(path);
+            std::fs::create_dir_all(workspace_dir.join("src"))
+                .expect("workspace src dir should be created");
+            std::fs::write(
+                workspace_dir.join("package.json"),
+                format!(
+                    r#"{{"name":"{name}","scripts":{{"dev":"vite","build":"vite build"}},"devDependencies":{{"vite":"^6.0.0"}}}}"#
+                ),
+            )
+            .expect("workspace package.json should be written");
+            std::fs::write(
+                workspace_dir.join("src/main.ts"),
+                "export const app = true;\n",
+            )
+            .expect("workspace entry should be written");
+        }
+        let library_dir = dir.path().join("packages/shared");
+        std::fs::create_dir_all(&library_dir).expect("library dir should be created");
+        std::fs::write(
+            library_dir.join("package.json"),
+            r#"{"name":"@demo/shared","scripts":{"build":"tsc"},"devDependencies":{"typescript":"^6.0.0"}}"#,
+        )
+        .expect("library package.json should be written");
+
+        let payload = build_setup_json(dir.path());
+
+        insta::assert_yaml_snapshot!("coverage_setup_json_workspace", payload);
+    }
+
+    #[test]
+    fn setup_json_skips_non_runtime_workspace_root() {
+        let dir = tempdir().expect("tempdir should be created");
+        std::fs::write(
+            dir.path().join("package.json"),
+            r#"{
+  "name": "repo",
+  "private": true,
+  "packageManager": "pnpm@9.0.0",
+  "workspaces": ["apps/*"]
+}"#,
+        )
+        .expect("root package.json should be written");
+
+        let api_dir = dir.path().join("apps/api");
+        std::fs::create_dir_all(api_dir.join("src")).expect("api src dir should be created");
+        std::fs::write(
+            api_dir.join("package.json"),
+            r#"{"name":"api","dependencies":{"elysia":"^1.0.0"}}"#,
+        )
+        .expect("api package.json should be written");
+        std::fs::write(api_dir.join("src/index.ts"), "export const api = true;\n")
+            .expect("api entry should be written");
+
+        let web_dir = dir.path().join("apps/web");
+        std::fs::create_dir_all(web_dir.join("src")).expect("web src dir should be created");
+        std::fs::write(
+            web_dir.join("package.json"),
+            r#"{"name":"web","scripts":{"dev":"vite"},"devDependencies":{"vite":"^6.0.0"}}"#,
+        )
+        .expect("web package.json should be written");
+        std::fs::write(web_dir.join("src/main.ts"), "export const web = true;\n")
+            .expect("web entry should be written");
+
+        let payload = build_setup_json(dir.path());
+
+        assert_eq!(payload["framework_detected"], "plain_node");
+        assert_eq!(
+            payload["runtime_targets"],
+            serde_json::json!(["node", "browser"])
+        );
+        assert_eq!(payload["files_to_edit"][0]["path"], "apps/api/src/index.ts");
+
+        let members = payload["members"].as_array().expect("members array");
+        assert_eq!(
+            members.len(),
+            2,
+            "only runtime workspaces should be emitted: {payload:#}"
+        );
+        assert!(
+            members.iter().all(|member| member["path"] != "."),
+            "workspace aggregator root must not receive a runtime setup recipe: {payload:#}"
+        );
+        assert_eq!(members[0]["path"], "apps/api");
+        assert_eq!(members[0]["snippets"][0]["path"], "apps/api/src/index.ts");
+        assert_eq!(members[1]["path"], "apps/web");
+        assert_eq!(members[1]["framework_detected"], "vite");
+    }
+
+    #[test]
+    fn setup_json_skips_vite_build_only_workspace_packages() {
+        let dir = tempdir().expect("tempdir should be created");
+        std::fs::write(
+            dir.path().join("package.json"),
+            r#"{
+  "name": "repo",
+  "private": true,
+  "packageManager": "pnpm@9.0.0",
+  "workspaces": ["packages/*"],
+  "scripts": { "dev": "turbo dev" },
+  "devDependencies": { "vite": "^6.0.0" }
+}"#,
+        )
+        .expect("root package.json should be written");
+
+        let library_dir = dir.path().join("packages/ui");
+        std::fs::create_dir_all(library_dir.join("src"))
+            .expect("library src dir should be created");
+        std::fs::write(
+            library_dir.join("package.json"),
+            r#"{"name":"@repo/ui","scripts":{"build":"vite build"},"devDependencies":{"vite":"^6.0.0"}}"#,
+        )
+        .expect("library package.json should be written");
+
+        let payload = build_setup_json(dir.path());
+
+        assert_eq!(payload["framework_detected"], "unknown");
+        assert_eq!(payload["runtime_targets"], serde_json::json!([]));
+        assert_eq!(payload["files_to_edit"], serde_json::json!([]));
+        assert_eq!(payload["snippets"], serde_json::json!([]));
+        assert_eq!(payload["members"], serde_json::json!([]));
+        assert!(
+            payload["warnings"]
+                .as_array()
+                .is_some_and(|warnings| warnings.iter().any(|warning| warning
+                    .as_str()
+                    .is_some_and(|warning| warning.contains("No runtime workspace members")))),
+            "empty runtime workspace detection should be explicit: {payload:#}"
+        );
+    }
+
+    #[test]
     fn recipe_contents_uses_detected_package_manager_scripts() {
         let context = CoverageSetupContext {
             framework: FrameworkKind::SvelteKit,
@@ -780,6 +1555,7 @@ mod tests {
             has_build_script: true,
             has_start_script: false,
             has_preview_script: true,
+            node_entry_path: "src/server.ts".to_owned(),
         };
 
         let recipe = recipe_contents(&context);
@@ -796,6 +1572,7 @@ mod tests {
             has_build_script: true,
             has_start_script: false,
             has_preview_script: true,
+            node_entry_path: "src/server.ts".to_owned(),
         };
         let recipe = recipe_contents(&context);
         // Without this line the trial user finishes setup, wires the beacon,
@@ -817,9 +1594,43 @@ mod tests {
             has_build_script: false,
             has_start_script: false,
             has_preview_script: false,
+            node_entry_path: "src/server.ts".to_owned(),
         };
         let recipe = recipe_contents(&context);
         assert!(recipe.contains("fallow coverage upload-inventory"));
+    }
+
+    #[test]
+    fn setup_json_is_deterministic_and_does_not_write_files() {
+        let dir = tempdir().expect("tempdir should be created");
+        std::fs::write(
+            dir.path().join("package.json"),
+            r#"{"name":"demo","packageManager":"pnpm@9.0.0","dependencies":{"next":"^16.0.0"}}"#,
+        )
+        .expect("package.json should be written");
+
+        let payload = build_setup_json(dir.path());
+
+        assert_eq!(payload["schema_version"], "1");
+        assert_eq!(payload["framework_detected"], "nextjs");
+        assert_eq!(payload["package_manager"], "pnpm");
+        assert_eq!(payload["config_written"], serde_json::Value::Null);
+        assert_eq!(
+            payload["runtime_targets"],
+            serde_json::json!(["node", "browser"])
+        );
+        assert_eq!(payload["commands"][0], "pnpm add @fallow-cli/beacon");
+        assert_eq!(payload["commands"][1], "pnpm add -D @fallow-cli/fallow-cov");
+        assert_eq!(payload["files_to_edit"][0]["path"], "instrumentation.ts");
+        assert!(
+            payload["snippets"][0]["content"]
+                .as_str()
+                .is_some_and(|content| content.contains("createNodeBeacon"))
+        );
+        assert!(
+            !dir.path().join("docs/collect-coverage.md").exists(),
+            "JSON setup must not write the human recipe"
+        );
     }
 
     #[test]

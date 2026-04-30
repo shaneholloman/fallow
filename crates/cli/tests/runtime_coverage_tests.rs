@@ -205,6 +205,11 @@ mod gated {
             "runtime_coverage key missing from JSON output; keys={:?}",
             json.as_object().map(|o| o.keys().collect::<Vec<_>>())
         );
+        assert_eq!(
+            json.pointer("/runtime_coverage/schema_version"),
+            Some(&serde_json::Value::String("1".to_owned())),
+            "runtime_coverage schema_version must be stable for agent consumers"
+        );
     }
 
     #[test]

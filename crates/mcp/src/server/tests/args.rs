@@ -2,9 +2,11 @@ use crate::params::*;
 use crate::tools::{
     ISSUE_TYPE_FLAGS, VALID_DUPES_MODES, build_analyze_args, build_audit_args,
     build_check_changed_args, build_check_runtime_coverage_args, build_feature_flags_args,
-    build_find_dupes_args, build_fix_apply_args, build_fix_preview_args, build_health_args,
-    build_list_boundaries_args, build_project_info_args, build_trace_clone_args,
-    build_trace_dependency_args, build_trace_export_args, build_trace_file_args,
+    build_find_dupes_args, build_fix_apply_args, build_fix_preview_args,
+    build_get_blast_radius_args, build_get_cleanup_candidates_args, build_get_hot_paths_args,
+    build_get_importance_args, build_health_args, build_list_boundaries_args,
+    build_project_info_args, build_trace_clone_args, build_trace_dependency_args,
+    build_trace_export_args, build_trace_file_args,
 };
 
 /// Parse a validation error body into its `message` field. Arg builders emit
@@ -42,6 +44,7 @@ fn check_runtime_coverage(coverage: &str) -> CheckRuntimeCoverageParams {
         no_cache: None,
         threads: None,
         max_crap: None,
+        top: None,
         group_by: None,
     }
 }
@@ -1282,6 +1285,7 @@ fn check_runtime_coverage_all_tuning_flags_emit() {
         no_cache: Some(true),
         threads: Some(8),
         max_crap: Some(42.5),
+        top: Some(10),
         group_by: Some("owner".to_string()),
     };
     let args = build_check_runtime_coverage_args(&params);
@@ -1306,6 +1310,10 @@ fn check_runtime_coverage_all_tuning_flags_emit() {
         "expected --max-crap 42.5, got {args:?}"
     );
     assert!(
+        args.windows(2).any(|w| w == ["--top", "10"]),
+        "expected --top 10, got {args:?}"
+    );
+    assert!(
         args.windows(2).any(|w| w == ["--group-by", "owner"]),
         "expected --group-by owner, got {args:?}"
     );
@@ -1318,6 +1326,16 @@ fn check_runtime_coverage_includes_explain() {
         args.contains(&"--explain".to_string()),
         "check_runtime_coverage should include --explain"
     );
+}
+
+#[test]
+fn runtime_context_split_tools_share_runtime_coverage_pipeline() {
+    let params = check_runtime_coverage("./coverage");
+    let expected = build_check_runtime_coverage_args(&params);
+    assert_eq!(build_get_hot_paths_args(&params), expected);
+    assert_eq!(build_get_blast_radius_args(&params), expected);
+    assert_eq!(build_get_importance_args(&params), expected);
+    assert_eq!(build_get_cleanup_candidates_args(&params), expected);
 }
 
 // ── Explain flag presence ────────────────────────────────────────

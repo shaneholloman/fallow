@@ -32,7 +32,11 @@ fn all_tools_registered() {
     assert!(names.contains(&"list_boundaries".to_string()));
     assert!(names.contains(&"feature_flags".to_string()));
     assert!(names.contains(&"check_runtime_coverage".to_string()));
-    assert_eq!(tools.len(), 15);
+    assert!(names.contains(&"get_hot_paths".to_string()));
+    assert!(names.contains(&"get_blast_radius".to_string()));
+    assert!(names.contains(&"get_importance".to_string()));
+    assert!(names.contains(&"get_cleanup_candidates".to_string()));
+    assert_eq!(tools.len(), 19);
 }
 
 #[test]
@@ -54,6 +58,10 @@ fn read_only_tools_have_annotations() {
         "list_boundaries",
         "feature_flags",
         "check_runtime_coverage",
+        "get_hot_paths",
+        "get_blast_radius",
+        "get_importance",
+        "get_cleanup_candidates",
     ];
     for tool in &tools {
         let name = tool.name.to_string();
@@ -178,6 +186,10 @@ fn server_instructions_mention_all_tools() {
     assert!(instructions.contains("list_boundaries"));
     assert!(instructions.contains("feature_flags"));
     assert!(instructions.contains("check_runtime_coverage"));
+    assert!(instructions.contains("get_hot_paths"));
+    assert!(instructions.contains("get_blast_radius"));
+    assert!(instructions.contains("get_importance"));
+    assert!(instructions.contains("get_cleanup_candidates"));
 }
 
 #[test]
@@ -633,11 +645,41 @@ fn check_runtime_coverage_schema_contains_expected_properties() {
         "no_cache",
         "threads",
         "max_crap",
+        "top",
         "group_by",
     ] {
         assert!(
             schema.contains(prop),
             "check_runtime_coverage schema should contain property '{prop}'"
+        );
+    }
+}
+
+#[test]
+fn runtime_context_split_tool_schemas_require_coverage() {
+    let server = FallowMcp::new();
+    let tools = server.tool_router.list_all();
+    for name in [
+        "get_hot_paths",
+        "get_blast_radius",
+        "get_importance",
+        "get_cleanup_candidates",
+    ] {
+        let tool = tools.iter().find(|t| t.name == name).unwrap();
+        let schema = serde_json::to_string(&tool.input_schema).unwrap();
+        assert!(
+            schema.contains("coverage"),
+            "{name} schema should contain coverage"
+        );
+        assert!(schema.contains("top"), "{name} schema should contain top");
+        let schema_value: serde_json::Value = serde_json::from_str(&schema).unwrap();
+        let required = schema_value
+            .get("required")
+            .and_then(|r| r.as_array())
+            .expect("runtime context schema should have a required array");
+        assert!(
+            required.iter().any(|v| v.as_str() == Some("coverage")),
+            "{name} schema should require coverage"
         );
     }
 }

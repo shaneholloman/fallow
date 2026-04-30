@@ -1,7 +1,7 @@
 #[cfg(unix)]
 use rmcp::model::*;
 
-use crate::tools::run_fallow;
+use crate::tools::{run_fallow, run_fallow_with_top_level_warnings};
 
 use super::super::resolve_binary;
 
@@ -52,6 +52,26 @@ async fn run_fallow_exit_code_0_empty_stdout_returns_empty_json() {
         .unwrap();
     assert_eq!(result.is_error, Some(false));
     assert_eq!(extract_text(&result), "{}");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn run_fallow_with_top_level_warnings_inserts_empty_array() {
+    let result = run_fallow_with_top_level_warnings(
+        "/bin/sh",
+        &[
+            "-c".to_string(),
+            "echo '{\"schema_version\":4,\"runtime_coverage\":{\"schema_version\":\"1\"}}'"
+                .to_string(),
+        ],
+    )
+    .await
+    .unwrap();
+    assert_eq!(result.is_error, Some(false));
+    let text = extract_text(&result);
+    let parsed: serde_json::Value = serde_json::from_str(text).expect("should be valid JSON");
+    assert_eq!(parsed["warnings"], serde_json::json!([]));
+    assert_eq!(parsed["runtime_coverage"]["schema_version"], "1");
 }
 
 #[cfg(unix)]

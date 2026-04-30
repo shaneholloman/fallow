@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Fallow JSON Output Schemas",
-  "description": "Schemas for the JSON output of fallow commands. Bare `fallow --format json` produces a combined envelope with `check`, `dupes`, and `health` keys. Individual commands (`fallow dead-code --format json`, `fallow health --format json`, `fallow dupes --format json`, `fallow audit --format json`) produce their own top-level structure.",
+  "description": "Schemas for the JSON output of fallow commands. Bare `fallow --format json` produces a combined envelope with `check`, `dupes`, and `health` keys. Individual commands (`fallow dead-code --format json`, `fallow health --format json`, `fallow dupes --format json`, `fallow audit --format json`, `fallow coverage setup --json`) produce their own top-level structure.",
 
   "oneOf": [
     { "$ref": "#/definitions/CombinedOutput" },
@@ -9,7 +9,8 @@
     { "$ref": "#/definitions/CheckGroupedOutput" },
     { "$ref": "#/definitions/HealthOutput" },
     { "$ref": "#/definitions/DupesOutput" },
-    { "$ref": "#/definitions/AuditOutput" }
+    { "$ref": "#/definitions/AuditOutput" },
+    { "$ref": "#/definitions/CoverageSetupOutput" }
   ],
 
   "definitions": {
@@ -69,6 +70,117 @@
         "dead_code": { "$ref": "#/definitions/CheckOutput", "description": "Full dead code results (omitted if no changed files)" },
         "duplication": { "$ref": "#/definitions/DupesOutput", "description": "Full duplication results (omitted if no changed files)" },
         "complexity": { "$ref": "#/definitions/HealthOutput", "description": "Full complexity results (omitted if no changed files)" }
+      }
+    },
+
+    "CoverageSetupOutput": {
+      "title": "fallow coverage setup --json",
+      "description": "Deterministic agent-readable runtime coverage setup instructions. In workspaces, members contains one entry per detected runtime package and runtime_targets is the union of all member targets.",
+      "type": "object",
+      "required": ["schema_version", "framework_detected", "package_manager", "runtime_targets", "members", "config_written", "commands", "files_to_edit", "snippets", "dockerfile_snippet", "next_steps", "warnings"],
+      "properties": {
+        "schema_version": { "type": "string", "enum": ["1"] },
+        "framework_detected": {
+          "type": "string",
+          "enum": ["nextjs", "nestjs", "nuxt", "sveltekit", "astro", "remix", "vite", "plain_node", "unknown"],
+          "description": "Primary detected runtime framework. For workspaces this mirrors the first emitted runtime member; unknown means no runtime member was detected."
+        },
+        "package_manager": {
+          "type": ["string", "null"],
+          "enum": ["npm", "pnpm", "yarn", "bun", null]
+        },
+        "runtime_targets": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["node", "browser"] },
+          "uniqueItems": true,
+          "description": "Union of runtime targets across emitted members."
+        },
+        "members": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/CoverageSetupMember" },
+          "description": "Per-runtime-workspace setup recipes. Pure aggregator roots and build-only library packages are omitted."
+        },
+        "config_written": { "type": "null" },
+        "commands": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "files_to_edit": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/CoverageSetupFileToEdit" },
+          "description": "Compatibility copy of the primary member's files, with workspace prefixes when the primary member is not the root."
+        },
+        "snippets": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/CoverageSetupSnippet" },
+          "description": "Compatibility copy of the primary member's snippets, with workspace prefixes when the primary member is not the root."
+        },
+        "dockerfile_snippet": { "type": ["string", "null"] },
+        "next_steps": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "warnings": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+
+    "CoverageSetupMember": {
+      "type": "object",
+      "required": ["name", "path", "framework_detected", "package_manager", "runtime_targets", "files_to_edit", "snippets", "dockerfile_snippet", "warnings"],
+      "properties": {
+        "name": { "type": "string" },
+        "path": {
+          "type": "string",
+          "description": "Workspace path relative to the analyzed root, or . for the root member."
+        },
+        "framework_detected": {
+          "type": "string",
+          "enum": ["nextjs", "nestjs", "nuxt", "sveltekit", "astro", "remix", "vite", "plain_node", "unknown"]
+        },
+        "package_manager": {
+          "type": ["string", "null"],
+          "enum": ["npm", "pnpm", "yarn", "bun", null]
+        },
+        "runtime_targets": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["node", "browser"] },
+          "uniqueItems": true
+        },
+        "files_to_edit": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/CoverageSetupFileToEdit" }
+        },
+        "snippets": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/CoverageSetupSnippet" }
+        },
+        "dockerfile_snippet": { "type": ["string", "null"] },
+        "warnings": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+
+    "CoverageSetupFileToEdit": {
+      "type": "object",
+      "required": ["path", "reason"],
+      "properties": {
+        "path": { "type": "string" },
+        "reason": { "type": "string" }
+      }
+    },
+
+    "CoverageSetupSnippet": {
+      "type": "object",
+      "required": ["label", "path", "content"],
+      "properties": {
+        "label": { "type": "string" },
+        "path": { "type": "string" },
+        "content": { "type": "string" }
       }
     },
 
@@ -448,9 +560,14 @@
 
     "RuntimeCoverageReport": {
       "type": "object",
-      "required": ["verdict", "summary"],
+      "required": ["schema_version", "verdict", "summary"],
       "description": "Runtime coverage findings merged into the health report. Present only when --runtime-coverage is used. Shape mirrors fallow-cov-protocol 0.3.",
       "properties": {
+        "schema_version": {
+          "type": "string",
+          "enum": ["1"],
+          "description": "Runtime coverage JSON contract version. This is scoped to the runtime_coverage block and is independent of the top-level fallow JSON schema_version."
+        },
         "verdict": {
           "$ref": "#/definitions/RuntimeCoverageReportVerdict",
           "description": "Overall runtime coverage verdict after baseline filtering and changed-review adjustments."

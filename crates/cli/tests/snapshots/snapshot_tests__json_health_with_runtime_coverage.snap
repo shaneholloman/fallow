@@ -47,6 +47,7 @@ expression: redact_version(&json_str)
     "severity_moderate_count": 0
   },
   "runtime_coverage": {
+    "schema_version": "1",
     "verdict": "cold-code-detected",
     "summary": {
       "functions_tracked": 6,

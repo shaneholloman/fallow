@@ -44,9 +44,32 @@ pub fn build_check_runtime_coverage_args(params: &CheckRuntimeCoverageParams) ->
     if let Some(max_crap) = params.max_crap {
         args.extend(["--max-crap".to_string(), format!("{max_crap}")]);
     }
+    if let Some(top) = params.top {
+        args.extend(["--top".to_string(), top.to_string()]);
+    }
     if let Some(ref gb) = params.group_by {
         args.extend(["--group-by".to_string(), gb.clone()]);
     }
 
     args
+}
+
+/// Build CLI arguments for `get_hot_paths`.
+pub fn build_get_hot_paths_args(params: &CheckRuntimeCoverageParams) -> Vec<String> {
+    build_check_runtime_coverage_args(params)
+}
+
+/// Build CLI arguments for `get_blast_radius`.
+pub fn build_get_blast_radius_args(params: &CheckRuntimeCoverageParams) -> Vec<String> {
+    build_check_runtime_coverage_args(params)
+}
+
+/// Build CLI arguments for `get_importance`.
+pub fn build_get_importance_args(params: &CheckRuntimeCoverageParams) -> Vec<String> {
+    build_check_runtime_coverage_args(params)
+}
+
+/// Build CLI arguments for `get_cleanup_candidates`.
+pub fn build_get_cleanup_candidates_args(params: &CheckRuntimeCoverageParams) -> Vec<String> {
+    build_check_runtime_coverage_args(params)
 }
