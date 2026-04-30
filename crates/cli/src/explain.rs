@@ -19,6 +19,9 @@ pub const HEALTH_DOCS: &str = "https://docs.fallow.tools/cli/health";
 /// Docs URL for the dupes command.
 pub const DUPES_DOCS: &str = "https://docs.fallow.tools/cli/dupes";
 
+/// Docs URL for the runtime coverage setup command's agent-readable JSON.
+pub const COVERAGE_SETUP_DOCS: &str = "https://docs.fallow.tools/cli/coverage#agent-readable-json";
+
 // ── Check rules ─────────────────────────────────────────────────
 
 /// Rule definition for SARIF `fullDescription` and JSON `_meta`.
@@ -503,6 +506,48 @@ pub fn dupes_meta() -> Value {
     })
 }
 
+/// Build the `_meta` object for `fallow coverage setup --json --explain`.
+#[must_use]
+pub fn coverage_setup_meta() -> Value {
+    json!({
+        "docs_url": COVERAGE_SETUP_DOCS,
+        "field_definitions": {
+            "schema_version": "Coverage setup JSON contract version. Stays at \"1\" for additive opt-in fields such as _meta.",
+            "framework_detected": "Primary detected runtime framework for compatibility with single-app consumers. In workspaces this mirrors the first emitted runtime member; unknown means no runtime member was detected.",
+            "package_manager": "Detected package manager used for install and run commands, or null when no package manager signal was found.",
+            "runtime_targets": "Union of runtime targets across emitted members.",
+            "members[]": "Per-runtime-workspace setup recipes. Pure aggregator roots and build-only libraries are omitted.",
+            "members[].name": "Workspace package name from package.json, or the root directory name when package.json has no name.",
+            "members[].path": "Workspace path relative to the command root. The root package is represented as \".\".",
+            "members[].framework_detected": "Runtime framework detected for that member.",
+            "members[].package_manager": "Package manager detected for that member, or inherited from the workspace root when no member-specific signal exists.",
+            "members[].runtime_targets": "Runtime targets produced by that member.",
+            "members[].files_to_edit": "Files in that member that should receive runtime beacon setup code.",
+            "members[].snippets": "Copy-paste setup snippets for that member, with paths relative to the command root.",
+            "members[].dockerfile_snippet": "Environment snippet for file-system capture in that member's containerized Node runtime, or null when not applicable.",
+            "members[].warnings": "Actionable setup caveats discovered for that member.",
+            "config_written": "Always null for --json because JSON setup is side-effect-free and never writes configuration.",
+            "files_to_edit": "Compatibility copy of the primary member's files, with workspace prefixes when the primary member is not the root.",
+            "snippets": "Compatibility copy of the primary member's snippets, with workspace prefixes when the primary member is not the root.",
+            "dockerfile_snippet": "Environment snippet for file-system capture in containerized Node runtimes, or null when not applicable.",
+            "commands": "Package-manager commands needed to install the runtime beacon and sidecar packages.",
+            "next_steps": "Ordered setup workflow after applying the emitted snippets.",
+            "warnings": "Actionable setup caveats discovered while building the recipe."
+        },
+        "enums": {
+            "framework_detected": ["nextjs", "nestjs", "nuxt", "sveltekit", "astro", "remix", "vite", "plain_node", "unknown"],
+            "runtime_targets": ["node", "browser"],
+            "package_manager": ["npm", "pnpm", "yarn", "bun", null]
+        },
+        "warnings": {
+            "No runtime workspace members were detected": "The root appears to be a workspace, but no runtime-bearing package was found. The payload emits install commands only.",
+            "No local coverage artifact was detected yet": "Run the application with runtime coverage collection enabled, then re-run setup or health with the produced capture path.",
+            "Package manager was not detected": "No packageManager field or known lockfile was found. Commands fall back to npm.",
+            "Framework was not detected": "No known framework dependency or runtime script was found. Treat the recipe as a generic Node setup and adjust the entry path as needed."
+        }
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -640,6 +685,56 @@ mod tests {
         assert!(metrics.contains_key("token_count"));
         assert!(metrics.contains_key("clone_groups"));
         assert!(metrics.contains_key("clone_families"));
+    }
+
+    // ── coverage_setup_meta ─────────────────────────────────────────
+
+    #[test]
+    fn coverage_setup_meta_has_docs_fields_enums_and_warnings() {
+        let meta = coverage_setup_meta();
+        assert_eq!(meta["docs_url"], COVERAGE_SETUP_DOCS);
+        assert!(
+            meta["field_definitions"]
+                .as_object()
+                .unwrap()
+                .contains_key("members[]")
+        );
+        assert!(
+            meta["field_definitions"]
+                .as_object()
+                .unwrap()
+                .contains_key("config_written")
+        );
+        assert!(
+            meta["field_definitions"]
+                .as_object()
+                .unwrap()
+                .contains_key("members[].package_manager")
+        );
+        assert!(
+            meta["field_definitions"]
+                .as_object()
+                .unwrap()
+                .contains_key("members[].warnings")
+        );
+        assert!(
+            meta["enums"]
+                .as_object()
+                .unwrap()
+                .contains_key("framework_detected")
+        );
+        assert!(
+            meta["warnings"]
+                .as_object()
+                .unwrap()
+                .contains_key("No runtime workspace members were detected")
+        );
+        assert!(
+            meta["warnings"]
+                .as_object()
+                .unwrap()
+                .contains_key("Package manager was not detected")
+        );
     }
 
     // ── HEALTH_RULES completeness ──────────────────────────────────

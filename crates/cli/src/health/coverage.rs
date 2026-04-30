@@ -397,23 +397,56 @@ fn find_platform_package_sidecar(root: &Path) -> Option<PathBuf> {
     let binary_name = sidecar_binary_name();
     for ancestor in root.ancestors() {
         let fallow_cli_dir = ancestor.join("node_modules").join("@fallow-cli");
-        let Ok(entries) = fs::read_dir(&fallow_cli_dir) else {
+        if let Some(path) = find_scoped_platform_sidecar(&fallow_cli_dir, binary_name) {
+            return Some(path);
+        }
+
+        let node_modules = ancestor.join("node_modules");
+        for store_dir in [".bun", ".pnpm"] {
+            if let Some(path) = find_package_store_platform_sidecar(&node_modules, store_dir) {
+                return Some(path);
+            }
+        }
+    }
+    None
+}
+
+fn find_scoped_platform_sidecar(fallow_cli_dir: &Path, binary_name: &str) -> Option<PathBuf> {
+    let entries = fs::read_dir(fallow_cli_dir).ok()?;
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name_str) = name.to_str() else {
             continue;
         };
-        for entry in entries.flatten() {
-            let name = entry.file_name();
-            let Some(name_str) = name.to_str() else {
-                continue;
-            };
-            // Match only `fallow-cov-<platform>` subpackages, not the
-            // pure-wrapper `fallow-cov` package.
-            if !name_str.starts_with("fallow-cov-") {
-                continue;
-            }
-            let candidate = entry.path().join(binary_name);
-            if candidate.is_file() {
-                return Some(candidate);
-            }
+        // Match only `fallow-cov-<platform>` subpackages, not the
+        // pure-wrapper `fallow-cov` package.
+        if !name_str.starts_with("fallow-cov-") {
+            continue;
+        }
+        let candidate = entry.path().join(binary_name);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+fn find_package_store_platform_sidecar(node_modules: &Path, store_dir: &str) -> Option<PathBuf> {
+    let binary_name = sidecar_binary_name();
+    let store = node_modules.join(store_dir);
+    let entries = fs::read_dir(&store).ok()?;
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name_str) = name.to_str() else {
+            continue;
+        };
+        if !name_str.starts_with("@fallow-cli+fallow-cov-") {
+            continue;
+        }
+
+        let scoped_dir = entry.path().join("node_modules").join("@fallow-cli");
+        if let Some(path) = find_scoped_platform_sidecar(&scoped_dir, binary_name) {
+            return Some(path);
         }
     }
     None
@@ -1776,7 +1809,8 @@ mod tests {
         RemappedFunction, StaticSignalIndex, build_request, build_static_signal_index,
         convert_response, discover_sidecar, looks_like_istanbul, merge_remapped_functions,
         path_binary_candidates, prepare_coverage_sources, resolve_original_source_path,
-        resolve_sidecar_via_command, verify_sidecar_signature, write_istanbul_coverage_file,
+        resolve_sidecar_via_command, sidecar_binary_name, verify_sidecar_signature,
+        write_istanbul_coverage_file,
     };
     use crate::health::RuntimeCoverageOptions;
     use fallow_config::{FallowConfig, OutputFormat};
@@ -2072,6 +2106,81 @@ mod tests {
             resolved, real_binary,
             "discover_sidecar must prefer the platform package's real binary over the .bin wrapper so signature verification can find the adjacent .sig file"
         );
+
+        std::fs::remove_dir_all(&root)
+            .unwrap_or_else(|err| panic!("failed to clean temp dir {}: {err}", root.display()));
+    }
+
+    #[test]
+    fn discovers_bun_store_platform_sidecar_before_bin_wrapper() {
+        let root = make_temp_dir("sidecar-bun-store");
+        let platform_dir = root
+            .join("node_modules")
+            .join(".bun")
+            .join("@fallow-cli+fallow-cov-darwin-arm64@0.1.8")
+            .join("node_modules")
+            .join("@fallow-cli")
+            .join("fallow-cov-darwin-arm64");
+        let bin_dir = root.join("node_modules").join(".bin");
+        std::fs::create_dir_all(&platform_dir)
+            .unwrap_or_else(|err| panic!("failed to create {}: {err}", platform_dir.display()));
+        std::fs::create_dir_all(&bin_dir)
+            .unwrap_or_else(|err| panic!("failed to create {}: {err}", bin_dir.display()));
+
+        let real_binary = platform_dir.join(sidecar_binary_name());
+        let wrapper = if cfg!(windows) {
+            bin_dir.join("fallow-cov.cmd")
+        } else {
+            bin_dir.join("fallow-cov")
+        };
+        std::fs::write(&real_binary, "")
+            .unwrap_or_else(|err| panic!("failed to write {}: {err}", real_binary.display()));
+        std::fs::write(&wrapper, "#!/usr/bin/env node\n")
+            .unwrap_or_else(|err| panic!("failed to write {}: {err}", wrapper.display()));
+
+        let resolved = discover_sidecar(Some(&root))
+            .unwrap_or_else(|err| panic!("failed to discover bun sidecar: {err}"));
+
+        assert_eq!(resolved, real_binary);
+
+        std::fs::remove_dir_all(&root)
+            .unwrap_or_else(|err| panic!("failed to clean temp dir {}: {err}", root.display()));
+    }
+
+    #[test]
+    fn discovers_pnpm_store_platform_sidecar_before_bin_wrapper() {
+        let root = make_temp_dir("sidecar-pnpm-store");
+        // pnpm with `node-linker=isolated` extracts platform packages into
+        // `.pnpm/<scope+name>@<version>_<peer-hash>/...`; the peer-hash
+        // suffix must not break the `@fallow-cli+fallow-cov-` prefix match.
+        let platform_dir = root
+            .join("node_modules")
+            .join(".pnpm")
+            .join("@fallow-cli+fallow-cov-darwin-arm64@0.1.8_abcd1234efgh5678")
+            .join("node_modules")
+            .join("@fallow-cli")
+            .join("fallow-cov-darwin-arm64");
+        let bin_dir = root.join("node_modules").join(".bin");
+        std::fs::create_dir_all(&platform_dir)
+            .unwrap_or_else(|err| panic!("failed to create {}: {err}", platform_dir.display()));
+        std::fs::create_dir_all(&bin_dir)
+            .unwrap_or_else(|err| panic!("failed to create {}: {err}", bin_dir.display()));
+
+        let real_binary = platform_dir.join(sidecar_binary_name());
+        let wrapper = if cfg!(windows) {
+            bin_dir.join("fallow-cov.cmd")
+        } else {
+            bin_dir.join("fallow-cov")
+        };
+        std::fs::write(&real_binary, "")
+            .unwrap_or_else(|err| panic!("failed to write {}: {err}", real_binary.display()));
+        std::fs::write(&wrapper, "#!/usr/bin/env node\n")
+            .unwrap_or_else(|err| panic!("failed to write {}: {err}", wrapper.display()));
+
+        let resolved = discover_sidecar(Some(&root))
+            .unwrap_or_else(|err| panic!("failed to discover pnpm sidecar: {err}"));
+
+        assert_eq!(resolved, real_binary);
 
         std::fs::remove_dir_all(&root)
             .unwrap_or_else(|err| panic!("failed to clean temp dir {}: {err}", root.display()));

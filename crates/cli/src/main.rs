@@ -1963,7 +1963,7 @@ fn dispatch_subcommand(
         } => migrate::run_migrate(root, toml, dry_run, from.as_deref()),
         Command::License { subcommand } => license::run(&map_license_subcommand(subcommand)),
         Command::Coverage { subcommand } => {
-            coverage::run(map_coverage_subcommand(&subcommand), root)
+            coverage::run(map_coverage_subcommand(&subcommand, cli.explain), root)
         }
         Command::SetupHooks {
             agent,
@@ -2005,7 +2005,7 @@ fn map_license_subcommand(sub: LicenseCli) -> license::LicenseSubcommand {
     }
 }
 
-fn map_coverage_subcommand(sub: &CoverageCli) -> coverage::CoverageSubcommand {
+fn map_coverage_subcommand(sub: &CoverageCli, explain: bool) -> coverage::CoverageSubcommand {
     match sub {
         CoverageCli::Setup {
             yes,
@@ -2015,6 +2015,7 @@ fn map_coverage_subcommand(sub: &CoverageCli) -> coverage::CoverageSubcommand {
             yes: *yes,
             non_interactive: *non_interactive || *json,
             json: *json,
+            explain,
         }),
         CoverageCli::UploadInventory {
             api_key,

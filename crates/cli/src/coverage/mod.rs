@@ -44,6 +44,8 @@ pub struct SetupArgs {
     pub non_interactive: bool,
     /// Emit deterministic JSON instructions without prompts, writes, installs, or network calls.
     pub json: bool,
+    /// Include field definitions and warning semantics in JSON output.
+    pub explain: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -239,7 +241,7 @@ pub fn run(subcommand: CoverageSubcommand, root: &Path) -> ExitCode {
 
 fn run_setup(args: SetupArgs, root: &Path) -> ExitCode {
     if args.json {
-        return run_setup_json(root);
+        return run_setup_json(root, args.explain);
     }
 
     println!("fallow coverage setup");
@@ -302,8 +304,8 @@ fn run_setup(args: SetupArgs, root: &Path) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn run_setup_json(root: &Path) -> ExitCode {
-    let payload = build_setup_json(root);
+fn run_setup_json(root: &Path, explain: bool) -> ExitCode {
+    let payload = build_setup_json(root, explain);
     let stdout = std::io::stdout();
     let mut handle = stdout.lock();
     if let Err(err) = serde_json::to_writer_pretty(&mut handle, &payload) {
@@ -314,7 +316,7 @@ fn run_setup_json(root: &Path) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn build_setup_json(root: &Path) -> serde_json::Value {
+fn build_setup_json(root: &Path, explain: bool) -> serde_json::Value {
     let members = detect_setup_members(root);
     let primary_member = members.first();
     let fallback = detect_setup_context(root);
@@ -341,7 +343,7 @@ fn build_setup_json(root: &Path) -> serde_json::Value {
         );
     }
 
-    serde_json::json!({
+    let mut payload = serde_json::json!({
         "schema_version": "1",
         "framework_detected": primary_member.map_or("unknown", |_| primary.framework.id()),
         "package_manager": primary.package_manager.map(PackageManager::label),
@@ -363,7 +365,13 @@ fn build_setup_json(root: &Path) -> serde_json::Value {
             "Set FALLOW_API_KEY in CI before running fallow coverage upload-inventory."
         ],
         "warnings": warnings,
-    })
+    });
+
+    if explain && let Some(object) = payload.as_object_mut() {
+        object.insert("_meta".to_owned(), crate::explain::coverage_setup_meta());
+    }
+
+    payload
 }
 
 struct SetupSnippet {
@@ -1343,7 +1351,7 @@ mod tests {
         )
         .expect("library package.json should be written");
 
-        let payload = build_setup_json(dir.path());
+        let payload = build_setup_json(dir.path(), false);
 
         assert_eq!(payload["framework_detected"], "plain_node");
         assert_eq!(
@@ -1441,7 +1449,7 @@ mod tests {
         )
         .expect("library package.json should be written");
 
-        let payload = build_setup_json(dir.path());
+        let payload = build_setup_json(dir.path(), false);
 
         insta::assert_yaml_snapshot!("coverage_setup_json_workspace", payload);
     }
@@ -1480,7 +1488,7 @@ mod tests {
         std::fs::write(web_dir.join("src/main.ts"), "export const web = true;\n")
             .expect("web entry should be written");
 
-        let payload = build_setup_json(dir.path());
+        let payload = build_setup_json(dir.path(), false);
 
         assert_eq!(payload["framework_detected"], "plain_node");
         assert_eq!(
@@ -1530,7 +1538,7 @@ mod tests {
         )
         .expect("library package.json should be written");
 
-        let payload = build_setup_json(dir.path());
+        let payload = build_setup_json(dir.path(), false);
 
         assert_eq!(payload["framework_detected"], "unknown");
         assert_eq!(payload["runtime_targets"], serde_json::json!([]));
@@ -1609,7 +1617,7 @@ mod tests {
         )
         .expect("package.json should be written");
 
-        let payload = build_setup_json(dir.path());
+        let payload = build_setup_json(dir.path(), false);
 
         assert_eq!(payload["schema_version"], "1");
         assert_eq!(payload["framework_detected"], "nextjs");
@@ -1630,6 +1638,34 @@ mod tests {
         assert!(
             !dir.path().join("docs/collect-coverage.md").exists(),
             "JSON setup must not write the human recipe"
+        );
+    }
+
+    #[test]
+    fn setup_json_explain_includes_meta_without_bumping_schema_version() {
+        let dir = tempdir().expect("tempdir should be created");
+        std::fs::write(
+            dir.path().join("package.json"),
+            r#"{"name":"demo","packageManager":"bun@1.2.0","dependencies":{"elysia":"^1.0.0"}}"#,
+        )
+        .expect("package.json should be written");
+
+        let payload = build_setup_json(dir.path(), true);
+
+        assert_eq!(payload["schema_version"], "1");
+        assert_eq!(
+            payload["_meta"]["docs_url"],
+            "https://docs.fallow.tools/cli/coverage#agent-readable-json"
+        );
+        assert!(
+            payload["_meta"]["field_definitions"]
+                .as_object()
+                .is_some_and(|fields| fields.contains_key("members[]"))
+        );
+        assert!(
+            payload["_meta"]["enums"]
+                .as_object()
+                .is_some_and(|enums| enums.contains_key("runtime_targets"))
         );
     }
 
