@@ -342,6 +342,42 @@ fn workspace_nested_exports_resolves_dist_to_source() {
     );
 }
 
+#[test]
+fn workspace_package_export_star_barrel_chain_marks_leaf_export_used() {
+    let root = fixture_path("workspace-nested-barrel-exports");
+
+    let config = create_config(root);
+    let results = fallow_core::analyze(&config).expect("analysis should succeed");
+
+    let unused_exports: Vec<String> = results
+        .unused_exports
+        .iter()
+        .map(|e| {
+            format!(
+                "{}:{}",
+                e.path.to_string_lossy().replace('\\', "/"),
+                e.export_name
+            )
+        })
+        .collect();
+
+    assert!(
+        !unused_exports
+            .iter()
+            .any(|entry| entry.ends_with("foo/bar/baz/qux.tsx:PaletteColorSwatch")),
+        "PaletteColorSwatch should be used through the workspace package export barrel chain, found: {unused_exports:?}"
+    );
+    assert!(
+        results.unresolved_imports.is_empty(),
+        "workspace package export should resolve without node_modules, found: {:?}",
+        results
+            .unresolved_imports
+            .iter()
+            .map(|i| &i.specifier)
+            .collect::<Vec<_>>()
+    );
+}
+
 // ── TypeScript project references ──────────────────────────────
 
 #[test]

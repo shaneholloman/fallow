@@ -1208,6 +1208,111 @@ fn star_re_export_through_multiple_barrel_layers() {
 }
 
 #[test]
+fn entry_point_star_re_export_through_multiple_barrel_layers() {
+    let files = vec![
+        DiscoveredFile {
+            id: FileId(0),
+            path: PathBuf::from("/project/barrel_a.ts"),
+            size_bytes: 50,
+        },
+        DiscoveredFile {
+            id: FileId(1),
+            path: PathBuf::from("/project/barrel_b.ts"),
+            size_bytes: 50,
+        },
+        DiscoveredFile {
+            id: FileId(2),
+            path: PathBuf::from("/project/barrel_c.ts"),
+            size_bytes: 50,
+        },
+        DiscoveredFile {
+            id: FileId(3),
+            path: PathBuf::from("/project/source.ts"),
+            size_bytes: 50,
+        },
+    ];
+
+    let entry_points = vec![EntryPoint {
+        path: PathBuf::from("/project/barrel_a.ts"),
+        source: EntryPointSource::PackageJsonMain,
+    }];
+
+    let resolved_modules = vec![
+        ResolvedModule {
+            file_id: FileId(0),
+            path: PathBuf::from("/project/barrel_a.ts"),
+            re_exports: vec![ResolvedReExport {
+                info: fallow_types::extract::ReExportInfo {
+                    source: "./barrel_b".to_string(),
+                    imported_name: "*".to_string(),
+                    exported_name: "*".to_string(),
+                    is_type_only: false,
+                    span: oxc_span::Span::default(),
+                },
+                target: ResolveResult::InternalModule(FileId(1)),
+            }],
+            ..Default::default()
+        },
+        ResolvedModule {
+            file_id: FileId(1),
+            path: PathBuf::from("/project/barrel_b.ts"),
+            re_exports: vec![ResolvedReExport {
+                info: fallow_types::extract::ReExportInfo {
+                    source: "./barrel_c".to_string(),
+                    imported_name: "*".to_string(),
+                    exported_name: "*".to_string(),
+                    is_type_only: false,
+                    span: oxc_span::Span::default(),
+                },
+                target: ResolveResult::InternalModule(FileId(2)),
+            }],
+            ..Default::default()
+        },
+        ResolvedModule {
+            file_id: FileId(2),
+            path: PathBuf::from("/project/barrel_c.ts"),
+            re_exports: vec![ResolvedReExport {
+                info: fallow_types::extract::ReExportInfo {
+                    source: "./source".to_string(),
+                    imported_name: "*".to_string(),
+                    exported_name: "*".to_string(),
+                    is_type_only: false,
+                    span: oxc_span::Span::default(),
+                },
+                target: ResolveResult::InternalModule(FileId(3)),
+            }],
+            ..Default::default()
+        },
+        ResolvedModule {
+            file_id: FileId(3),
+            path: PathBuf::from("/project/source.ts"),
+            exports: vec![fallow_types::extract::ExportInfo {
+                name: ExportName::Named("foo".to_string()),
+                local_name: Some("foo".to_string()),
+                is_type_only: false,
+                visibility: VisibilityTag::None,
+                span: oxc_span::Span::new(0, 20),
+                members: vec![],
+                super_class: None,
+            }],
+            ..Default::default()
+        },
+    ];
+
+    let graph = ModuleGraph::build(&resolved_modules, &entry_points, &files);
+    let source = &graph.modules[3];
+    let foo = source
+        .exports
+        .iter()
+        .find(|e| e.name.to_string() == "foo")
+        .expect("source should have foo export");
+    assert!(
+        !foo.references.is_empty(),
+        "foo should be referenced through entry-point star barrel chain"
+    );
+}
+
+#[test]
 fn named_re_export_with_rename() {
     // consumer.ts: import { bar } from './barrel'
     // barrel.ts: export { foo as bar } from './source'

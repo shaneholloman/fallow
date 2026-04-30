@@ -37,10 +37,12 @@ impl ModuleGraph {
             return;
         }
 
-        // Precompute barrels that are star-re-exported from entry points.
+        // Precompute barrels that are transitively star-re-exported from entry points.
         // These get entry-point-like treatment: all source exports are marked used.
+        // Entry points often expose public APIs through multiple `export *`
+        // barrels, so direct targets alone are not enough.
         // Computing this once avoids O(modules) per call inside the hot loop.
-        let entry_star_targets: FxHashSet<FileId> = self
+        let mut entry_star_targets: FxHashSet<FileId> = self
             .modules
             .iter()
             .filter(|m| m.is_entry_point())
@@ -51,6 +53,23 @@ impl ModuleGraph {
                     .map(|re| re.source_file)
             })
             .collect();
+        let mut entry_star_stack: Vec<FileId> = entry_star_targets.iter().copied().collect();
+        while let Some(file_id) = entry_star_stack.pop() {
+            let idx = file_id.0 as usize;
+            if idx >= self.modules.len() {
+                continue;
+            }
+
+            for re in self.modules[idx]
+                .re_exports
+                .iter()
+                .filter(|re| re.exported_name == "*")
+            {
+                if entry_star_targets.insert(re.source_file) {
+                    entry_star_stack.push(re.source_file);
+                }
+            }
+        }
 
         // Pre-build reverse edge index: target FileId → edge indices.
         // This avoids O(all_edges) scans per star re-export in the hot loop.
