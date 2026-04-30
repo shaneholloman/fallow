@@ -694,7 +694,7 @@ enum Command {
         from: Option<PathBuf>,
     },
 
-    /// Manage paid-feature license (Phase 2 runtime coverage).
+    /// Manage the license for continuous/cloud runtime monitoring.
     ///
     /// Verification is offline against an Ed25519 public key compiled into
     /// the binary. The license file lives at `~/.fallow/license.jwt` (or

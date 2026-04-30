@@ -101,17 +101,35 @@ mod gated {
         }
 
         fn health_args_with_format(&self, format: &str) -> Vec<String> {
+            self.health_args_for_path_with_format(&self.coverage_file, format)
+        }
+
+        fn health_args_for_path_with_format(
+            &self,
+            coverage_path: &Path,
+            format: &str,
+        ) -> Vec<String> {
             let fixture = fixture_path("coverage-gaps");
             vec![
                 "health".to_owned(),
                 "--root".to_owned(),
                 fixture.to_string_lossy().into_owned(),
                 "--runtime-coverage".to_owned(),
-                self.coverage_file.to_string_lossy().into_owned(),
+                coverage_path.to_string_lossy().into_owned(),
                 "--format".to_owned(),
                 format.to_owned(),
                 "--quiet".to_owned(),
             ]
+        }
+
+        fn multi_capture_dir(&self) -> PathBuf {
+            let dir = self._tmp.path().join("multi-capture");
+            fs::create_dir_all(&dir).expect("create multi-capture dir");
+            fs::write(dir.join("capture-a.json"), br#"{"result":[]}"#)
+                .expect("write first capture");
+            fs::write(dir.join("capture-b.json"), br#"{"result":[]}"#)
+                .expect("write second capture");
+            dir
         }
     }
 
@@ -147,19 +165,50 @@ mod gated {
     }
 
     #[test]
-    fn license_missing_exits_3() {
+    fn license_missing_local_single_capture_succeeds() {
         let harness = Harness::new();
         let mut cmd = harness.fallow();
+        cmd.env("FALLOW_STUB_MODE", "ok");
         // No FALLOW_LICENSE, no file at ~/.fallow/license.jwt under the
-        // sandboxed HOME — the license layer should short-circuit before
-        // the sidecar is ever spawned.
+        // sandboxed HOME. ADR 010 makes one local coverage source free; the
+        // CLI must pass an empty JWT to the sidecar instead of pre-gating.
         for arg in harness.health_args() {
             cmd.arg(arg);
         }
         let (stdout, stderr, code) = run_with(cmd);
         assert_eq!(
+            code, 0,
+            "missing license must still allow single-capture local analysis; stdout={stdout}, stderr={stderr}"
+        );
+        let json: serde_json::Value = serde_json::from_str(&stdout).unwrap_or_else(|err| {
+            panic!(
+                "expected JSON output; err={err}; stdout head={}",
+                &stdout.chars().take(400).collect::<String>()
+            )
+        });
+        assert_eq!(
+            json.pointer("/runtime_coverage/schema_version"),
+            Some(&serde_json::Value::String("1".to_owned()))
+        );
+    }
+
+    #[test]
+    fn license_missing_paid_shape_exits_3() {
+        let harness = Harness::new();
+        let mut cmd = harness.fallow();
+        cmd.env("FALLOW_STUB_MODE", "enforce-license-gate");
+        let coverage_dir = harness.multi_capture_dir();
+        for arg in harness.health_args_for_path_with_format(&coverage_dir, "human") {
+            cmd.arg(arg);
+        }
+        let (stdout, stderr, code) = run_with(cmd);
+        assert_eq!(
             code, 3,
-            "missing license must exit 3; stdout={stdout}, stderr={stderr}"
+            "missing license for paid shape must exit 3; stdout={stdout}, stderr={stderr}"
+        );
+        assert!(
+            stderr.contains("continuous") || stderr.contains("license"),
+            "paid-shape error should mention continuous analysis or license; stderr={stderr}"
         );
     }
 

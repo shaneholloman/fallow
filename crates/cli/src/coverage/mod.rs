@@ -1,10 +1,9 @@
-//! `fallow coverage` - paid Runtime Coverage onboarding and inventory
-//! upload.
+//! `fallow coverage` - runtime coverage onboarding and inventory upload.
 //!
 //! Today the subtree holds two commands:
 //!
-//! - `setup`: resumable first-run state machine (license + sidecar + recipe
-//!   + auto-handoff to `fallow health --runtime-coverage`).
+//! - `setup`: resumable first-run state machine (optional license + sidecar
+//!   + recipe + auto-handoff to `fallow health --runtime-coverage`).
 //! - `upload-inventory`: push a static function inventory to fallow cloud,
 //!   unlocking the `untracked` filter on the dashboard by pairing runtime
 //!   coverage data with the AST view of "every function that exists".
@@ -537,24 +536,25 @@ fn handle_license_step(
         }
         Ok(LicenseStatus::Missing) => {
             println!("Step 1/4: License check... none found.");
-            start_trial_if_needed(root, args)
+            offer_trial_if_needed(root, args)
         }
         Ok(LicenseStatus::HardFail {
             days_since_expiry, ..
         }) => {
             println!("Step 1/4: License check... expired {days_since_expiry} days ago.");
-            start_trial_if_needed(root, args)
+            offer_trial_if_needed(root, args)
         }
         Err(err) => {
             println!("Step 1/4: License check... existing token is invalid ({err}).");
-            start_trial_if_needed(root, args)
+            offer_trial_if_needed(root, args)
         }
     }
 }
 
-fn start_trial_if_needed(root: &Path, args: SetupArgs) -> Option<ExitCode> {
-    let prompt = "  -> Start a 30-day trial (email only, no card)? [Y/n] ";
-    let accepted = match confirm(prompt, args) {
+fn offer_trial_if_needed(root: &Path, args: SetupArgs) -> Option<ExitCode> {
+    println!("  -> Single local captures work without a license.");
+    let prompt = "  -> Start a 30-day trial for continuous/multi-capture monitoring? [y/N] ";
+    let accepted = match confirm_default_no(prompt, args) {
         Ok(accepted) => accepted,
         Err(message) => {
             eprintln!("fallow coverage setup: {message}");
@@ -562,13 +562,15 @@ fn start_trial_if_needed(root: &Path, args: SetupArgs) -> Option<ExitCode> {
         }
     };
     if !accepted {
-        println!("  -> Run: fallow license activate --trial --email you@company.com");
-        return Some(ExitCode::SUCCESS);
+        println!(
+            "  -> For continuous monitoring, run: fallow license activate --trial --email you@company.com"
+        );
+        return None;
     }
 
     let email = match prompt_email(args) {
         Ok(Some(email)) => email,
-        Ok(None) => return Some(ExitCode::SUCCESS),
+        Ok(None) => return None,
         Err(message) => {
             eprintln!("fallow coverage setup: {message}");
             return Some(ExitCode::from(2));
@@ -647,7 +649,19 @@ fn handle_sidecar_step(
     }
 }
 
+fn confirm_default_no(prompt: impl AsRef<str>, args: SetupArgs) -> Result<bool, String> {
+    confirm_with_default(prompt, args, false)
+}
+
 fn confirm(prompt: impl AsRef<str>, args: SetupArgs) -> Result<bool, String> {
+    confirm_with_default(prompt, args, true)
+}
+
+fn confirm_with_default(
+    prompt: impl AsRef<str>,
+    args: SetupArgs,
+    default: bool,
+) -> Result<bool, String> {
     let prompt = prompt.as_ref();
     if args.non_interactive {
         println!("{prompt}skipped (--non-interactive)");
@@ -668,7 +682,11 @@ fn confirm(prompt: impl AsRef<str>, args: SetupArgs) -> Result<bool, String> {
         .read_line(&mut answer)
         .map_err(|err| format!("failed to read stdin: {err}"))?;
     let trimmed = answer.trim().to_ascii_lowercase();
-    Ok(trimmed.is_empty() || trimmed == "y" || trimmed == "yes")
+    Ok(if trimmed.is_empty() {
+        default
+    } else {
+        trimmed == "y" || trimmed == "yes"
+    })
 }
 
 fn prompt_email(args: SetupArgs) -> Result<Option<String>, String> {
@@ -678,10 +696,10 @@ fn prompt_email(args: SetupArgs) -> Result<Option<String>, String> {
     }
     if args.yes {
         let Some(email) = default_trial_email() else {
-            return Err(
-                "unable to infer an email address for --yes. Run without --yes or use `fallow license activate --trial --email <addr>` first."
-                    .to_owned(),
+            println!(
+                "  -> Unable to infer an email address for --yes. Run: fallow license activate --trial --email <addr>"
             );
+            return Ok(None);
         };
         println!("  -> Email: {email}");
         return Ok(Some(email));
@@ -1249,11 +1267,28 @@ fn path_to_json_string(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        CoverageSetupContext, FrameworkKind, PackageManager, build_setup_json,
-        detect_coverage_artifact, detect_framework, detect_package_manager, recipe_contents,
+        CoverageSetupContext, FrameworkKind, PackageManager, SetupArgs, build_setup_json,
+        detect_coverage_artifact, detect_framework, detect_package_manager, handle_license_step,
+        recipe_contents,
     };
     use fallow_config::PackageJson;
+    use fallow_license::LicenseStatus;
     use tempfile::tempdir;
+
+    #[test]
+    fn setup_continues_without_license_for_single_local_capture() {
+        let dir = tempdir().expect("tempdir should be created");
+        let args = SetupArgs {
+            non_interactive: true,
+            ..SetupArgs::default()
+        };
+        let status = Ok(LicenseStatus::Missing);
+
+        assert!(
+            handle_license_step(dir.path(), args, &status).is_none(),
+            "missing license must not stop setup; single local captures are free"
+        );
+    }
 
     #[test]
     fn detect_framework_recognizes_nuxt_projects() {

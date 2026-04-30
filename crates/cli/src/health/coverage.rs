@@ -157,23 +157,27 @@ pub fn prepare_options(
     low_traffic_threshold: Option<f64>,
     output: OutputFormat,
 ) -> Result<RuntimeCoverageOptions, ExitCode> {
+    let jwt = match load_raw_jwt() {
+        Ok(Some(jwt)) => jwt,
+        Ok(None) => {
+            return Ok(RuntimeCoverageOptions {
+                path: path.to_path_buf(),
+                min_invocations_hot,
+                min_observation_volume,
+                low_traffic_threshold,
+                license_jwt: String::new(),
+                watermark: None,
+            });
+        }
+        Err(err) => return Err(emit_error(&format!("license: {err}"), 3, output)),
+    };
+
     let key = match verifying_key() {
         Ok(key) => key,
         Err(message) => return Err(emit_error(&message, 3, output)),
     };
     let status = match load_and_verify(&key, DEFAULT_HARD_FAIL_DAYS) {
         Ok(status) => status,
-        Err(err) => return Err(emit_error(&format!("license: {err}"), 3, output)),
-    };
-    let jwt = match load_raw_jwt() {
-        Ok(Some(jwt)) => jwt,
-        Ok(None) => {
-            return Err(emit_error(
-                "No license found. Run: fallow license activate --trial --email you@company.com",
-                3,
-                output,
-            ));
-        }
         Err(err) => return Err(emit_error(&format!("license: {err}"), 3, output)),
     };
 
@@ -242,7 +246,7 @@ fn validate_license_status(
 ) -> Result<(), ExitCode> {
     match status {
         LicenseStatus::Missing => Err(emit_error(
-            "No license found. Run: fallow license activate --trial --email you@company.com",
+            "Continuous runtime monitoring requires a valid license or trial. Run: fallow license activate --trial --email you@company.com",
             3,
             output,
         )),
@@ -256,7 +260,7 @@ fn validate_license_status(
             output,
         )),
         _ if !status.permits(&Feature::RuntimeCoverage) => Err(emit_error(
-            "License is valid but does not include 'runtime_coverage'. Upgrade at fallow.tools/upgrade.",
+            "License is valid but does not include continuous runtime monitoring. Upgrade at fallow.tools/upgrade.",
             3,
             output,
         )),
@@ -435,6 +439,7 @@ fn find_package_store_platform_sidecar(node_modules: &Path, store_dir: &str) -> 
     let binary_name = sidecar_binary_name();
     let store = node_modules.join(store_dir);
     let entries = fs::read_dir(&store).ok()?;
+    let mut candidates = Vec::new();
     for entry in entries.flatten() {
         let name = entry.file_name();
         let Some(name_str) = name.to_str() else {
@@ -446,10 +451,40 @@ fn find_package_store_platform_sidecar(node_modules: &Path, store_dir: &str) -> 
 
         let scoped_dir = entry.path().join("node_modules").join("@fallow-cli");
         if let Some(path) = find_scoped_platform_sidecar(&scoped_dir, binary_name) {
-            return Some(path);
+            candidates.push((sidecar_package_version_key(&path), path));
         }
     }
-    None
+    candidates.sort_by(|(left_version, left_path), (right_version, right_path)| {
+        right_version
+            .cmp(left_version)
+            .then_with(|| left_path.cmp(right_path))
+    });
+    candidates.into_iter().next().map(|(_, path)| path)
+}
+
+fn sidecar_package_version_key(binary: &Path) -> Vec<u64> {
+    let Some(package_dir) = binary.parent() else {
+        return Vec::new();
+    };
+    let Ok(contents) = fs::read_to_string(package_dir.join("package.json")) else {
+        return Vec::new();
+    };
+    let Ok(package_json) = serde_json::from_str::<serde_json::Value>(&contents) else {
+        return Vec::new();
+    };
+    package_json
+        .get("version")
+        .and_then(serde_json::Value::as_str)
+        .map(parse_sidecar_version_key)
+        .unwrap_or_default()
+}
+
+fn parse_sidecar_version_key(version: &str) -> Vec<u64> {
+    version
+        .split(|character: char| !character.is_ascii_digit())
+        .filter(|part| !part.is_empty())
+        .map(|part| part.parse::<u64>().unwrap_or(0))
+        .collect()
 }
 
 const fn sidecar_binary_name() -> &'static str {
@@ -2148,6 +2183,27 @@ mod tests {
     }
 
     #[test]
+    fn discovers_newest_bun_store_platform_sidecar() {
+        let root = make_temp_dir("sidecar-bun-store-newest");
+        let store = root.join("node_modules").join(".bun");
+        let stale_binary = write_bun_store_sidecar(&store, "0.1.8");
+        let current_binary = write_bun_store_sidecar(&store, "0.1.10");
+
+        let resolved = discover_sidecar(Some(&root))
+            .unwrap_or_else(|err| panic!("failed to discover bun sidecar: {err}"));
+
+        assert_eq!(
+            resolved,
+            current_binary,
+            "newer package-store sidecars must win over stale versions; stale={}",
+            stale_binary.display()
+        );
+
+        std::fs::remove_dir_all(&root)
+            .unwrap_or_else(|err| panic!("failed to clean temp dir {}: {err}", root.display()));
+    }
+
+    #[test]
     fn discovers_pnpm_store_platform_sidecar_before_bin_wrapper() {
         let root = make_temp_dir("sidecar-pnpm-store");
         // pnpm with `node-linker=isolated` extracts platform packages into
@@ -2956,6 +3012,30 @@ mod tests {
             std::fs::set_permissions(path, permissions)
                 .unwrap_or_else(|err| panic!("failed to chmod {}: {err}", path.display()));
         }
+    }
+
+    fn write_bun_store_sidecar(store: &Path, version: &str) -> PathBuf {
+        let platform_dir = store
+            .join(format!("@fallow-cli+fallow-cov-darwin-arm64@{version}"))
+            .join("node_modules")
+            .join("@fallow-cli")
+            .join("fallow-cov-darwin-arm64");
+        std::fs::create_dir_all(&platform_dir)
+            .unwrap_or_else(|err| panic!("failed to create {}: {err}", platform_dir.display()));
+        std::fs::write(
+            platform_dir.join("package.json"),
+            format!(r#"{{"name":"@fallow-cli/fallow-cov-darwin-arm64","version":"{version}"}}"#),
+        )
+        .unwrap_or_else(|err| {
+            panic!(
+                "failed to write package.json in {}: {err}",
+                platform_dir.display()
+            )
+        });
+        let binary = platform_dir.join(sidecar_binary_name());
+        std::fs::write(&binary, "")
+            .unwrap_or_else(|err| panic!("failed to write {}: {err}", binary.display()));
+        binary
     }
 
     fn write_fake_npm_root_command(path: &Path, node_modules_dir: &Path) {
