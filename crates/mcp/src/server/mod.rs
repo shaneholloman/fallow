@@ -241,7 +241,7 @@ impl FallowMcp {
     }
 
     #[tool(
-        description = "(paid) Merge runtime runtime-coverage data into the health report. Focused entry point for the runtime-coverage pipeline: pass a V8 coverage directory (`NODE_V8_COVERAGE=<dir>`), a single V8 coverage JSON file, or an Istanbul `coverage-final.json` via the required `coverage` field. Requires an active license JWT (start a 30-day trial with `fallow license activate --trial --email <addr>`; check state with `fallow license status`). Returns structured JSON with a `runtime_coverage` block containing surfaced `findings` verdicts (`safe_to_delete` / `review_required` / `low_traffic` / `coverage_unavailable`), stable content-hash IDs (`fallow:prod:<hash>`), evidence, percentile-ranked hot paths, and on protocol-0.3+ sidecars a `summary.capture_quality` block that flags short-window captures. The sidecar may still classify other functions as `active`, but the CLI omits those from `runtime_coverage.findings` to keep the surfaced list actionable. Tunable via `min_invocations_hot` (hot-path threshold, default 100), `min_observation_volume` (high-confidence verdict floor, default 5000), and `low_traffic_threshold` (active/low_traffic split, default 0.001). `group_by` partitions results by CODEOWNERS / directory / package / section. Runtime coverage can exceed the default 120s MCP subprocess timeout on multi-megabyte dumps; raise `FALLOW_TIMEOUT_SECS` accordingly. For general complexity / hotspot / CRAP analysis without a production dump, use `check_health` instead.",
+        description = "Merge runtime-coverage data into the health report. Focused entry point for the runtime-coverage pipeline: pass a V8 coverage directory (`NODE_V8_COVERAGE=<dir>`), a single V8 coverage JSON file, or an Istanbul `coverage-final.json` via the required `coverage` field. A single local capture is free and runs without a license; continuous or multi-capture runtime monitoring (multiple JSON files in a V8 directory) requires an active license JWT (start a 30-day trial with `fallow license activate --trial --email <addr>`; check state with `fallow license status`). Returns structured JSON with a `runtime_coverage` block containing surfaced `findings` verdicts (`safe_to_delete` / `review_required` / `low_traffic` / `coverage_unavailable`), stable content-hash IDs (`fallow:prod:<hash>`), evidence, percentile-ranked hot paths, and on protocol-0.3+ sidecars a `summary.capture_quality` block that flags short-window captures. The sidecar may still classify other functions as `active`, but the CLI omits those from `runtime_coverage.findings` to keep the surfaced list actionable. Tunable via `min_invocations_hot` (hot-path threshold, default 100), `min_observation_volume` (high-confidence verdict floor, default 5000), and `low_traffic_threshold` (active/low_traffic split, default 0.001). `group_by` partitions results by CODEOWNERS / directory / package / section. Runtime coverage can exceed the default 120s MCP subprocess timeout on multi-megabyte dumps; raise `FALLOW_TIMEOUT_SECS` accordingly. For general complexity / hotspot / CRAP analysis without a production dump, use `check_health` instead.",
         annotations(read_only_hint = true, open_world_hint = true)
     )]
     async fn check_runtime_coverage(
@@ -253,7 +253,7 @@ impl FallowMcp {
     }
 
     #[tool(
-        description = "(paid) Return production hot paths from a local V8 or Istanbul runtime coverage dump. Pass `coverage` as a V8 coverage directory, single V8 JSON file, or Istanbul `coverage-final.json`. Requires an active runtime-coverage license. Returns the standard health JSON; agents should read `runtime_coverage.hot_paths`, which is sorted by percentile and invocation count. Use `top` to cap the returned hot paths.",
+        description = "Return production hot paths from a local V8 or Istanbul runtime coverage dump. Pass `coverage` as a V8 coverage directory, single V8 JSON file, or Istanbul `coverage-final.json`. A single local capture is free and runs without a license; continuous or multi-capture runtime monitoring requires an active license. Returns the standard health JSON; agents should read `runtime_coverage.hot_paths`, which is sorted by percentile and invocation count. Use `top` to cap the returned hot paths.",
         annotations(read_only_hint = true, open_world_hint = true)
     )]
     async fn get_hot_paths(
@@ -265,7 +265,7 @@ impl FallowMcp {
     }
 
     #[tool(
-        description = "(paid) Return blast-radius context alongside local runtime coverage. Pass `coverage` as a V8 coverage directory, single V8 JSON file, or Istanbul `coverage-final.json`. Requires an active runtime-coverage license. Returns the standard health JSON; until the first-class `runtime_coverage.blast_radius` field ships, agents should use `file_scores[].fan_in` for file-level blast radius and combine it with `runtime_coverage.hot_paths` and `runtime_coverage.findings`.",
+        description = "Return blast-radius context alongside local runtime coverage. Pass `coverage` as a V8 coverage directory, single V8 JSON file, or Istanbul `coverage-final.json`. A single local capture is free and runs without a license; continuous or multi-capture runtime monitoring requires an active license. Returns the standard health JSON; until the first-class `runtime_coverage.blast_radius` field ships, agents should use `file_scores[].fan_in` for file-level blast radius and combine it with `runtime_coverage.hot_paths` and `runtime_coverage.findings`.",
         annotations(read_only_hint = true, open_world_hint = true)
     )]
     async fn get_blast_radius(
@@ -277,7 +277,7 @@ impl FallowMcp {
     }
 
     #[tool(
-        description = "(paid) Return production-importance context from local runtime coverage plus static health signals. Pass `coverage` as a V8 coverage directory, single V8 JSON file, or Istanbul `coverage-final.json`. Requires an active runtime-coverage license. Returns the standard health JSON; until the first-class `runtime_coverage.importance` field ships, agents should combine `runtime_coverage.hot_paths`, `file_scores`, `hotspots`, and `targets`.",
+        description = "Return production-importance context from local runtime coverage plus static health signals. Pass `coverage` as a V8 coverage directory, single V8 JSON file, or Istanbul `coverage-final.json`. A single local capture is free and runs without a license; continuous or multi-capture runtime monitoring requires an active license. Returns the standard health JSON; until the first-class `runtime_coverage.importance` field ships, agents should combine `runtime_coverage.hot_paths`, `file_scores`, `hotspots`, and `targets`.",
         annotations(read_only_hint = true, open_world_hint = true)
     )]
     async fn get_importance(
@@ -289,7 +289,7 @@ impl FallowMcp {
     }
 
     #[tool(
-        description = "(paid) Return cleanup candidates grounded in local runtime coverage. Pass `coverage` as a V8 coverage directory, single V8 JSON file, or Istanbul `coverage-final.json`. Requires an active runtime-coverage license. Returns the standard health JSON; agents should read `runtime_coverage.findings` for `safe_to_delete`, `review_required`, `low_traffic`, and `coverage_unavailable` verdicts.",
+        description = "Return cleanup candidates grounded in local runtime coverage. Pass `coverage` as a V8 coverage directory, single V8 JSON file, or Istanbul `coverage-final.json`. A single local capture is free and runs without a license; continuous or multi-capture runtime monitoring requires an active license. Returns the standard health JSON; agents should read `runtime_coverage.findings` for `safe_to_delete`, `review_required`, `low_traffic`, and `coverage_unavailable` verdicts.",
         annotations(read_only_hint = true, open_world_hint = true)
     )]
     async fn get_cleanup_candidates(

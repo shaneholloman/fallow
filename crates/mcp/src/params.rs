@@ -510,10 +510,13 @@ pub struct HealthParams {
     /// Use when coverage was generated in a different environment (CI runner, Docker).
     pub coverage_root: Option<String>,
 
-    /// Path to runtime coverage input (paid feature). Accepts a V8
-    /// coverage directory (`NODE_V8_COVERAGE=...`), a single V8 coverage
-    /// JSON file, or an Istanbul `coverage-final.json`. Requires an active
-    /// license; run `fallow license activate --trial --email <addr>` first.
+    /// Path to runtime coverage input. Accepts a V8 coverage directory
+    /// (`NODE_V8_COVERAGE=...`), a single V8 coverage JSON file, or an
+    /// Istanbul `coverage-final.json`. A single local capture is free and
+    /// runs without a license; continuous or multi-capture runtime
+    /// monitoring (a directory containing multiple JSON dumps) requires an
+    /// active license. Run `fallow license activate --trial --email <addr>`
+    /// to start a 30-day trial when you need continuous monitoring.
     /// Runtime coverage can exceed the default 120s MCP subprocess timeout
     /// on large dumps; raise `FALLOW_TIMEOUT_SECS` accordingly.
     pub runtime_coverage: Option<String>,
@@ -546,14 +549,16 @@ pub struct HealthParams {
     pub group_by: Option<String>,
 }
 
-/// Parameters for `check_runtime_coverage`, the focused paid-tier
-/// runtime-coverage entry point. A thin wrapper around
-/// `fallow health --runtime-coverage <path>` with a narrow surface area
-/// so agents can pick the right tool by name and pass exactly the knobs
-/// that apply to runtime coverage. Requires an active license JWT
-/// (`fallow license activate --trial --email <addr>` to start a 30-day
-/// trial). Long V8 dumps can exceed the default 120s MCP subprocess
-/// timeout; raise `FALLOW_TIMEOUT_SECS` for multi-megabyte inputs.
+/// Parameters for `check_runtime_coverage`, the focused runtime-coverage
+/// entry point. A thin wrapper around `fallow health --runtime-coverage
+/// <path>` with a narrow surface area so agents can pick the right tool
+/// by name and pass exactly the knobs that apply to runtime coverage. A
+/// single local capture is free and runs without a license; continuous or
+/// multi-capture runtime monitoring (a directory containing multiple JSON
+/// dumps) requires an active license JWT (`fallow license activate
+/// --trial --email <addr>` to start a 30-day trial). Long V8 dumps can
+/// exceed the default 120s MCP subprocess timeout; raise
+/// `FALLOW_TIMEOUT_SECS` for multi-megabyte inputs.
 #[derive(Deserialize, JsonSchema)]
 pub struct CheckRuntimeCoverageParams {
     /// Path to runtime coverage input. Accepts a V8 coverage directory
