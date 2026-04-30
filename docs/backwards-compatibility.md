@@ -8,7 +8,7 @@ These interfaces are covered by semver — breaking changes only happen in major
 
 ### Configuration format
 
-- **Config file names**: `.fallowrc.json`, `fallow.toml`, `.fallow.toml`
+- **Config file names**: `.fallowrc.json`, `.fallowrc.jsonc`, `fallow.toml`, `.fallow.toml`
 - **All documented config fields**: `extends`, `ignorePatterns`, `rules`, `overrides`, `entry`, `ignoreDependencies`, `ignoreExports`, `ignoreExportsUsedInFile`, `duplicates`, `production` (boolean form `production: true` or per-analysis form `production: { deadCode, health, dupes }`), `framework`, `workspaces`, `plugins`, `boundaries` (including `boundaries.preset`)
 - **Rule names and severity values**: `unused-files`, `unused-exports`, etc. with `error`/`warn`/`off`
 - **Extends and overrides semantics**: merge behavior, glob matching, override precedence, `npm:` prefix resolution, `https://` URL resolution

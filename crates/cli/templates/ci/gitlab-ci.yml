@@ -76,7 +76,7 @@ variables:
   FALLOW_VERSION: ""             # Empty reads package.json fallow dependency, then falls back to latest
   FALLOW_COMMAND: ""            # dead-code, dupes, health, fix, or empty (runs all)
   FALLOW_ROOT: "."
-  FALLOW_CONFIG: ""             # Path to .fallowrc.json or fallow.toml
+  FALLOW_CONFIG: ""             # Path to .fallowrc.json, .fallowrc.jsonc, or fallow.toml
   FALLOW_PRODUCTION: ""                # "true"/"false" enables production for every analysis. Empty defers to config.
   FALLOW_PRODUCTION_DEAD_CODE: ""      # Combined mode only: "true"/"false" overrides FALLOW_PRODUCTION for dead-code. Empty defers to it.
   FALLOW_PRODUCTION_HEALTH: ""         # Combined mode only: "true"/"false" overrides FALLOW_PRODUCTION for health. Empty defers to it.

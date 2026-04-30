@@ -60,7 +60,10 @@
   "contributes": {
     "jsonValidation": [
       {
-        "fileMatch": ".fallowrc.json",
+        "fileMatch": [
+          ".fallowrc.json",
+          ".fallowrc.jsonc"
+        ],
         "url": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json"
       }
     ],
