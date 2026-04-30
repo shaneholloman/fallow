@@ -160,7 +160,7 @@ pub fn fetch_runtime_context(request: &CloudRequest) -> Result<CloudRuntimeConte
         .get(&url)
         .header("Authorization", &format!("Bearer {}", request.api_key))
         .header("Accept", "application/json")
-        .header("Accept-Encoding", "gzip")
+        .header("Accept-Encoding", "identity")
         .call()
         .map_err(|err| CloudError::Network(network_message(&format!("{err}"))))?;
 
@@ -189,9 +189,12 @@ pub fn fetch_runtime_context(request: &CloudRequest) -> Result<CloudRuntimeConte
         (403, Some("tier_required")) => Err(CloudError::TierRequired(
             "cloud-pull is a Team-tier feature. Start a free trial:\n\n  fallow license activate --trial --email <addr>".to_owned(),
         )),
-        (404, Some("repo_not_found")) | (404, _) => Err(CloudError::NotFound(format!(
+        (404, Some("repo_not_found")) => Err(CloudError::NotFound(format!(
             "Repo not accessible to your org: {}",
             request.repo
+        ))),
+        (400, Some("validation_error")) => Err(CloudError::Validation(format!(
+            "Cloud rejected the request: {message}"
         ))),
         (500..=599, _) => Err(CloudError::Network(network_message(message))),
         _ => Err(CloudError::Server(format!(
@@ -337,5 +340,14 @@ mod tests {
             validate_request(&req),
             Err(CloudError::Validation(_))
         ));
+    }
+
+    #[test]
+    fn cloud_error_exit_code_for_validation_is_two() {
+        // Regression: HTTP 400 with code=validation_error must surface as
+        // CloudError::Validation (exit 2), not CloudError::Server (exit 7).
+        // Caught live against api.fallow.cloud during the v2.57.0 smoke when
+        // --environment was rejected with HTTP 400.
+        assert_eq!(CloudError::Validation("any".to_owned()).exit_code(), 2);
     }
 }

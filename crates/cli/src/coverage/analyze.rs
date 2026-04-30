@@ -42,6 +42,10 @@ pub struct AnalyzeArgs {
 }
 
 pub fn run(args: &AnalyzeArgs, ctx: &RunContext<'_>) -> ExitCode {
+    if let Err(message) = validate_output_format(ctx.output) {
+        return emit_error(&message, 2, ctx.output);
+    }
+
     let env_cloud = runtime_coverage_source_env_is_cloud();
     let cloud = args.cloud || env_cloud;
     if cloud && args.runtime_coverage.is_some() {
@@ -64,6 +68,26 @@ pub fn run(args: &AnalyzeArgs, ctx: &RunContext<'_>) -> ExitCode {
         );
     };
     run_local(path, args, ctx)
+}
+
+/// `fallow coverage analyze` only emits two output formats: structured JSON
+/// (the canonical agent-readable shape, used by every non-`Human` `--format`
+/// today) and the terse human renderer. Other formats (`compact`, `markdown`,
+/// `sarif`, `codeclimate`, `badge`) require shape conversion that this
+/// command does not yet implement; falling through to the JSON serializer
+/// would silently mislead consumers expecting SARIF or markdown. Reject them
+/// explicitly so the user gets an actionable error instead.
+fn validate_output_format(output: OutputFormat) -> Result<(), String> {
+    match output {
+        OutputFormat::Json | OutputFormat::Human => Ok(()),
+        OutputFormat::Compact
+        | OutputFormat::Markdown
+        | OutputFormat::Sarif
+        | OutputFormat::CodeClimate
+        | OutputFormat::Badge => Err(format!(
+            "fallow coverage analyze only supports --format json or --format human (got {output:?}). Use `fallow coverage analyze --format json` and pipe to your own converter for {output:?}."
+        )),
+    }
 }
 
 fn run_local(path: &Path, args: &AnalyzeArgs, ctx: &RunContext<'_>) -> ExitCode {
@@ -522,7 +546,17 @@ fn cloud_warnings(
             },
         })
         .collect::<Vec<_>>();
-    if snapshot.summary.trace_count == 0 && snapshot.functions.is_empty() {
+    // Only synthesize the empty-window warning if the server did not already
+    // emit one. The server's `no_runtime_data` message includes the projectId
+    // when present, so dedup-by-(code,message) cannot catch this case; the
+    // CLI defers to the server's variant unconditionally when both apply.
+    let server_emitted_no_runtime_data = warnings
+        .iter()
+        .any(|warning| warning.code == "no_runtime_data");
+    if snapshot.summary.trace_count == 0
+        && snapshot.functions.is_empty()
+        && !server_emitted_no_runtime_data
+    {
         let repo = if snapshot.repo.trim().is_empty() {
             "this repository"
         } else {
@@ -544,7 +578,19 @@ fn cloud_warnings(
             ),
         });
     }
+    dedupe_warnings(warnings)
+}
+
+/// Deduplicate warnings by `(code, message)`. The server-side runtime-context
+/// emits `no_runtime_data` in its empty-window response while the CLI also
+/// derives the same code from `trace_count == 0 && functions.is_empty()`, so
+/// the merged list can contain identical entries.
+fn dedupe_warnings(warnings: Vec<RuntimeCoverageMessage>) -> Vec<RuntimeCoverageMessage> {
+    let mut seen: FxHashSet<(String, String)> = FxHashSet::default();
     warnings
+        .into_iter()
+        .filter(|warning| seen.insert((warning.code.clone(), warning.message.clone())))
+        .collect()
 }
 
 fn cloud_capture_quality(snapshot: &CloudRuntimeContext) -> Option<RuntimeCoverageCaptureQuality> {
@@ -642,10 +688,13 @@ fn stable_runtime_id(prefix: &str, path: &Path, function: &str, line: u32) -> St
         "{prefix}:{}:{function}:{line}",
         normalize_runtime_path(path)
     );
-    format!(
-        "fallow:{prefix}:{:016x}",
-        xxhash_rust::xxh3::xxh3_64(input.as_bytes())
-    )
+    // Match the canonical 8-hex-char shape that the local sidecar emits and
+    // that `docs/output-schema.json` constrains via regex (`fallow:prod:[0-9a-f]{8}`).
+    // Keep the lower 32 bits of xxh3_64; collisions across realistic populations
+    // (~64K functions before 50% birthday probability) are tolerable for an
+    // identifier the schema treats as opaque.
+    let truncated = (xxhash_rust::xxh3::xxh3_64(input.as_bytes()) & 0xFFFF_FFFF) as u32;
+    format!("fallow:{prefix}:{truncated:08x}")
 }
 
 fn print_runtime_report(
@@ -857,5 +906,125 @@ mod tests {
         let actions = runtime_actions(RuntimeCoverageVerdict::ReviewRequired);
         assert_eq!(actions.len(), 1);
         assert_eq!(actions[0].kind, "review-runtime");
+    }
+
+    #[test]
+    fn cloud_warnings_dedupe_server_and_cli_no_runtime_data() {
+        // Empty window: server adds no_runtime_data; CLI's empty-summary
+        // branch must defer to the server's variant unconditionally so the
+        // user never sees the same code twice. Caught live against
+        // api.fallow.cloud during the v2.57.0 smoke (both --repo nonexistent
+        // and --project-id apps/dashboard returned duplicates).
+        let snapshot = CloudRuntimeContext {
+            repo: "nonexistent-repo".to_owned(),
+            window: crate::coverage::cloud_client::CloudRuntimeWindow { period_days: 30 },
+            summary: crate::coverage::cloud_client::CloudRuntimeSummary {
+                trace_count: 0,
+                deployments_seen: 0,
+                functions_tracked: 0,
+                functions_hit: 0,
+                functions_unhit: 0,
+                functions_untracked: 0,
+                coverage_percent: 0.0,
+                last_received_at: None,
+            },
+            functions: vec![],
+            warnings: vec![CloudRuntimeWarning::Object {
+                code: Some("no_runtime_data".to_owned()),
+                message: Some(
+                    "No runtime coverage data received for nonexistent-repo in the last 30 days."
+                        .to_owned(),
+                ),
+            }],
+        };
+        let warnings = cloud_warnings(&snapshot, 0);
+        let no_data_count = warnings
+            .iter()
+            .filter(|w| w.code == "no_runtime_data")
+            .count();
+        assert_eq!(
+            no_data_count, 1,
+            "expected exactly one no_runtime_data warning, got: {warnings:?}"
+        );
+    }
+
+    #[test]
+    fn cloud_warnings_dedupe_when_server_message_includes_project_id() {
+        // Regression: with --project-id set, the server's no_runtime_data
+        // message embeds the projectId ("... apps/dashboard in fallow-cloud
+        // ...") while the CLI's variant does not, so dedup-by-(code,message)
+        // does not catch the duplicate. Defer to code-only check.
+        let snapshot = CloudRuntimeContext {
+            repo: "fallow-cloud".to_owned(),
+            window: crate::coverage::cloud_client::CloudRuntimeWindow { period_days: 30 },
+            summary: crate::coverage::cloud_client::CloudRuntimeSummary {
+                trace_count: 0,
+                deployments_seen: 0,
+                functions_tracked: 0,
+                functions_hit: 0,
+                functions_unhit: 0,
+                functions_untracked: 0,
+                coverage_percent: 0.0,
+                last_received_at: None,
+            },
+            functions: vec![],
+            warnings: vec![CloudRuntimeWarning::Object {
+                code: Some("no_runtime_data".to_owned()),
+                message: Some(
+                    "No runtime coverage data received for apps/dashboard in fallow-cloud in the last 30 days.".to_owned(),
+                ),
+            }],
+        };
+        let warnings = cloud_warnings(&snapshot, 0);
+        let no_data_count = warnings
+            .iter()
+            .filter(|w| w.code == "no_runtime_data")
+            .count();
+        assert_eq!(
+            no_data_count, 1,
+            "expected exactly one no_runtime_data warning, got: {warnings:?}"
+        );
+    }
+
+    #[test]
+    fn validate_output_format_accepts_json_and_human() {
+        assert!(validate_output_format(OutputFormat::Json).is_ok());
+        assert!(validate_output_format(OutputFormat::Human).is_ok());
+    }
+
+    #[test]
+    fn stable_runtime_id_emits_eight_hex_chars() {
+        // Schema regex: ^fallow:prod:[0-9a-f]{8}$. Local sidecar already
+        // emits 8 chars; cloud merge must match. Caught live during the
+        // v2.57.0 jsonschema validation pass against the published schema.
+        let path = PathBuf::from("src/foo.ts");
+        let id = stable_runtime_id("prod", &path, "doThing", 42);
+        let suffix = id
+            .strip_prefix("fallow:prod:")
+            .expect("id has fallow:prod: prefix");
+        assert_eq!(suffix.len(), 8, "expected 8 hex chars, got {suffix:?}");
+        assert!(
+            suffix
+                .chars()
+                .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
+            "expected lowercase hex chars, got {suffix:?}"
+        );
+    }
+
+    #[test]
+    fn validate_output_format_rejects_other_formats() {
+        for fmt in [
+            OutputFormat::Compact,
+            OutputFormat::Markdown,
+            OutputFormat::Sarif,
+            OutputFormat::CodeClimate,
+            OutputFormat::Badge,
+        ] {
+            let err = validate_output_format(fmt).expect_err("must reject");
+            assert!(
+                err.contains("only supports --format json or --format human"),
+                "rejection message must guide users; got: {err}"
+            );
+        }
     }
 }
