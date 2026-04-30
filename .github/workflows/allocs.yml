@@ -54,14 +54,16 @@ jobs:
           max_bytes=$(grep '^alloc_max_bytes:' alloc-output.txt | awk '{print $2}')
           max_blocks=$(grep '^alloc_max_blocks:' alloc-output.txt | awk '{print $2}')
 
-          echo "## Allocation Stats" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Metric | Value |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|--------|-------|" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Total bytes allocated | $total_bytes |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Total allocations | $total_blocks |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Peak memory (bytes) | $max_bytes |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Peak allocations | $max_blocks |" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## Allocation Stats"
+            echo ""
+            echo "| Metric | Value |"
+            echo "|--------|-------|"
+            echo "| Total bytes allocated | $total_bytes |"
+            echo "| Total allocations | $total_blocks |"
+            echo "| Peak memory (bytes) | $max_bytes |"
+            echo "| Peak allocations | $max_blocks |"
+          } >> "$GITHUB_STEP_SUMMARY"
 
           # Write custom JSON for benchmark-action tracking
           python3 -c "
@@ -76,8 +78,10 @@ jobs:
           " > alloc-bench.json
 
           if [ ! -f alloc-baseline.json ]; then
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo "> No baseline found. Run \`scripts/alloc-check.sh --save\` to create one." >> "$GITHUB_STEP_SUMMARY"
+            {
+              echo ""
+              echo "> No baseline found. Run \`scripts/alloc-check.sh --save\` to create one."
+            } >> "$GITHUB_STEP_SUMMARY"
             echo "::notice::No alloc-baseline.json found — skipping regression check"
             exit 0
           fi

@@ -11,6 +11,9 @@ categories.workspace = true
 description = "Offline Ed25519-signed license JWT verification for the fallow CLI (paid feature gating)"
 readme = "../../README.md"
 
+[lib]
+doctest = false
+
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }

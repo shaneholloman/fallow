@@ -64,20 +64,26 @@ jobs:
         if: always()
         run: |
           if [[ ! -f bench-real-world.json ]] || ! python3 -c "import json; json.load(open('bench-real-world.json'))" 2>/dev/null; then
-            echo "## Real-World Benchmarks" >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo "Benchmark suite did not produce a valid report. Check the logs." >> "$GITHUB_STEP_SUMMARY"
+            {
+              echo "## Real-World Benchmarks"
+              echo ""
+              echo "Benchmark suite did not produce a valid report. Check the logs."
+            } >> "$GITHUB_STEP_SUMMARY"
             if [[ -f bench-real-world-stderr.txt ]]; then
-              echo "" >> "$GITHUB_STEP_SUMMARY"
-              echo '```' >> "$GITHUB_STEP_SUMMARY"
-              tail -30 bench-real-world-stderr.txt >> "$GITHUB_STEP_SUMMARY"
-              echo '```' >> "$GITHUB_STEP_SUMMARY"
+              {
+                echo ""
+                echo '```'
+                tail -30 bench-real-world-stderr.txt
+                echo '```'
+              } >> "$GITHUB_STEP_SUMMARY"
             fi
             exit 0
           fi
 
-          echo "## Real-World Benchmarks" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## Real-World Benchmarks"
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
           python3 -c "
           import json
           with open('bench-real-world.json') as f:
@@ -101,7 +107,7 @@ jobs:
               warm_str = f'{warm}ms' if warm < 1000 else f'{warm/1000:.2f}s'
               speedup = f'{cold/warm:.1f}x' if warm > 0 else '-'
               print(f'| {proj} | {cold_str} | {warm_str} | {speedup} |')
-          " >> "\$GITHUB_STEP_SUMMARY"
+          " >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload report
         if: always()

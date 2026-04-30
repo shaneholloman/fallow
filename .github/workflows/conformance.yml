@@ -109,34 +109,37 @@ jobs:
         run: |
           # Check if report exists and contains valid JSON
           if [[ ! -f conformance-report.json ]] || ! python3 -c "import json; json.load(open('conformance-report.json'))" 2>/dev/null; then
-            echo "## Conformance Test" >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo "Conformance suite did not produce a valid report. Check the logs for errors." >> "$GITHUB_STEP_SUMMARY"
+            {
+              echo "## Conformance Test"
+              echo ""
+              echo "Conformance suite did not produce a valid report. Check the logs for errors."
+            } >> "$GITHUB_STEP_SUMMARY"
             if [[ -f conformance-stderr.txt ]]; then
-              echo "" >> "$GITHUB_STEP_SUMMARY"
-              echo '```' >> "$GITHUB_STEP_SUMMARY"
-              cat conformance-stderr.txt >> "$GITHUB_STEP_SUMMARY"
-              echo '```' >> "$GITHUB_STEP_SUMMARY"
+              {
+                echo ""
+                echo '```'
+                cat conformance-stderr.txt
+                echo '```'
+              } >> "$GITHUB_STEP_SUMMARY"
             fi
             exit 0
           fi
 
-          echo "## Conformance Test: Fallow vs Knip" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Metric | Count |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|--------|-------|" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Fallow issues | ${FALLOW_TOTAL} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Knip issues | ${KNIP_TOTAL} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Agreed | ${AGREED} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Fallow-only | ${FALLOW_ONLY} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Knip-only | ${KNIP_ONLY} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| **Agreement** | **${AGREEMENT_PCT}%** |" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-
-          # Add per-project breakdown
-          echo "### Per Project" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          python3 -c "
+          {
+            echo "## Conformance Test: Fallow vs Knip"
+            echo ""
+            echo "| Metric | Count |"
+            echo "|--------|-------|"
+            echo "| Fallow issues | ${FALLOW_TOTAL} |"
+            echo "| Knip issues | ${KNIP_TOTAL} |"
+            echo "| Agreed | ${AGREED} |"
+            echo "| Fallow-only | ${FALLOW_ONLY} |"
+            echo "| Knip-only | ${KNIP_ONLY} |"
+            echo "| **Agreement** | **${AGREEMENT_PCT}%** |"
+            echo ""
+            echo "### Per Project"
+            echo ""
+            python3 -c "
           import json
           with open('conformance-report.json') as f:
               r = json.load(f)
@@ -146,13 +149,11 @@ jobs:
               print('|---------|--------|------|--------|-----------|')
               for name, s in sorted(projects.items()):
                   print(f\"| {name} | {s['fallow_total']} | {s['knip_total']} | {s['agreed']} | {s['agreement_pct']}% |\")
-          " >> "$GITHUB_STEP_SUMMARY"
-
-          # Add per-type breakdown
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "### By Issue Type" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          python3 -c "
+          "
+            echo ""
+            echo "### By Issue Type"
+            echo ""
+            python3 -c "
           import json
           with open('conformance-report.json') as f:
               r = json.load(f)
@@ -160,7 +161,8 @@ jobs:
           print('|------|--------|------|--------|-----------|')
           for t, d in sorted(r['by_type'].items()):
               print(f\"| {t} | {d['fallow_count']} | {d['knip_count']} | {d['agreed']} | {d['agreement_pct']}% |\")
-          " >> "$GITHUB_STEP_SUMMARY"
+          "
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload report
         if: always()

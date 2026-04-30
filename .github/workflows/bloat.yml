@@ -50,17 +50,21 @@ jobs:
 
       - name: Report top functions by size
         run: |
-          echo "## Top 20 functions by size" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          cargo bloat --release -p fallow-cli -n 20 >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## Top 20 functions by size"
+            echo '```'
+            cargo bloat --release -p fallow-cli -n 20
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Report top crates by size
         run: |
-          echo "## Top 20 crates by size" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          cargo bloat --release -p fallow-cli --crates -n 20 >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## Top 20 crates by size"
+            echo '```'
+            cargo bloat --release -p fallow-cli --crates -n 20
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Track total binary size
         run: |
