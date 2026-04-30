@@ -46,7 +46,12 @@ struct MigrationResult {
 /// Run the migrate command.
 pub fn run_migrate(root: &Path, use_toml: bool, dry_run: bool, from: Option<&Path>) -> ExitCode {
     // Check if a fallow config already exists
-    let existing_names = [".fallowrc.json", "fallow.toml", ".fallow.toml"];
+    let existing_names = [
+        ".fallowrc.json",
+        ".fallowrc.jsonc",
+        "fallow.toml",
+        ".fallow.toml",
+    ];
     if !dry_run {
         for name in &existing_names {
             let path = root.join(name);

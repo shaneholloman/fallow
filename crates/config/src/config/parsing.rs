@@ -9,8 +9,15 @@ use super::FallowConfig;
 /// Supported config file names in priority order.
 ///
 /// `find_and_load` checks these names in order within each directory,
-/// returning the first match found.
-pub(super) const CONFIG_NAMES: &[&str] = &[".fallowrc.json", "fallow.toml", ".fallow.toml"];
+/// returning the first match found. `.fallowrc.json` wins over
+/// `.fallowrc.jsonc` if both exist (mirrors `tsconfig.json` >
+/// `tsconfig.jsonc` precedence).
+pub(super) const CONFIG_NAMES: &[&str] = &[
+    ".fallowrc.json",
+    ".fallowrc.jsonc",
+    "fallow.toml",
+    ".fallow.toml",
+];
 
 pub(super) const MAX_EXTENDS_DEPTH: usize = 10;
 
@@ -35,7 +42,7 @@ pub(super) enum ConfigFormat {
 impl ConfigFormat {
     pub(super) fn from_path(path: &Path) -> Self {
         match path.extension().and_then(|e| e.to_str()) {
-            Some("json") => Self::Json,
+            Some("json" | "jsonc") => Self::Json,
             _ => Self::Toml,
         }
     }
@@ -218,7 +225,7 @@ fn resolve_package_exports(pkg: &serde_json::Value, package_dir: &Path) -> Optio
 /// Resolution order:
 /// 1. `package.json` `exports` field (default entry point)
 /// 2. `package.json` `main` field
-/// 3. Standard config file names (`.fallowrc.json`, `fallow.toml`, `.fallow.toml`)
+/// 3. Standard config file names (`.fallowrc.json`, `.fallowrc.jsonc`, `fallow.toml`, `.fallow.toml`)
 ///
 /// Paths from `exports`/`main` are confined to the package directory to prevent
 /// path traversal attacks from malicious packages.
@@ -1037,6 +1044,10 @@ unknown_field = true
             ConfigFormat::Json
         ));
         assert!(matches!(
+            ConfigFormat::from_path(Path::new(".fallowrc.jsonc")),
+            ConfigFormat::Json
+        ));
+        assert!(matches!(
             ConfigFormat::from_path(Path::new(".fallow.toml")),
             ConfigFormat::Toml
         ));
@@ -1045,8 +1056,9 @@ unknown_field = true
     #[test]
     fn config_names_priority_order() {
         assert_eq!(CONFIG_NAMES[0], ".fallowrc.json");
-        assert_eq!(CONFIG_NAMES[1], "fallow.toml");
-        assert_eq!(CONFIG_NAMES[2], ".fallow.toml");
+        assert_eq!(CONFIG_NAMES[1], ".fallowrc.jsonc");
+        assert_eq!(CONFIG_NAMES[2], "fallow.toml");
+        assert_eq!(CONFIG_NAMES[3], ".fallow.toml");
     }
 
     #[test]
@@ -1084,6 +1096,29 @@ unknown_field = true
         let config = FallowConfig::load(&config_path).unwrap();
         assert_eq!(config.entry, vec!["src/index.ts"]);
         assert_eq!(config.rules.unused_exports, Severity::Warn);
+    }
+
+    #[test]
+    fn load_fallowrc_jsonc_extension() {
+        let dir = test_dir("jsonc-extension");
+        let config_path = dir.path().join(".fallowrc.jsonc");
+        std::fs::write(
+            &config_path,
+            r#"{
+                // editors that recognize the .jsonc extension show
+                // proper JSON-with-comments syntax highlighting
+                "ignoreDependencies": ["tailwindcss-react-aria-components"],
+                "entry": ["src/index.ts"]
+            }"#,
+        )
+        .unwrap();
+
+        let config = FallowConfig::load(&config_path).unwrap();
+        assert_eq!(config.entry, vec!["src/index.ts"]);
+        assert_eq!(
+            config.ignore_dependencies,
+            vec!["tailwindcss-react-aria-components"]
+        );
     }
 
     #[test]
@@ -2090,6 +2125,46 @@ unknown_field = true
     }
 
     #[test]
+    fn find_and_load_finds_fallowrc_jsonc() {
+        let dir = test_dir("find-jsonc");
+        std::fs::create_dir(dir.path().join(".git")).unwrap();
+        std::fs::write(
+            dir.path().join(".fallowrc.jsonc"),
+            r#"{
+                // jsonc with comments, picked up by auto-discovery
+                "entry": ["src/main.ts"]
+            }"#,
+        )
+        .unwrap();
+
+        let (config, path) = FallowConfig::find_and_load(dir.path()).unwrap().unwrap();
+        assert_eq!(config.entry, vec!["src/main.ts"]);
+        assert!(path.ends_with(".fallowrc.jsonc"));
+    }
+
+    #[test]
+    fn find_and_load_prefers_fallowrc_json_over_jsonc() {
+        // First-match-wins: `.fallowrc.json` ranks above `.fallowrc.jsonc`
+        // in `CONFIG_NAMES`, mirroring tsconfig.json > tsconfig.jsonc precedence.
+        let dir = test_dir("find-json-vs-jsonc");
+        std::fs::create_dir(dir.path().join(".git")).unwrap();
+        std::fs::write(
+            dir.path().join(".fallowrc.json"),
+            r#"{"entry": ["from-json.ts"]}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join(".fallowrc.jsonc"),
+            r#"{"entry": ["from-jsonc.ts"]}"#,
+        )
+        .unwrap();
+
+        let (config, path) = FallowConfig::find_and_load(dir.path()).unwrap().unwrap();
+        assert_eq!(config.entry, vec!["from-json.ts"]);
+        assert!(path.ends_with(".fallowrc.json"));
+    }
+
+    #[test]
     fn find_and_load_prefers_fallowrc_json_over_toml() {
         let dir = test_dir("find-priority");
         std::fs::create_dir(dir.path().join(".git")).unwrap();
@@ -2562,8 +2637,8 @@ minTokens = 100
     // ── Config names constant ───────────────────────────────────────
 
     #[test]
-    fn config_names_has_three_entries() {
-        assert_eq!(CONFIG_NAMES.len(), 3);
+    fn config_names_has_four_entries() {
+        assert_eq!(CONFIG_NAMES.len(), 4);
         // All names should start with "." or "fallow"
         for name in CONFIG_NAMES {
             assert!(

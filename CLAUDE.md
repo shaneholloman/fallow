@@ -61,7 +61,7 @@ cargo run --bin fallow -- fix --dry-run      # Auto-fix preview
 
 ## Code conventions
 
-- Config files: `.fallowrc.json` > `fallow.toml` > `.fallow.toml`
+- Config files: `.fallowrc.json` > `.fallowrc.jsonc` > `fallow.toml` > `.fallow.toml`
 - No `detect` section in config; use `rules` with `"off"` severity
 - No `output` in config; output format is CLI-only via `--format`
 - Rules severity: `error` (fail CI, default) | `warn` (exit 0) | `off` (skip)

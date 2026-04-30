@@ -50,6 +50,7 @@ fn is_relevant_config(path: &Path) -> bool {
                 name,
                 "package.json"
                     | ".fallowrc.json"
+                    | ".fallowrc.jsonc"
                     | "fallow.toml"
                     | ".fallow.toml"
                     | "tsconfig.json"
@@ -277,6 +278,7 @@ mod tests {
         assert!(is_relevant_config(Path::new("package.json")));
         assert!(is_relevant_config(Path::new("/project/package.json")));
         assert!(is_relevant_config(Path::new(".fallowrc.json")));
+        assert!(is_relevant_config(Path::new(".fallowrc.jsonc")));
         assert!(is_relevant_config(Path::new("fallow.toml")));
         assert!(is_relevant_config(Path::new(".fallow.toml")));
         assert!(is_relevant_config(Path::new("tsconfig.json")));

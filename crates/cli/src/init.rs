@@ -291,7 +291,12 @@ pub fn run_init(opts: &InitOptions<'_>) -> ExitCode {
 
 fn run_init_config(root: &Path, use_toml: bool) -> ExitCode {
     // Check if any config file already exists
-    let existing_names = [".fallowrc.json", "fallow.toml", ".fallow.toml"];
+    let existing_names = [
+        ".fallowrc.json",
+        ".fallowrc.jsonc",
+        "fallow.toml",
+        ".fallow.toml",
+    ];
     for name in &existing_names {
         let path = root.join(name);
         if path.exists() {

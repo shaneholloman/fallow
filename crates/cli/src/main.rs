@@ -63,7 +63,7 @@ struct Cli {
     #[arg(short, long, global = true)]
     root: Option<PathBuf>,
 
-    /// Path to config file (.fallowrc.json or fallow.toml)
+    /// Path to config file (.fallowrc.json, .fallowrc.jsonc, or fallow.toml)
     #[arg(short, long, global = true)]
     config: Option<PathBuf>,
 
@@ -193,7 +193,7 @@ struct Cli {
     regression_baseline: Option<PathBuf>,
 
     /// Save the current issue counts as a regression baseline.
-    /// Without a path: writes into the config file (.fallowrc.json / fallow.toml).
+    /// Without a path: writes into the config file (.fallowrc.json / .fallowrc.jsonc / fallow.toml).
     /// With a path: writes a standalone JSON file.
     #[expect(
         clippy::option_option,
@@ -346,7 +346,8 @@ enum Command {
     },
 
     /// Initialize a .fallowrc.json configuration file (optionally a git
-    /// pre-commit hook).
+    /// pre-commit hook). Use `.fallowrc.jsonc` for editor-native JSON-with-comments
+    /// support; both extensions are auto-discovered.
     ///
     /// `--hooks` scaffolds a shell-level Git pre-commit hook under
     /// `.git/hooks/` that runs fallow on changed files. This is the HUMAN /
@@ -380,7 +381,7 @@ enum Command {
     /// Show the resolved config and which config file was loaded
     ///
     /// Walks up from the project root looking for `.fallowrc.json`,
-    /// `fallow.toml`, or `.fallow.toml`, resolves `extends`, and prints
+    /// `.fallowrc.jsonc`, `fallow.toml`, or `.fallow.toml`, resolves `extends`, and prints
     /// the final config as JSON. Use `--path` to print only the config
     /// file path (useful in shell scripts). Exit code 0 if a config was
     /// found, 3 if only defaults are in effect.
