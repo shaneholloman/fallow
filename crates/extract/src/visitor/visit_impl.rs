@@ -8,6 +8,7 @@ use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk;
 use oxc_semantic::ScopeFlags;
 use oxc_span::Span;
+use rustc_hash::FxHashMap;
 
 use crate::{
     DynamicImportInfo, DynamicImportPattern, ExportInfo, ExportName, ImportInfo, ImportedName,
@@ -63,6 +64,162 @@ fn expression_root_name(expr: &Expression<'_>) -> Option<(String, Span)> {
 
 fn is_private_member_key(key: &PropertyKey<'_>) -> bool {
     matches!(key, PropertyKey::PrivateIdentifier(_))
+}
+
+#[derive(Default)]
+struct PlaywrightFixtureMemberCollector {
+    fixture_by_local: FxHashMap<String, String>,
+    accesses: Vec<MemberAccess>,
+}
+
+impl PlaywrightFixtureMemberCollector {
+    fn new(fixture_by_local: FxHashMap<String, String>) -> Self {
+        Self {
+            fixture_by_local,
+            accesses: Vec::new(),
+        }
+    }
+}
+
+impl<'a> Visit<'a> for PlaywrightFixtureMemberCollector {
+    fn visit_static_member_expression(&mut self, expr: &StaticMemberExpression<'a>) {
+        if let Some(object_name) = static_member_object_name(&expr.object)
+            && let Some(fixture_name) = self.fixture_by_local.get(object_name.as_str())
+        {
+            self.accesses.push(MemberAccess {
+                object: fixture_name.clone(),
+                member: expr.property.name.to_string(),
+            });
+        }
+        walk::walk_static_member_expression(self, expr);
+    }
+}
+
+fn extract_binding_local_name<'a>(pattern: &'a BindingPattern<'a>) -> Option<&'a str> {
+    match pattern {
+        BindingPattern::BindingIdentifier(id) => Some(id.name.as_str()),
+        BindingPattern::AssignmentPattern(assign) => extract_binding_local_name(&assign.left),
+        _ => None,
+    }
+}
+
+fn extract_object_pattern_bindings(pattern: &ObjectPattern<'_>) -> FxHashMap<String, String> {
+    let mut bindings = FxHashMap::default();
+    for prop in &pattern.properties {
+        let Some(fixture_name) = prop.key.static_name() else {
+            continue;
+        };
+        let Some(local_name) = extract_binding_local_name(&prop.value) else {
+            continue;
+        };
+        bindings.insert(local_name.to_string(), fixture_name.to_string());
+    }
+    bindings
+}
+
+fn playwright_test_callee_name(expr: &Expression<'_>) -> Option<String> {
+    match expr {
+        Expression::Identifier(ident) => Some(ident.name.to_string()),
+        Expression::StaticMemberExpression(member) => playwright_test_callee_name(&member.object),
+        _ => None,
+    }
+}
+
+fn collect_playwright_fixture_member_uses(
+    test_name: &str,
+    arguments: &[Argument<'_>],
+) -> Vec<MemberAccess> {
+    let Some(callback) = arguments.iter().find_map(|arg| match arg {
+        Argument::ArrowFunctionExpression(arrow) => {
+            Some((arrow.params.items.first()?, arrow.body.as_ref()))
+        }
+        Argument::FunctionExpression(function) => {
+            Some((function.params.items.first()?, function.body.as_deref()?))
+        }
+        _ => None,
+    }) else {
+        return Vec::new();
+    };
+
+    let BindingPattern::ObjectPattern(pattern) = &callback.0.pattern else {
+        return Vec::new();
+    };
+    let fixture_by_local = extract_object_pattern_bindings(pattern);
+    if fixture_by_local.is_empty() {
+        return Vec::new();
+    }
+
+    let mut collector = PlaywrightFixtureMemberCollector::new(fixture_by_local);
+    collector.visit_function_body(callback.1);
+    collector
+        .accesses
+        .into_iter()
+        .map(|access| MemberAccess {
+            object: format!(
+                "{}{}:{}",
+                crate::PLAYWRIGHT_FIXTURE_USE_SENTINEL,
+                test_name,
+                access.object
+            ),
+            member: access.member,
+        })
+        .collect()
+}
+
+fn playwright_extend_base_name(call: &CallExpression<'_>) -> Option<String> {
+    let Expression::StaticMemberExpression(member) = &call.callee else {
+        return None;
+    };
+    if member.property.name != "extend" {
+        return None;
+    }
+    let Expression::Identifier(base) = &member.object else {
+        return None;
+    };
+    Some(base.name.to_string())
+}
+
+fn collect_fixture_type_bindings_from_type(
+    ty: &TSType<'_>,
+    aliases: &FxHashMap<String, Vec<(String, String)>>,
+    bindings: &mut Vec<(String, String)>,
+) {
+    match ty {
+        TSType::TSTypeLiteral(type_lit) => {
+            for member in &type_lit.members {
+                let TSSignature::TSPropertySignature(prop) = member else {
+                    continue;
+                };
+                let Some(fixture_name) = prop.key.static_name() else {
+                    continue;
+                };
+                let Some(type_annotation) = prop.type_annotation.as_deref() else {
+                    continue;
+                };
+                let Some(type_name) = extract_type_annotation_name(type_annotation) else {
+                    continue;
+                };
+                bindings.push((fixture_name.to_string(), type_name));
+            }
+        }
+        TSType::TSTypeReference(type_ref) => {
+            let Some((alias_name, _)) = type_name_root(&type_ref.type_name) else {
+                return;
+            };
+            if let Some(alias_bindings) = aliases.get(alias_name.as_str()) {
+                bindings.extend(alias_bindings.iter().cloned());
+            }
+        }
+        TSType::TSIntersectionType(intersection) => {
+            for branch in &intersection.types {
+                collect_fixture_type_bindings_from_type(branch, aliases, bindings);
+            }
+        }
+        TSType::TSParenthesizedType(paren) => {
+            collect_fixture_type_bindings_from_type(&paren.type_annotation, aliases, bindings);
+        }
+        _ => {}
+    }
 }
 
 impl ModuleInfoExtractor {
@@ -276,6 +433,35 @@ impl ModuleInfoExtractor {
         }
     }
 
+    fn is_named_import_from(&self, local_name: &str, source: &str, imported_name: &str) -> bool {
+        self.imports.iter().any(|import| {
+            import.source == source
+                && import.local_name == local_name
+                && matches!(&import.imported_name, ImportedName::Named(name) if name == imported_name)
+        })
+    }
+
+    fn extract_angular_inject_target(&self, call: &CallExpression<'_>) -> Option<String> {
+        let Expression::Identifier(callee) = &call.callee else {
+            return None;
+        };
+        if !self.is_named_import_from(callee.name.as_str(), "@angular/core", "inject") {
+            return None;
+        }
+
+        if let Some(type_arguments) = call.type_arguments.as_deref()
+            && let Some(TSType::TSTypeReference(type_ref)) = type_arguments.params.first()
+            && let Some((type_name, _)) = type_name_root(&type_ref.type_name)
+        {
+            return Some(type_name);
+        }
+
+        let Some(Argument::Identifier(target)) = call.arguments.first() else {
+            return None;
+        };
+        Some(target.name.to_string())
+    }
+
     fn copy_nested_binding_targets(&mut self, source_binding: &str, target_binding: &str) {
         let source_prefix = format!("{source_binding}.");
         let target_prefix = format!("{target_binding}.");
@@ -290,6 +476,58 @@ impl ModuleInfoExtractor {
             .collect();
 
         self.binding_target_names.extend(copied);
+    }
+
+    fn collect_playwright_fixture_type_bindings(&self, ty: &TSType<'_>) -> Vec<(String, String)> {
+        let mut bindings = Vec::new();
+        collect_fixture_type_bindings_from_type(ty, &self.playwright_fixture_types, &mut bindings);
+        bindings.sort_unstable();
+        bindings.dedup();
+        bindings
+    }
+
+    fn record_playwright_fixture_type_alias(&mut self, alias: &TSTypeAliasDeclaration<'_>) {
+        let bindings = self.collect_playwright_fixture_type_bindings(&alias.type_annotation);
+        if !bindings.is_empty() {
+            self.playwright_fixture_types
+                .insert(alias.id.name.to_string(), bindings);
+        }
+    }
+
+    fn record_playwright_fixture_definitions(
+        &mut self,
+        test_name: &str,
+        call: &CallExpression<'_>,
+    ) {
+        let Some(base_name) = playwright_extend_base_name(call) else {
+            return;
+        };
+        if !self.is_named_import_from(base_name.as_str(), "@playwright/test", "test") {
+            return;
+        }
+        let Some(type_arguments) = call.type_arguments.as_deref() else {
+            return;
+        };
+        let mut bindings = Vec::new();
+        for type_arg in &type_arguments.params {
+            bindings.extend(self.collect_playwright_fixture_type_bindings(type_arg));
+        }
+        bindings.sort_unstable();
+        bindings.dedup();
+        self.member_accesses
+            .extend(
+                bindings
+                    .into_iter()
+                    .map(|(fixture_name, type_name)| MemberAccess {
+                        object: format!(
+                            "{}{}:{}",
+                            crate::PLAYWRIGHT_FIXTURE_DEF_SENTINEL,
+                            test_name,
+                            fixture_name
+                        ),
+                        member: type_name,
+                    }),
+            );
     }
 }
 
@@ -319,6 +557,13 @@ impl<'a> Visit<'a> for ModuleInfoExtractor {
             {
                 self.binding_target_names
                     .insert(format!("this.{name}"), callee.name.to_string());
+            }
+
+            if let Some(Expression::CallExpression(call)) = &prop.value
+                && let Some(type_name) = self.extract_angular_inject_target(call)
+            {
+                self.binding_target_names
+                    .insert(format!("this.{name}"), type_name);
             }
         }
 
@@ -362,6 +607,7 @@ impl<'a> Visit<'a> for ModuleInfoExtractor {
                 }
                 Declaration::TSTypeAliasDeclaration(alias) => {
                     self.record_local_type_declaration(&alias.id.name, alias.id.span);
+                    self.record_playwright_fixture_type_alias(alias);
                     let refs = Self::collect_type_alias_signature_refs(alias);
                     self.record_local_signature_refs(&alias.id.name, refs);
                 }
@@ -754,6 +1000,12 @@ impl<'a> Visit<'a> for ModuleInfoExtractor {
                 continue;
             };
 
+            if let BindingPattern::BindingIdentifier(id) = &declarator.id
+                && let Expression::CallExpression(call) = init
+            {
+                self.record_playwright_fixture_definitions(id.name.as_str(), call);
+            }
+
             // `const x = require('./y')` — static require
             if let Some((call, source)) = try_extract_require(init) {
                 self.handle_require_declaration(declarator, call, source);
@@ -810,6 +1062,14 @@ impl<'a> Visit<'a> for ModuleInfoExtractor {
     }
 
     fn visit_call_expression(&mut self, expr: &CallExpression<'a>) {
+        if let Some(test_name) = playwright_test_callee_name(&expr.callee) {
+            self.member_accesses
+                .extend(collect_playwright_fixture_member_uses(
+                    test_name.as_str(),
+                    &expr.arguments,
+                ));
+        }
+
         // Detect require()
         if let Expression::Identifier(ident) = &expr.callee
             && ident.name == "require"

@@ -91,6 +91,8 @@ pub(crate) struct ModuleInfoExtractor {
     local_signature_type_references: Vec<LocalSignatureTypeReference>,
     /// Module-scope local class declarations keyed by local binding name.
     local_class_exports: FxHashMap<String, LocalClassExportInfo>,
+    /// Module-scope Playwright fixture type aliases keyed by alias name.
+    playwright_fixture_types: FxHashMap<String, Vec<(String, String)>>,
     /// Block nesting depth used to distinguish module-scope declarations.
     block_depth: u32,
     /// Function / arrow-function nesting depth used to distinguish module scope.

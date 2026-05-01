@@ -174,6 +174,62 @@ fn injected_dependency_object_credits_class_member_usage() {
     );
 }
 
+#[test]
+fn playwright_fixture_pom_methods_are_credited_from_tests() {
+    let root = fixture_path("playwright-pom-fixtures");
+    let config = create_config(root);
+    let results = fallow_core::analyze(&config).expect("analysis should succeed");
+
+    let unused_class_members: Vec<String> = results
+        .unused_class_members
+        .iter()
+        .map(|m| format!("{}.{}", m.parent_name, m.member_name))
+        .collect();
+
+    assert!(
+        !unused_class_members.contains(&"AdminPage.assertGreeting".to_string()),
+        "AdminPage.assertGreeting should be credited through the typed Playwright fixture, found: {unused_class_members:?}"
+    );
+    assert!(
+        !unused_class_members.contains(&"UserPage.assertGreeting".to_string()),
+        "UserPage.assertGreeting should be credited through the typed Playwright fixture, found: {unused_class_members:?}"
+    );
+    assert!(
+        unused_class_members.contains(&"AdminPage.unusedAdminOnly".to_string()),
+        "genuinely unused POM methods should still be reported, found: {unused_class_members:?}"
+    );
+    assert!(
+        unused_class_members.contains(&"UserPage.unusedUserOnly".to_string()),
+        "genuinely unused POM methods should still be reported, found: {unused_class_members:?}"
+    );
+}
+
+#[test]
+fn angular_inject_fields_credit_service_member_usage() {
+    let root = fixture_path("angular-inject-class-members");
+    let config = create_config(root);
+    let results = fallow_core::analyze(&config).expect("analysis should succeed");
+
+    let unused_class_members: Vec<String> = results
+        .unused_class_members
+        .iter()
+        .map(|m| format!("{}.{}", m.parent_name, m.member_name))
+        .collect();
+
+    assert!(
+        !unused_class_members.contains(&"InnerService.aaa".to_string()),
+        "InnerService.aaa should be credited through this.inner.aaa where inner = inject(InnerService), found: {unused_class_members:?}"
+    );
+    assert!(
+        !unused_class_members.contains(&"InnerService.bbb".to_string()),
+        "InnerService.bbb should be credited through this.inner.bbb where inner = inject(InnerService), found: {unused_class_members:?}"
+    );
+    assert!(
+        unused_class_members.contains(&"InnerService.ccc".to_string()),
+        "InnerService.ccc should still be reported as genuinely unused, found: {unused_class_members:?}"
+    );
+}
+
 // ── Whole-object enum member heuristics ────────────────────────
 
 #[test]

@@ -52,6 +52,20 @@ pub use sfc_template::angular::ANGULAR_TPL_SENTINEL;
 /// class/interface symbol named `target`.
 pub const INSTANCE_EXPORT_SENTINEL: &str = "__fallow_instance_export__:";
 
+/// Synthetic member-access object prefix for typed Playwright fixtures.
+///
+/// `MemberAccess { object: format!("{PLAYWRIGHT_FIXTURE_DEF_SENTINEL}{test}:{fixture}"), member: type_name }`
+/// means the exported Playwright test object named `test` provides a fixture
+/// named `fixture` whose declared type is `type_name`.
+pub const PLAYWRIGHT_FIXTURE_DEF_SENTINEL: &str = "__fallow_playwright_fixture_def__:";
+
+/// Synthetic member-access object prefix for Playwright fixture member uses.
+///
+/// `MemberAccess { object: format!("{PLAYWRIGHT_FIXTURE_USE_SENTINEL}{test}:{fixture}"), member }`
+/// means a callback passed to the Playwright test object named `test`
+/// destructures `fixture` and accesses `fixture.member`.
+pub const PLAYWRIGHT_FIXTURE_USE_SENTINEL: &str = "__fallow_playwright_fixture_use__:";
+
 use parse::parse_source_to_module;
 
 /// Parse all files in parallel, extracting imports and exports.

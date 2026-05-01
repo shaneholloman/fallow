@@ -8,7 +8,8 @@
 pub use fallow_extract::{
     ANGULAR_TPL_SENTINEL, DynamicImportInfo, DynamicImportPattern, ExportInfo, ExportName,
     INSTANCE_EXPORT_SENTINEL, ImportInfo, ImportedName, MemberAccess, MemberInfo, MemberKind,
-    ModuleInfo, ParseResult, ReExportInfo, RequireCallInfo, VisibilityTag,
+    ModuleInfo, PLAYWRIGHT_FIXTURE_DEF_SENTINEL, PLAYWRIGHT_FIXTURE_USE_SENTINEL, ParseResult,
+    ReExportInfo, RequireCallInfo, VisibilityTag,
 };
 
 // Re-export extraction functions

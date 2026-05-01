@@ -4,6 +4,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use crate::discover::FileId;
 use crate::extract::{
     ANGULAR_TPL_SENTINEL, ExportName, INSTANCE_EXPORT_SENTINEL, MemberKind, ModuleInfo,
+    PLAYWRIGHT_FIXTURE_DEF_SENTINEL, PLAYWRIGHT_FIXTURE_USE_SENTINEL,
 };
 use crate::graph::ModuleGraph;
 use crate::resolve::{ResolveResult, ResolvedModule};
@@ -258,6 +259,100 @@ fn propagate_whole_object_through_re_exports(
 fn push_export_key(keys: &mut Vec<ExportKey>, key: ExportKey) {
     if !keys.contains(&key) {
         keys.push(key);
+    }
+}
+
+fn parse_playwright_fixture_sentinel<'a>(
+    object: &'a str,
+    prefix: &str,
+) -> Option<(&'a str, &'a str)> {
+    object.strip_prefix(prefix)?.split_once(':')
+}
+
+fn build_playwright_fixture_targets(
+    graph: &ModuleGraph,
+    resolved_modules: &[ResolvedModule],
+) -> FxHashMap<ExportKey, FxHashMap<String, Vec<ExportKey>>> {
+    let mut targets_by_test: FxHashMap<ExportKey, FxHashMap<String, Vec<ExportKey>>> =
+        FxHashMap::default();
+
+    for resolved in resolved_modules {
+        let local_to_export_keys = build_local_to_export_keys(resolved);
+        for access in &resolved.member_accesses {
+            let Some((test_local_name, fixture_name)) = parse_playwright_fixture_sentinel(
+                access.object.as_str(),
+                PLAYWRIGHT_FIXTURE_DEF_SENTINEL,
+            ) else {
+                continue;
+            };
+            let Some(test_keys) = local_to_export_keys.get(test_local_name) else {
+                continue;
+            };
+            let Some(target_keys) = local_to_export_keys.get(access.member.as_str()) else {
+                continue;
+            };
+
+            for test_key in test_keys {
+                let fixture_targets = targets_by_test
+                    .entry(test_key.clone())
+                    .or_default()
+                    .entry(fixture_name.to_string())
+                    .or_default();
+                for target_key in target_keys {
+                    push_export_key(fixture_targets, target_key.clone());
+                    for origin in walk_re_export_origins(
+                        graph,
+                        target_key.file_id,
+                        target_key.export_name.as_str(),
+                    ) {
+                        push_export_key(fixture_targets, origin);
+                    }
+                }
+            }
+        }
+    }
+
+    targets_by_test
+}
+
+fn propagate_playwright_fixture_accesses(
+    graph: &ModuleGraph,
+    resolved_modules: &[ResolvedModule],
+    accessed_members: &mut FxHashMap<ExportKey, FxHashSet<String>>,
+) {
+    let targets_by_test = build_playwright_fixture_targets(graph, resolved_modules);
+    if targets_by_test.is_empty() {
+        return;
+    }
+
+    for resolved in resolved_modules {
+        let local_to_export_keys = build_local_to_export_keys(resolved);
+        for access in &resolved.member_accesses {
+            let Some((test_local_name, fixture_name)) = parse_playwright_fixture_sentinel(
+                access.object.as_str(),
+                PLAYWRIGHT_FIXTURE_USE_SENTINEL,
+            ) else {
+                continue;
+            };
+            let Some(test_keys) = local_to_export_keys.get(test_local_name) else {
+                continue;
+            };
+
+            for test_key in test_keys {
+                let Some(fixture_targets) = targets_by_test.get(test_key) else {
+                    continue;
+                };
+                let Some(target_keys) = fixture_targets.get(fixture_name) else {
+                    continue;
+                };
+                for target_key in target_keys {
+                    accessed_members
+                        .entry(target_key.clone())
+                        .or_default()
+                        .insert(access.member.clone());
+                }
+            }
+        }
     }
 }
 
@@ -552,6 +647,7 @@ pub fn find_unused_members(
     // Propagate accesses through re-export chains so cross-package consumers
     // that import a barrel-re-exported enum/class credit the originating
     // file's `members`. See issue #178.
+    propagate_playwright_fixture_accesses(graph, resolved_modules, &mut accessed_members);
     propagate_accesses_through_re_exports(graph, &mut accessed_members);
     propagate_whole_object_through_re_exports(graph, &mut whole_object_used_exports);
     let instance_targets = build_instance_export_targets(graph, resolved_modules);

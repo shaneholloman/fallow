@@ -953,6 +953,150 @@ fn type_only_alias_binding_maps_member_access() {
 }
 
 #[test]
+fn playwright_extend_type_alias_records_fixture_definitions() {
+    let info = parse(
+        r"
+            import { test as base } from '@playwright/test';
+            import { AdminPage } from './admin-page';
+            import { UserPage } from './user-page';
+
+            type MyFixtures = {
+                adminPage: AdminPage;
+                userPage: UserPage;
+            };
+
+            export const test = base.extend<MyFixtures>({});
+        ",
+    );
+
+    assert!(
+        info.member_accesses.iter().any(|a| {
+            a.object == format!("{}test:adminPage", crate::PLAYWRIGHT_FIXTURE_DEF_SENTINEL)
+                && a.member == "AdminPage"
+        }),
+        "typed Playwright fixture adminPage should be recorded, found: {:?}",
+        info.member_accesses
+    );
+    assert!(
+        info.member_accesses.iter().any(|a| {
+            a.object == format!("{}test:userPage", crate::PLAYWRIGHT_FIXTURE_DEF_SENTINEL)
+                && a.member == "UserPage"
+        }),
+        "typed Playwright fixture userPage should be recorded, found: {:?}",
+        info.member_accesses
+    );
+}
+
+#[test]
+fn non_playwright_extend_does_not_record_fixture_definitions() {
+    let info = parse(
+        r"
+            import { extend } from './framework';
+            import { AdminPage } from './admin-page';
+
+            type MyFixtures = {
+                adminPage: AdminPage;
+            };
+
+            export const test = extend.extend<MyFixtures>({});
+        ",
+    );
+
+    assert!(
+        !info
+            .member_accesses
+            .iter()
+            .any(|a| a.object.starts_with(crate::PLAYWRIGHT_FIXTURE_DEF_SENTINEL)),
+        "non-Playwright .extend<T>() should not emit Playwright fixture definitions, found: {:?}",
+        info.member_accesses
+    );
+}
+
+#[test]
+fn playwright_test_callback_records_fixture_member_uses() {
+    let info = parse(
+        r"
+            import { test } from './fixtures';
+
+            test('admin and user', async ({ adminPage, userPage: user }) => {
+                await adminPage.assertGreeting();
+                await user.assertGreeting();
+            });
+        ",
+    );
+
+    assert!(
+        info.member_accesses.iter().any(|a| {
+            a.object == format!("{}test:adminPage", crate::PLAYWRIGHT_FIXTURE_USE_SENTINEL)
+                && a.member == "assertGreeting"
+        }),
+        "adminPage.assertGreeting should be recorded as a Playwright fixture use, found: {:?}",
+        info.member_accesses
+    );
+    assert!(
+        info.member_accesses.iter().any(|a| {
+            a.object == format!("{}test:userPage", crate::PLAYWRIGHT_FIXTURE_USE_SENTINEL)
+                && a.member == "assertGreeting"
+        }),
+        "aliased userPage.assertGreeting should be recorded as a Playwright fixture use, found: {:?}",
+        info.member_accesses
+    );
+}
+
+#[test]
+fn angular_inject_field_maps_this_field_member_access() {
+    let info = parse(
+        r"
+            import { inject } from '@angular/core';
+            import { InnerService } from './inner.service';
+
+            class OuterService {
+                private readonly inner = inject(InnerService);
+
+                read() {
+                    return this.inner.aaa;
+                }
+            }
+        ",
+    );
+
+    assert!(
+        info.member_accesses
+            .iter()
+            .any(|a| a.object == "InnerService" && a.member == "aaa"),
+        "Angular inject() field binding should map this.inner.aaa to InnerService.aaa, found: {:?}",
+        info.member_accesses
+    );
+}
+
+#[test]
+fn non_angular_inject_function_does_not_map_field_member_access() {
+    let info = parse(
+        r"
+            import { inject } from './container';
+            import { InnerService } from './inner.service';
+
+            class OuterService {
+                private readonly inner = inject(InnerService);
+
+                read() {
+                    return this.inner.aaa;
+                }
+            }
+        ",
+    );
+
+    assert!(
+        !info
+            .member_accesses
+            .iter()
+            .any(|a| a.object == "InnerService" && a.member == "aaa"),
+        "non-Angular inject() should not create class-member credit, found: {:?}",
+        info.member_accesses
+    );
+}
+
+#[test]
 fn this_field_assignment_from_typed_parameter_maps_member_access() {
     let info = parse(
         r"
