@@ -27,6 +27,56 @@ fn dynamic_import_makes_module_reachable() {
     );
 }
 
+#[test]
+fn vitest_vi_mock_makes_auto_mock_reachable() {
+    let root = fixture_path("vitest-auto-mocks");
+    let config = create_config(root.clone());
+    let results = fallow_core::analyze(&config).expect("analysis should succeed");
+
+    let unused_files: Vec<String> = results
+        .unused_files
+        .iter()
+        .map(|f| {
+            f.path
+                .strip_prefix(&root)
+                .unwrap_or(&f.path)
+                .to_string_lossy()
+                .replace('\\', "/")
+        })
+        .collect();
+
+    assert!(
+        !unused_files.contains(&"src/services/__mocks__/api.ts".to_string()),
+        "auto mock should be reachable via vi.mock(), unused files: {unused_files:?}"
+    );
+    assert!(
+        unused_files.contains(&"src/services/__mocks__/unused.ts".to_string()),
+        "unreferenced mock siblings should still be unused, found: {unused_files:?}"
+    );
+    assert!(
+        unused_files.contains(&"src/services/orphan.ts".to_string()),
+        "ordinary orphan files should still be unused, found: {unused_files:?}"
+    );
+
+    let unused_exports: Vec<String> = results
+        .unused_exports
+        .iter()
+        .filter_map(|export| {
+            let path = export
+                .path
+                .strip_prefix(&root)
+                .unwrap_or(&export.path)
+                .to_string_lossy()
+                .replace('\\', "/");
+            (path == "src/services/__mocks__/api.ts").then(|| export.export_name.clone())
+        })
+        .collect();
+    assert!(
+        unused_exports.is_empty(),
+        "auto mock exports should be credited as namespace-used, found: {unused_exports:?}"
+    );
+}
+
 // ── Dynamic import pattern resolution ──────────────────────────
 
 #[test]

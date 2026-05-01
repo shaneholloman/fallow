@@ -95,6 +95,25 @@ fn extracts_require_context_recursive() {
     assert_eq!(info.dynamic_import_patterns[0].prefix, "./icons/**/");
 }
 
+#[test]
+fn vitest_mock_records_auto_mock_sibling() {
+    let info = parse_source("vi.mock('./services/api');");
+    assert_eq!(info.dynamic_imports.len(), 1);
+    assert_eq!(info.dynamic_imports[0].source, "./services/__mocks__/api");
+    assert_eq!(info.dynamic_imports[0].local_name, Some(String::new()));
+}
+
+#[test]
+fn vitest_mock_records_auto_mock_sibling_from_import_argument() {
+    let info = parse_source("vi.mock(import('./services/api'));");
+    let auto_mock = info
+        .dynamic_imports
+        .iter()
+        .find(|imp| imp.source == "./services/__mocks__/api")
+        .expect("vi.mock(import(...)) should record the auto-mock sibling");
+    assert_eq!(auto_mock.local_name, Some(String::new()));
+}
+
 // -- Dynamic import namespace tracking --
 
 #[test]

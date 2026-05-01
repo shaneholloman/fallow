@@ -66,6 +66,51 @@ fn is_private_member_key(key: &PropertyKey<'_>) -> bool {
     matches!(key, PropertyKey::PrivateIdentifier(_))
 }
 
+fn vitest_mock_source(call: &CallExpression<'_>) -> Option<String> {
+    let Expression::StaticMemberExpression(member) = &call.callee else {
+        return None;
+    };
+    if member.property.name != "mock" {
+        return None;
+    }
+    let Expression::Identifier(object) = &member.object else {
+        return None;
+    };
+    if object.name != "vi" {
+        return None;
+    }
+
+    call.arguments.first().and_then(|argument| match argument {
+        Argument::StringLiteral(value) => Some(value.value.to_string()),
+        Argument::TemplateLiteral(value) if value.expressions.is_empty() => value
+            .quasis
+            .first()
+            .map(|quasi| quasi.value.raw.to_string()),
+        Argument::ImportExpression(value) => match &value.source {
+            Expression::StringLiteral(source) => Some(source.value.to_string()),
+            _ => None,
+        },
+        _ => None,
+    })
+}
+
+fn vitest_auto_mock_source(source: &str) -> Option<String> {
+    if source.is_empty()
+        || source.contains("://")
+        || source.starts_with("data:")
+        || source.split('/').any(|segment| segment == "__mocks__")
+    {
+        return None;
+    }
+
+    let (dir, file_name) = source.rsplit_once('/')?;
+    if file_name.is_empty() {
+        return None;
+    }
+
+    Some(format!("{dir}/__mocks__/{file_name}"))
+}
+
 #[derive(Default)]
 struct PlaywrightFixtureMemberCollector {
     fixture_by_local: FxHashMap<String, String>,
@@ -1068,6 +1113,17 @@ impl<'a> Visit<'a> for ModuleInfoExtractor {
                     test_name.as_str(),
                     &expr.arguments,
                 ));
+        }
+
+        if let Some(mock_source) =
+            vitest_mock_source(expr).and_then(|source| vitest_auto_mock_source(&source))
+        {
+            self.dynamic_imports.push(DynamicImportInfo {
+                source: mock_source,
+                span: expr.span,
+                destructured_names: Vec::new(),
+                local_name: Some(String::new()),
+            });
         }
 
         // Detect require()
