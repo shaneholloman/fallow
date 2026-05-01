@@ -7,9 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.59.0] - 2026-05-01
+
+### Added
+
+- **Persistent token cache for `fallow dupes`.** Projects above `duplicates.minCorpusSizeForTokenCache` (default `5000` source files) reuse tokenized output across runs under `<root>/.fallow/cache/dupes-tokens-vN/`. Below the threshold the cache stays disabled because load/save overhead exceeds the tokenize savings. Disable explicitly with `--no-cache`.
+- **Shingle prefilter for focused-mode duplication.** When `--changed-since` is set on a project at or above `duplicates.minCorpusSizeForShingleFilter` (default `1024` files), the detector drops unchanged files whose k-token shingles do not overlap any changed file before building the suffix array. This is the dominant speed-up on large monorepos with small diffs.
+- **`duplicates.ignoreDefaults` config + `--explain-skipped` global flag.** Opt-out for the new built-in ignores below; `--explain-skipped` expands the human/markdown skipped-file note into per-pattern counts.
+
 ### Changed
 
 - **`fallow dupes` skips generated framework output by default.** Duplication analysis now ignores `**/.next/**`, `**/.nuxt/**`, `**/.svelte-kit/**`, `**/.turbo/**`, `**/.parcel-cache/**`, `**/.vite/**`, `**/.cache/**`, `**/out/**`, and `**/storybook-static/**` before tokenization, while keeping authored-looking `lib/`, `legacy/`, and nested `build/` directories in scope. These defaults merge with `duplicates.ignore`; set `duplicates.ignoreDefaults: false` to opt out and use only your configured ignore list. If your duplication number drops on upgrade, it is because fallow is now excluding generated framework output from duplicate detection by default. Human and markdown output show a one-line skipped-file note, and `--explain-skipped` expands it to per-pattern counts; JSON, SARIF, CodeClimate, and compact output stay unchanged.
+- **`fallow init` scaffolds a commented-out `[duplicates]` block.** The generated `.fallowrc.json` (now valid JSONC end-to-end) and `fallow.toml` ship with example `ignore` additions for `lib/`, `legacy/`, `__generated__/`, and `generated/` directories that vary per project.
+- **`--changed-since` wires straight into the focused fast path.** Resolving the changed-file set up front lets the engine engage the shingle prefilter and extraction-time interval pruning instead of running a full-corpus scan followed by a redundant post-filter. The audit driver also skips the base-snapshot pass when `--gate all` is set, because attribution is irrelevant to the verdict in that mode.
+- **Shared rayon global pool config across CLI and NAPI entry points.** Both bindings now agree on stack-size and thread-count defaults so embedders see consistent parallel behaviour.
 
 ## [2.58.0] - 2026-05-01
 
@@ -1884,7 +1895,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--changed-since` and `--fail-on-issues` for CI
 - Cross-workspace resolution for npm/yarn/pnpm workspaces
 
-[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.58.0...HEAD
+[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.59.0...HEAD
+[2.59.0]: https://github.com/fallow-rs/fallow/compare/v2.58.0...v2.59.0
 [2.58.0]: https://github.com/fallow-rs/fallow/compare/v2.57.0...v2.58.0
 [2.57.0]: https://github.com/fallow-rs/fallow/compare/v2.56.0...v2.57.0
 [2.56.0]: https://github.com/fallow-rs/fallow/compare/v2.55.0...v2.56.0
