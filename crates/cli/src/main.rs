@@ -29,6 +29,7 @@ mod init;
 mod license;
 mod list;
 mod migrate;
+mod rayon_pool;
 mod regression;
 mod report;
 mod runtime_support;
@@ -1434,11 +1435,7 @@ fn validate_inputs(
         .threads
         .unwrap_or_else(|| std::thread::available_parallelism().map_or(4, std::num::NonZero::get));
 
-    // Configure rayon global thread pool to match --threads, ensuring parsing
-    // and import resolution use the same thread count as file walking.
-    let _ = rayon::ThreadPoolBuilder::new()
-        .num_threads(threads)
-        .build_global();
+    rayon_pool::configure_global_pool(threads);
 
     Ok((root, threads))
 }

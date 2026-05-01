@@ -313,6 +313,7 @@ impl AnalysisOptions {
         }
 
         let threads = self.threads.unwrap_or_else(default_threads);
+        crate::rayon_pool::configure_global_pool(threads);
         let production_override = self
             .production_override
             .or_else(|| self.production.then_some(true));

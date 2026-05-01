@@ -61,6 +61,9 @@ mod license;
 /// Programmatic Rust API reused by the NAPI bindings.
 pub mod programmatic;
 
+/// Shared Rayon pool configuration for all embedded analysis entry points.
+pub(crate) mod rayon_pool;
+
 /// Regression detection: baseline comparison and tolerance checking.
 pub mod regression;
 
