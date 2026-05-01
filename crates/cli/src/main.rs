@@ -160,6 +160,11 @@ struct Cli {
     #[arg(long, global = true)]
     explain: bool,
 
+    /// Show a per-pattern breakdown for default duplicates ignores.
+    /// Human and markdown output only; machine formats suppress the note.
+    #[arg(long, global = true)]
+    explain_skipped: bool,
+
     /// Show only category counts without individual items
     #[arg(long, global = true)]
     summary: bool,
@@ -1753,6 +1758,7 @@ fn dispatch_bare_command(
         changed_workspaces: cli.changed_workspaces.as_deref(),
         group_by: cli.group_by,
         explain: cli.explain,
+        explain_skipped: cli.explain_skipped,
         performance: cli.performance,
         summary: cli.summary,
         run_check,
@@ -2023,6 +2029,7 @@ fn dispatch_subcommand(
                 workspace: cli.workspace.as_deref(),
                 changed_workspaces: cli.changed_workspaces.as_deref(),
                 explain: cli.explain,
+                explain_skipped: cli.explain_skipped,
                 summary: cli.summary,
                 group_by: cli.group_by,
             })
@@ -2188,6 +2195,7 @@ fn dispatch_subcommand(
                 workspace: cli.workspace.as_deref(),
                 changed_workspaces: cli.changed_workspaces.as_deref(),
                 explain: cli.explain,
+                explain_skipped: cli.explain_skipped,
                 performance: cli.performance,
                 group_by: cli.group_by,
                 dead_code_baseline: resolved_dead_code_baseline.as_deref(),

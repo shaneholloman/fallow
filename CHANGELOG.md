@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`fallow dupes` skips generated framework output by default.** Duplication analysis now ignores `**/.next/**`, `**/.nuxt/**`, `**/.svelte-kit/**`, `**/.turbo/**`, `**/.parcel-cache/**`, `**/.vite/**`, `**/.cache/**`, `**/out/**`, and `**/storybook-static/**` before tokenization, while keeping authored-looking `lib/`, `legacy/`, and nested `build/` directories in scope. These defaults merge with `duplicates.ignore`; set `duplicates.ignoreDefaults: false` to opt out and use only your configured ignore list. If your duplication number drops on upgrade, it is because fallow is now excluding generated framework output from duplicate detection by default. Human and markdown output show a one-line skipped-file note, and `--explain-skipped` expands it to per-pattern counts; JSON, SARIF, CodeClimate, and compact output stay unchanged.
+
 ## [2.58.0] - 2026-05-01
 
 ### Added

@@ -336,6 +336,7 @@ fn find_dupes_args_with_all_options() {
         skip_local: Some(true),
         cross_language: Some(true),
         ignore_imports: Some(true),
+        explain_skipped: Some(true),
         top: Some(5),
         baseline: Some("base.json".to_string()),
         save_baseline: Some("new.json".to_string()),
@@ -373,6 +374,7 @@ fn find_dupes_args_with_all_options() {
             "--skip-local",
             "--cross-language",
             "--ignore-imports",
+            "--explain-skipped",
             "--top",
             "5",
             "--baseline",
@@ -1589,6 +1591,7 @@ fn audit_args_with_all_options() {
         dead_code_baseline: None,
         health_baseline: None,
         dupes_baseline: None,
+        explain_skipped: Some(true),
         max_crap: Some(30.0),
     })
     .expect("all options are valid");
@@ -1606,6 +1609,7 @@ fn audit_args_with_all_options() {
     assert!(args.contains(&"--threads".to_string()));
     assert!(args.contains(&"4".to_string()));
     assert!(args.windows(2).any(|w| w == ["--gate", "all"]));
+    assert!(args.contains(&"--explain-skipped".to_string()));
 }
 
 #[test]

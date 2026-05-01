@@ -90,6 +90,24 @@ pub struct MirroredDirectory {
     pub total_lines: usize,
 }
 
+/// Number of files skipped by one built-in duplicates ignore pattern.
+#[derive(Debug, Clone, Default)]
+pub struct DefaultIgnoreSkipCount {
+    /// Glob pattern that matched skipped files.
+    pub pattern: &'static str,
+    /// Number of files skipped by this pattern.
+    pub count: usize,
+}
+
+/// Human-format-only skipped-file stats for built-in duplicates ignores.
+#[derive(Debug, Clone, Default)]
+pub struct DefaultIgnoreSkips {
+    /// Total number of files skipped by built-in duplicates ignores.
+    pub total: usize,
+    /// Per-pattern skip counts, in default pattern order.
+    pub by_pattern: Vec<DefaultIgnoreSkipCount>,
+}
+
 /// Overall duplication analysis report.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct DuplicationReport {
@@ -189,6 +207,7 @@ mod tests {
         assert_eq!(config.min_lines, 5);
         assert!((config.threshold - 0.0).abs() < f64::EPSILON);
         assert!(config.ignore.is_empty());
+        assert!(config.ignore_defaults);
         assert!(!config.skip_local);
         assert!(!config.cross_language);
         assert!(config.normalization.ignore_identifiers.is_none());

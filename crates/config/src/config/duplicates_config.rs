@@ -49,6 +49,12 @@ pub struct DuplicatesConfig {
     #[serde(default)]
     pub ignore: Vec<String>,
 
+    /// Merge built-in generated-framework ignore patterns with `ignore`.
+    ///
+    /// Set to `false` to use only the user-provided `ignore` list.
+    #[serde(default = "default_true")]
+    pub ignore_defaults: bool,
+
     /// Only report cross-directory duplicates.
     #[serde(default)]
     pub skip_local: bool,
@@ -97,6 +103,7 @@ impl Default for DuplicatesConfig {
             min_lines: default_min_lines(),
             threshold: 0.0,
             ignore: vec![],
+            ignore_defaults: true,
             skip_local: false,
             cross_language: false,
             ignore_imports: false,
@@ -218,6 +225,7 @@ mod tests {
         assert_eq!(config.min_lines, 5);
         assert!((config.threshold - 0.0).abs() < f64::EPSILON);
         assert!(config.ignore.is_empty());
+        assert!(config.ignore_defaults);
         assert!(!config.skip_local);
         assert!(!config.cross_language);
         assert!(!config.ignore_imports);
@@ -372,6 +380,7 @@ mod tests {
             "minLines": 10,
             "threshold": 5.0,
             "ignore": ["**/vendor/**"],
+            "ignoreDefaults": false,
             "skipLocal": true,
             "crossLanguage": true,
             "ignoreImports": true
@@ -383,6 +392,7 @@ mod tests {
         assert_eq!(config.min_lines, 10);
         assert!((config.threshold - 5.0).abs() < f64::EPSILON);
         assert_eq!(config.ignore, vec!["**/vendor/**"]);
+        assert!(!config.ignore_defaults);
         assert!(config.skip_local);
         assert!(config.cross_language);
         assert!(config.ignore_imports);
@@ -396,6 +406,15 @@ mod tests {
         assert_eq!(config.mode, DetectionMode::Weak);
         assert_eq!(config.min_tokens, 50); // default
         assert_eq!(config.min_lines, 5); // default
+        assert!(config.ignore_defaults);
+    }
+
+    #[test]
+    fn duplicates_config_json_ignore_defaults_merges_by_default() {
+        let json = r#"{"ignore": ["**/foo/**"]}"#;
+        let config: DuplicatesConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.ignore, vec!["**/foo/**"]);
+        assert!(config.ignore_defaults);
     }
 
     #[test]
@@ -538,6 +557,7 @@ ignoreNumericValues = false
             min_lines: 10,
             threshold: 5.5,
             ignore: vec!["test/**".to_string()],
+            ignore_defaults: false,
             skip_local: true,
             cross_language: true,
             ignore_imports: true,
@@ -556,6 +576,7 @@ ignoreNumericValues = false
         assert_eq!(restored.min_tokens, 100);
         assert_eq!(restored.min_lines, 10);
         assert!((restored.threshold - 5.5).abs() < f64::EPSILON);
+        assert!(!restored.ignore_defaults);
         assert!(restored.skip_local);
         assert!(restored.cross_language);
         assert_eq!(restored.min_corpus_size_for_shingle_filter, 2048);

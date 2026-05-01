@@ -49,6 +49,9 @@ pub fn build_find_dupes_args(params: &FindDupesParams) -> Result<Vec<String>, St
     if params.ignore_imports == Some(true) {
         args.push("--ignore-imports".to_string());
     }
+    if params.explain_skipped == Some(true) {
+        args.push("--explain-skipped".to_string());
+    }
     if let Some(top) = params.top {
         args.extend(["--top".to_string(), top.to_string()]);
     }

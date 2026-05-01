@@ -1,5 +1,6 @@
 use super::common::{create_config, fixture_path};
 use fallow_core::discover::{DiscoveredFile, FileId};
+use rustc_hash::FxHashSet;
 
 #[test]
 fn duplicate_code_detects_exact_clones() {
@@ -236,4 +237,105 @@ fn ignore_imports_removes_import_only_clones() {
         "With ignore_imports=true, import-only clones should be eliminated, but found {} groups",
         report_without.clone_groups.len()
     );
+}
+
+fn default_ignore_fixture_files(root: &std::path::Path) -> Vec<DiscoveredFile> {
+    ["src/foo.ts", "lib/foo.js", ".next/static/chunks/foo.js"]
+        .into_iter()
+        .enumerate()
+        .map(|(idx, rel)| {
+            let path = root.join(rel);
+            let size_bytes = std::fs::metadata(&path)
+                .expect("fixture file should exist")
+                .len();
+            DiscoveredFile {
+                id: FileId(idx as u32),
+                path,
+                size_bytes,
+            }
+        })
+        .collect()
+}
+
+fn cloned_relative_files(
+    root: &std::path::Path,
+    report: &fallow_core::duplicates::DuplicationReport,
+) -> FxHashSet<String> {
+    report
+        .clone_groups
+        .iter()
+        .flat_map(|group| group.instances.iter())
+        .map(|instance| {
+            instance
+                .file
+                .strip_prefix(root)
+                .expect("clone path should be under fixture root")
+                .to_string_lossy()
+                .replace('\\', "/")
+        })
+        .collect()
+}
+
+#[test]
+fn duplicate_default_ignores_skip_framework_cache_but_not_lib() {
+    let root = fixture_path("duplicates_default_ignores");
+    let files = default_ignore_fixture_files(&root);
+    let dupes_config = fallow_core::duplicates::DuplicatesConfig {
+        min_tokens: 10,
+        min_lines: 3,
+        cross_language: true,
+        ..Default::default()
+    };
+
+    let (report, skips) = fallow_core::duplicates::find_duplicates_with_default_ignore_skips(
+        &root,
+        &files,
+        &dupes_config,
+    );
+    let cloned_files = cloned_relative_files(&root, &report);
+
+    assert!(cloned_files.contains("src/foo.ts"));
+    assert!(
+        cloned_files.contains("lib/foo.js"),
+        "lib is authored-looking and must not be a default ignore"
+    );
+    assert!(
+        !cloned_files.contains(".next/static/chunks/foo.js"),
+        ".next should be skipped by built-in duplicates ignores"
+    );
+    assert_eq!(skips.total, 1);
+    assert_eq!(skips.by_pattern[0].pattern, "**/.next/**");
+    assert_eq!(skips.by_pattern[0].count, 1);
+}
+
+#[test]
+fn duplicate_ignore_defaults_false_replaces_defaults_with_user_ignore() {
+    let root = fixture_path("duplicates_default_ignores");
+    let files = default_ignore_fixture_files(&root);
+    let dupes_config = fallow_core::duplicates::DuplicatesConfig {
+        min_tokens: 10,
+        min_lines: 3,
+        cross_language: true,
+        ignore_defaults: false,
+        ignore: vec!["**/lib/**".to_string()],
+        ..Default::default()
+    };
+
+    let (report, skips) = fallow_core::duplicates::find_duplicates_with_default_ignore_skips(
+        &root,
+        &files,
+        &dupes_config,
+    );
+    let cloned_files = cloned_relative_files(&root, &report);
+
+    assert!(cloned_files.contains("src/foo.ts"));
+    assert!(
+        !cloned_files.contains("lib/foo.js"),
+        "user ignore should remove lib when defaults are disabled"
+    );
+    assert!(
+        cloned_files.contains(".next/static/chunks/foo.js"),
+        ".next should be analyzed when ignoreDefaults is false"
+    );
+    assert_eq!(skips.total, 0);
 }

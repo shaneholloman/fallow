@@ -2,7 +2,7 @@ use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use fallow_config::{OutputFormat, ResolvedConfig};
-use fallow_core::duplicates::DuplicationReport;
+use fallow_core::duplicates::{DefaultIgnoreSkips, DuplicationReport};
 
 use crate::baseline::{DuplicationBaselineData, filter_new_clone_groups, recompute_stats};
 use crate::check::{get_changed_files, resolve_workspace_scope};
@@ -53,6 +53,7 @@ pub struct DupesOptions<'a> {
     pub workspace: Option<&'a [String]>,
     pub changed_workspaces: Option<&'a str>,
     pub explain: bool,
+    pub explain_skipped: bool,
     /// When true, emit a condensed summary instead of full item-level output.
     pub summary: bool,
     /// `dupes` accepts `--group-by` for parity with `check` / `health`. The
@@ -92,6 +93,7 @@ fn build_dupes_config(
         min_lines: opts.min_lines,
         threshold: opts.threshold,
         ignore: toml_dupes.ignore.clone(),
+        ignore_defaults: toml_dupes.ignore_defaults,
         skip_local: opts.skip_local,
         cross_language: opts.cross_language || toml_dupes.cross_language,
         ignore_imports: opts.ignore_imports || toml_dupes.ignore_imports,
@@ -144,9 +146,11 @@ fn filter_by_workspaces(
 /// Result of executing duplication analysis without printing.
 pub struct DupesResult {
     pub report: DuplicationReport,
+    pub default_ignore_skips: DefaultIgnoreSkips,
     pub config: ResolvedConfig,
     pub elapsed: Duration,
     pub threshold: f64,
+    pub explain_skipped: bool,
 }
 
 /// Run duplication analysis, filtering, and baseline handling. Returns results without printing.
@@ -189,7 +193,7 @@ fn execute_dupes_inner(
     let effective_changed_files: Option<&rustc_hash::FxHashSet<std::path::PathBuf>> =
         opts.changed_files.or(changed_files_from_since.as_ref());
 
-    let mut report = run_duplication_analysis(
+    let (mut report, default_ignore_skips) = run_duplication_analysis(
         opts,
         &config,
         &files,
@@ -336,9 +340,11 @@ fn execute_dupes_inner(
 
     Ok(DupesResult {
         report,
+        default_ignore_skips,
         config,
         elapsed,
         threshold: opts.threshold,
+        explain_skipped: opts.explain_skipped,
     })
 }
 
@@ -365,17 +371,17 @@ fn run_duplication_analysis(
     files: &[fallow_types::discover::DiscoveredFile],
     dupes_config: &fallow_config::DuplicatesConfig,
     changed_files: Option<&rustc_hash::FxHashSet<std::path::PathBuf>>,
-) -> DuplicationReport {
+) -> (DuplicationReport, DefaultIgnoreSkips) {
     if let Some(changed_files) = changed_files {
         if opts.no_cache {
-            fallow_core::duplicates::find_duplicates_touching_files(
+            fallow_core::duplicates::find_duplicates_touching_files_with_default_ignore_skips(
                 &config.root,
                 files,
                 dupes_config,
                 changed_files,
             )
         } else {
-            fallow_core::duplicates::find_duplicates_touching_files_cached(
+            fallow_core::duplicates::find_duplicates_touching_files_cached_with_default_ignore_skips(
                 &config.root,
                 files,
                 dupes_config,
@@ -384,9 +390,13 @@ fn run_duplication_analysis(
             )
         }
     } else if opts.no_cache {
-        fallow_core::duplicates::find_duplicates(&config.root, files, dupes_config)
+        fallow_core::duplicates::find_duplicates_with_default_ignore_skips(
+            &config.root,
+            files,
+            dupes_config,
+        )
     } else {
-        fallow_core::duplicates::find_duplicates_cached(
+        fallow_core::duplicates::find_duplicates_cached_with_default_ignore_skips(
             &config.root,
             files,
             dupes_config,
@@ -416,6 +426,7 @@ pub fn print_dupes_result(
         baseline_matched: None,
         health_action_opts: report::HealthActionOptions::default(),
     };
+    print_default_ignore_note(result, quiet);
     let report_code = report::print_duplication_report(&result.report, &ctx, result.config.output);
     if report_code != ExitCode::SUCCESS {
         return report_code;
@@ -477,7 +488,40 @@ fn print_dupes_result_with_grouping(
         baseline_matched: None,
         health_action_opts: report::HealthActionOptions::default(),
     };
+    print_default_ignore_note(result, quiet);
     report::print_duplication_report(&result.report, &ctx, result.config.output)
+}
+
+pub fn print_default_ignore_note(result: &DupesResult, quiet: bool) {
+    if quiet
+        || !matches!(
+            result.config.output,
+            OutputFormat::Human | OutputFormat::Markdown
+        )
+    {
+        return;
+    }
+
+    let skips = &result.default_ignore_skips;
+    if skips.total == 0 {
+        return;
+    }
+
+    let noun = if skips.total == 1 { "file" } else { "files" };
+    if result.explain_skipped {
+        eprintln!(
+            "note: skipped {} {noun} matching default duplicates ignores:",
+            skips.total
+        );
+        for entry in &skips.by_pattern {
+            eprintln!("  {:>5}  {}", entry.count, entry.pattern);
+        }
+    } else {
+        eprintln!(
+            "note: skipped {} {noun} matching default duplicates ignores (use --explain-skipped for the list)",
+            skips.total
+        );
+    }
 }
 
 #[cfg(test)]
@@ -559,6 +603,7 @@ mod tests {
             workspace: None,
             changed_workspaces: None,
             explain: false,
+            explain_skipped: false,
             summary: false,
             group_by: None,
         }

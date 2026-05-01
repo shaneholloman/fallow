@@ -17,8 +17,9 @@ pub(crate) mod types;
 
 use rustc_hash::FxHashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
-use globset::{Glob, GlobSet, GlobSetBuilder};
+use globset::{Glob, GlobMatcher, GlobSet, GlobSetBuilder};
 use rayon::prelude::*;
 use rustc_hash::FxHashSet;
 
@@ -27,12 +28,30 @@ use detect::CloneDetector;
 use normalize::normalize_and_hash_resolved;
 use tokenize::{tokenize_file, tokenize_file_cross_language};
 pub use types::{
-    CloneFamily, CloneGroup, CloneInstance, DetectionMode, DuplicatesConfig, DuplicationReport,
-    DuplicationStats, MirroredDirectory, RefactoringKind, RefactoringSuggestion,
+    CloneFamily, CloneGroup, CloneInstance, DefaultIgnoreSkipCount, DefaultIgnoreSkips,
+    DetectionMode, DuplicatesConfig, DuplicationReport, DuplicationStats, MirroredDirectory,
+    RefactoringKind, RefactoringSuggestion,
 };
 
 use crate::discover::{self, DiscoveredFile};
 use crate::suppress::{self, IssueKind, Suppression};
+
+/// Built-in duplicates ignores for generated framework and tool output.
+///
+/// These are engine policy defaults, not config-file defaults: `duplicates.ignore`
+/// stays empty in round-tripped configs, while the analyzer merges these patterns
+/// unless `duplicates.ignoreDefaults` is set to `false`.
+pub const DUPES_DEFAULT_IGNORES: &[&str] = &[
+    "**/.next/**",
+    "**/.nuxt/**",
+    "**/.svelte-kit/**",
+    "**/.turbo/**",
+    "**/.parcel-cache/**",
+    "**/.vite/**",
+    "**/.cache/**",
+    "**/out/**",
+    "**/storybook-static/**",
+];
 
 #[derive(Clone)]
 pub(super) struct TokenizedFile {
@@ -42,6 +61,28 @@ pub(super) struct TokenizedFile {
     metadata: Option<std::fs::Metadata>,
     cache_hit: bool,
     suppressions: Vec<Suppression>,
+}
+
+struct IgnoreSet {
+    all: GlobSet,
+    defaults: Vec<(&'static str, GlobMatcher)>,
+}
+
+impl IgnoreSet {
+    fn is_match(&self, path: &Path) -> bool {
+        self.all.is_match(path)
+    }
+
+    fn default_match_index(&self, path: &Path) -> Option<usize> {
+        self.defaults
+            .iter()
+            .position(|(_, matcher)| matcher.is_match(path))
+    }
+}
+
+struct DuplicationRun {
+    report: DuplicationReport,
+    default_ignore_skips: DefaultIgnoreSkips,
 }
 
 /// Run duplication detection on the given files.
@@ -57,7 +98,18 @@ pub fn find_duplicates(
     files: &[DiscoveredFile],
     config: &DuplicatesConfig,
 ) -> DuplicationReport {
-    find_duplicates_inner(root, files, config, None, None)
+    find_duplicates_inner(root, files, config, None, None).report
+}
+
+/// Run duplication detection and return human-format sidecar metadata for
+/// files skipped by built-in duplicates ignores.
+pub fn find_duplicates_with_default_ignore_skips(
+    root: &Path,
+    files: &[DiscoveredFile],
+    config: &DuplicatesConfig,
+) -> (DuplicationReport, DefaultIgnoreSkips) {
+    let run = find_duplicates_inner(root, files, config, None, None);
+    (run.report, run.default_ignore_skips)
 }
 
 /// Run duplication detection with the persistent token cache enabled.
@@ -67,7 +119,19 @@ pub fn find_duplicates_cached(
     config: &DuplicatesConfig,
     cache_root: &Path,
 ) -> DuplicationReport {
-    find_duplicates_inner(root, files, config, None, Some(cache_root))
+    find_duplicates_inner(root, files, config, None, Some(cache_root)).report
+}
+
+/// Run cached duplication detection and return human-format sidecar metadata for
+/// files skipped by built-in duplicates ignores.
+pub fn find_duplicates_cached_with_default_ignore_skips(
+    root: &Path,
+    files: &[DiscoveredFile],
+    config: &DuplicatesConfig,
+    cache_root: &Path,
+) -> (DuplicationReport, DefaultIgnoreSkips) {
+    let run = find_duplicates_inner(root, files, config, None, Some(cache_root));
+    (run.report, run.default_ignore_skips)
 }
 
 /// Run duplication detection and only return clone groups touching `focus_files`.
@@ -85,7 +149,23 @@ pub fn find_duplicates_touching_files(
     config: &DuplicatesConfig,
     focus_files: &FxHashSet<PathBuf>,
 ) -> DuplicationReport {
-    find_duplicates_inner(root, files, config, Some(focus_files), None)
+    find_duplicates_inner(root, files, config, Some(focus_files), None).report
+}
+
+/// Run focused duplication detection and return human-format sidecar metadata
+/// for files skipped by built-in duplicates ignores.
+#[expect(
+    clippy::implicit_hasher,
+    reason = "fallow uses FxHashSet for changed-file sets throughout analysis"
+)]
+pub fn find_duplicates_touching_files_with_default_ignore_skips(
+    root: &Path,
+    files: &[DiscoveredFile],
+    config: &DuplicatesConfig,
+    focus_files: &FxHashSet<PathBuf>,
+) -> (DuplicationReport, DefaultIgnoreSkips) {
+    let run = find_duplicates_inner(root, files, config, Some(focus_files), None);
+    (run.report, run.default_ignore_skips)
 }
 
 /// Run focused duplication detection with the persistent token cache enabled.
@@ -100,7 +180,24 @@ pub fn find_duplicates_touching_files_cached(
     focus_files: &FxHashSet<PathBuf>,
     cache_root: &Path,
 ) -> DuplicationReport {
-    find_duplicates_inner(root, files, config, Some(focus_files), Some(cache_root))
+    find_duplicates_inner(root, files, config, Some(focus_files), Some(cache_root)).report
+}
+
+/// Run cached focused duplication detection and return human-format sidecar
+/// metadata for files skipped by built-in duplicates ignores.
+#[expect(
+    clippy::implicit_hasher,
+    reason = "fallow uses FxHashSet for changed-file sets throughout analysis"
+)]
+pub fn find_duplicates_touching_files_cached_with_default_ignore_skips(
+    root: &Path,
+    files: &[DiscoveredFile],
+    config: &DuplicatesConfig,
+    focus_files: &FxHashSet<PathBuf>,
+    cache_root: &Path,
+) -> (DuplicationReport, DefaultIgnoreSkips) {
+    let run = find_duplicates_inner(root, files, config, Some(focus_files), Some(cache_root));
+    (run.report, run.default_ignore_skips)
 }
 
 fn find_duplicates_inner(
@@ -109,11 +206,18 @@ fn find_duplicates_inner(
     config: &DuplicatesConfig,
     focus_files: Option<&FxHashSet<PathBuf>>,
     cache_root: Option<&Path>,
-) -> DuplicationReport {
+) -> DuplicationRun {
     let _span = tracing::info_span!("find_duplicates").entered();
 
-    // Build extra ignore patterns for duplication analysis
-    let extra_ignores = build_ignore_set(&config.ignore);
+    let extra_ignores = build_ignore_set(config);
+    let default_skip_counts = extra_ignores
+        .as_ref()
+        .map(|ignores| {
+            std::iter::repeat_with(|| AtomicUsize::new(0))
+                .take(ignores.defaults.len())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
 
     // Resolve normalization: mode defaults + user overrides
     let normalization =
@@ -137,10 +241,14 @@ fn find_duplicates_inner(
         .filter_map(|file| {
             // Apply extra ignore patterns
             let relative = file.path.strip_prefix(root).unwrap_or(&file.path);
-            if let Some(ref ignores) = extra_ignores
-                && ignores.is_match(relative)
-            {
-                return None;
+            if let Some(ref ignores) = extra_ignores {
+                if let Some(index) = ignores.default_match_index(relative) {
+                    default_skip_counts[index].fetch_add(1, Ordering::Relaxed);
+                    return None;
+                }
+                if ignores.is_match(relative) {
+                    return None;
+                }
             }
 
             let metadata = std::fs::metadata(&file.path).ok()?;
@@ -266,6 +374,9 @@ fn find_duplicates_inner(
         apply_line_suppressions(&mut report, &suppressions_by_file);
     }
 
+    let default_ignore_skips =
+        build_default_ignore_skips(extra_ignores.as_ref(), &default_skip_counts);
+
     // Step 6: Group into families with refactoring suggestions
     report.clone_families = families::group_into_families(&report.clone_groups, root);
 
@@ -277,7 +388,10 @@ fn find_duplicates_inner(
     // Parallel tokenization (par_iter) doesn't guarantee collection order.
     report.sort();
 
-    report
+    DuplicationRun {
+        report,
+        default_ignore_skips,
+    }
 }
 
 /// Filter out clone instances that are suppressed by line-level comments.
@@ -316,14 +430,30 @@ pub fn find_duplicates_in_project(root: &Path, config: &DuplicatesConfig) -> Dup
     find_duplicates(root, &files, config)
 }
 
-/// Build a `GlobSet` from ignore patterns.
-fn build_ignore_set(patterns: &[String]) -> Option<GlobSet> {
-    if patterns.is_empty() {
+/// Build a merged ignore set from built-in and user-provided duplicates ignores.
+fn build_ignore_set(config: &DuplicatesConfig) -> Option<IgnoreSet> {
+    if !config.ignore_defaults && config.ignore.is_empty() {
         return None;
     }
 
     let mut builder = GlobSetBuilder::new();
-    for pattern in patterns {
+    let mut defaults = Vec::new();
+
+    if config.ignore_defaults {
+        for pattern in DUPES_DEFAULT_IGNORES {
+            match Glob::new(pattern) {
+                Ok(glob) => {
+                    defaults.push((*pattern, glob.compile_matcher()));
+                    builder.add(glob);
+                }
+                Err(e) => {
+                    tracing::warn!("Invalid default duplication ignore pattern '{pattern}': {e}");
+                }
+            }
+        }
+    }
+
+    for pattern in &config.ignore {
         match Glob::new(pattern) {
             Ok(glob) => {
                 builder.add(glob);
@@ -334,7 +464,29 @@ fn build_ignore_set(patterns: &[String]) -> Option<GlobSet> {
         }
     }
 
-    builder.build().ok()
+    builder.build().ok().map(|all| IgnoreSet { all, defaults })
+}
+
+fn build_default_ignore_skips(
+    ignores: Option<&IgnoreSet>,
+    counts: &[AtomicUsize],
+) -> DefaultIgnoreSkips {
+    let Some(ignores) = ignores else {
+        return DefaultIgnoreSkips::default();
+    };
+
+    let by_pattern = ignores
+        .defaults
+        .iter()
+        .zip(counts)
+        .filter_map(|((pattern, _), count)| {
+            let count = count.load(Ordering::Relaxed);
+            (count > 0).then_some(DefaultIgnoreSkipCount { pattern, count })
+        })
+        .collect::<Vec<_>>();
+    let total = by_pattern.iter().map(|entry| entry.count).sum();
+
+    DefaultIgnoreSkips { total, by_pattern }
 }
 
 #[cfg(test)]
@@ -353,17 +505,49 @@ mod tests {
 
     #[test]
     fn build_ignore_set_empty() {
-        assert!(build_ignore_set(&[]).is_none());
+        let config = DuplicatesConfig {
+            ignore_defaults: false,
+            ..DuplicatesConfig::default()
+        };
+        assert!(build_ignore_set(&config).is_none());
     }
 
     #[test]
     fn build_ignore_set_valid_patterns() {
-        let set = build_ignore_set(&["**/*.test.ts".to_string(), "**/*.spec.ts".to_string()]);
+        let config = DuplicatesConfig {
+            ignore_defaults: false,
+            ignore: vec!["**/*.test.ts".to_string(), "**/*.spec.ts".to_string()],
+            ..DuplicatesConfig::default()
+        };
+        let set = build_ignore_set(&config);
         assert!(set.is_some());
         let set = set.unwrap();
-        assert!(set.is_match("src/foo.test.ts"));
-        assert!(set.is_match("src/bar.spec.ts"));
-        assert!(!set.is_match("src/baz.ts"));
+        assert!(set.is_match(Path::new("src/foo.test.ts")));
+        assert!(set.is_match(Path::new("src/bar.spec.ts")));
+        assert!(!set.is_match(Path::new("src/baz.ts")));
+    }
+
+    #[test]
+    fn build_ignore_set_merges_defaults_with_user_patterns() {
+        let config = DuplicatesConfig {
+            ignore: vec!["**/foo/**".to_string()],
+            ..DuplicatesConfig::default()
+        };
+        let set = build_ignore_set(&config).expect("ignore set");
+        assert!(set.is_match(Path::new(".next/static/chunks/app.js")));
+        assert!(set.is_match(Path::new("src/foo/generated.js")));
+    }
+
+    #[test]
+    fn build_ignore_set_ignore_defaults_false_uses_only_user_patterns() {
+        let config = DuplicatesConfig {
+            ignore_defaults: false,
+            ignore: vec!["**/foo/**".to_string()],
+            ..DuplicatesConfig::default()
+        };
+        let set = build_ignore_set(&config).expect("ignore set");
+        assert!(!set.is_match(Path::new(".next/static/chunks/app.js")));
+        assert!(set.is_match(Path::new("src/foo/generated.js")));
     }
 
     #[test]

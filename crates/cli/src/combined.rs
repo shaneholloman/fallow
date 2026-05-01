@@ -32,6 +32,7 @@ pub struct CombinedOptions<'a> {
     pub changed_workspaces: Option<&'a str>,
     pub group_by: Option<crate::GroupBy>,
     pub explain: bool,
+    pub explain_skipped: bool,
     pub performance: bool,
     pub summary: bool,
     pub run_check: bool,
@@ -670,6 +671,7 @@ fn run_combined_dupes(
         workspace: opts.workspace,
         changed_workspaces: opts.changed_workspaces,
         explain: opts.explain,
+        explain_skipped: opts.explain_skipped,
         summary: opts.summary,
         group_by: opts.group_by,
     };

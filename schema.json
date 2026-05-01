@@ -95,6 +95,7 @@
         "minLines": 5,
         "threshold": 0.0,
         "ignore": [],
+        "ignoreDefaults": true,
         "skipLocal": false,
         "crossLanguage": false,
         "ignoreImports": false,
@@ -592,6 +593,11 @@
             "type": "string"
           },
           "default": []
+        },
+        "ignoreDefaults": {
+          "description": "Merge built-in generated-framework ignore patterns with `ignore`.\n\nSet to `false` to use only the user-provided `ignore` list.",
+          "type": "boolean",
+          "default": true
         },
         "skipLocal": {
           "description": "Only report cross-directory duplicates.",

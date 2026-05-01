@@ -187,6 +187,10 @@ pub struct FindDupesParams {
     /// Exclude import declarations from clone detection (reduces noise from sorted import blocks).
     pub ignore_imports: Option<bool>,
 
+    /// Show a per-pattern breakdown for default duplicates ignores.
+    /// Human-format only (human/markdown CLI output); MCP JSON responses suppress the note.
+    pub explain_skipped: Option<bool>,
+
     /// Show only the N largest clone groups.
     pub top: Option<usize>,
 
@@ -688,6 +692,10 @@ pub struct AuditParams {
     /// are excluded from the audit verdict. Passed through to the CLI's
     /// `--dupes-baseline` flag.
     pub dupes_baseline: Option<String>,
+
+    /// Show a per-pattern breakdown for default duplicates ignores.
+    /// Human-format only (human/markdown CLI output); MCP JSON responses suppress the note.
+    pub explain_skipped: Option<bool>,
 
     /// Maximum CRAP score threshold (default 30.0). Functions meeting or
     /// exceeding this score cause audit to fail. Pair with `coverage` on

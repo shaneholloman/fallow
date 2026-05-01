@@ -85,6 +85,7 @@ pub struct AuditOptions<'a> {
     pub workspace: Option<&'a [String]>,
     pub changed_workspaces: Option<&'a str>,
     pub explain: bool,
+    pub explain_skipped: bool,
     pub performance: bool,
     pub group_by: Option<crate::GroupBy>,
     /// Baseline file for dead-code analysis (as produced by `fallow dead-code --save-baseline`).
@@ -400,6 +401,7 @@ fn compute_base_snapshot(
         workspace: opts.workspace,
         changed_workspaces: None,
         explain: false,
+        explain_skipped: false,
         performance: false,
         group_by: opts.group_by,
         dead_code_baseline: None,
@@ -1689,6 +1691,7 @@ fn run_audit_dupes<'a>(
         workspace: opts.workspace,
         changed_workspaces: opts.changed_workspaces,
         explain: opts.explain,
+        explain_skipped: opts.explain_skipped,
         summary: false,
         group_by: opts.group_by,
     };
@@ -1863,6 +1866,10 @@ fn print_audit_human(result: &AuditResult, quiet: bool, explain: bool, output: O
             }
             crate::health::print_health_result(health, quiet, explain, None, None, false, false);
         }
+    }
+
+    if !has_dupe_groups && let Some(ref dupes) = result.dupes {
+        crate::dupes::print_default_ignore_note(dupes, quiet);
     }
 
     // Status line (stderr) — always last
@@ -2293,6 +2300,7 @@ mod tests {
             workspace: None,
             changed_workspaces: None,
             explain: false,
+            explain_skipped: false,
             performance: false,
             group_by: None,
             dead_code_baseline: None,
@@ -2362,6 +2370,7 @@ mod tests {
             workspace: None,
             changed_workspaces: None,
             explain: false,
+            explain_skipped: false,
             performance: true,
             group_by: None,
             dead_code_baseline: None,
@@ -2447,6 +2456,7 @@ mod tests {
             workspace: None,
             changed_workspaces: None,
             explain: false,
+            explain_skipped: false,
             performance: true,
             group_by: None,
             dead_code_baseline: None,
@@ -2522,6 +2532,7 @@ mod tests {
             workspace: None,
             changed_workspaces: None,
             explain: false,
+            explain_skipped: false,
             performance: true,
             group_by: None,
             dead_code_baseline: None,
@@ -2681,6 +2692,7 @@ mod tests {
             workspace: None,
             changed_workspaces: None,
             explain: false,
+            explain_skipped: false,
             performance: false,
             group_by: None,
             dead_code_baseline: None,
@@ -2772,6 +2784,7 @@ mod tests {
             workspace: None,
             changed_workspaces: None,
             explain: false,
+            explain_skipped: false,
             performance: false,
             group_by: None,
             dead_code_baseline: None,

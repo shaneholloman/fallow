@@ -55,6 +55,9 @@ pub fn build_audit_args(params: &AuditParams) -> Result<Vec<String>, String> {
     if let Some(ref path) = params.dupes_baseline {
         args.extend(["--dupes-baseline".to_string(), path.clone()]);
     }
+    if params.explain_skipped == Some(true) {
+        args.push("--explain-skipped".to_string());
+    }
     if let Some(max_crap) = params.max_crap {
         args.extend(["--max-crap".to_string(), format!("{max_crap}")]);
     }

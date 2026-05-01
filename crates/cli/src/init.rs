@@ -167,6 +167,11 @@ fn build_json_config(info: &ProjectInfo) -> String {
     // serde_json pretty-print + trailing newline
     let mut output = serde_json::to_string_pretty(&config)
         .expect("config built from json! literals is always serializable");
+    output = output.replacen(
+        "  \"rules\":",
+        "  \"duplicates\": {\n    // Common additions (uncomment to enable):\n    // \"ignore\": [\n    //   \"**/lib/**\",          // for repos that publish transpiled output to lib/\n    //   \"**/legacy/**\",       // for repos with legacy-build artifacts\n    //   \"**/__generated__/**\", // Relay, GraphQL Code Generator\n    //   \"**/generated/**\"     // OpenAPI, Protobuf codegen\n    // ]\n  },\n  \"rules\":",
+        1,
+    );
     output.push('\n');
     output
 }
@@ -207,6 +212,20 @@ fn build_toml_config(info: &ProjectInfo) -> String {
         lines.push(format!("packages = [{}]", patterns_str.join(", ")));
         lines.push(String::new());
     }
+
+    // Duplicates
+    lines.push("[duplicates]".to_string());
+    lines.push("# Common additions (uncomment to enable):".to_string());
+    lines.push("# ignore = [".to_string());
+    lines.push(
+        "#   \"**/lib/**\",          # for repos that publish transpiled output to lib/"
+            .to_string(),
+    );
+    lines.push("#   \"**/legacy/**\",       # for repos with legacy-build artifacts".to_string());
+    lines.push("#   \"**/__generated__/**\", # Relay, GraphQL Code Generator".to_string());
+    lines.push("#   \"**/generated/**\"     # OpenAPI, Protobuf codegen".to_string());
+    lines.push("# ]".to_string());
+    lines.push(String::new());
 
     // Rules
     lines.push(
@@ -722,6 +741,16 @@ mod tests {
         }
     }
 
+    fn parse_jsonc_config(content: &str) -> serde_json::Value {
+        let mut stripped = String::new();
+        std::io::Read::read_to_string(
+            &mut json_comments::StripComments::new(content.as_bytes()),
+            &mut stripped,
+        )
+        .expect("strip json comments");
+        serde_json::from_str(&stripped).expect("parse generated jsonc")
+    }
+
     #[test]
     fn init_creates_json_config_by_default() {
         let dir = tempfile::tempdir().unwrap();
@@ -777,14 +806,15 @@ mod tests {
     }
 
     #[test]
-    fn init_json_config_is_valid_json() {
+    fn init_json_config_is_valid_jsonc() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         run_init(&config_opts(root, false));
         let content = std::fs::read_to_string(root.join(".fallowrc.json")).unwrap();
-        let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+        let parsed = parse_jsonc_config(&content);
         assert!(parsed.is_object());
         assert!(parsed["$schema"].is_string());
+        assert!(content.contains("// Common additions (uncomment to enable):"));
     }
 
     #[test]
@@ -1233,9 +1263,10 @@ mod tests {
             has_storybook: false,
         };
         let json = build_json_config(&info);
-        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let parsed = parse_jsonc_config(&json);
         assert!(parsed["$schema"].is_string());
         assert!(parsed["entry"].is_array());
+        assert!(parsed["duplicates"].is_object());
         assert!(parsed["rules"].is_object());
         // JS extensions for non-TS project
         assert!(json.contains("{js,jsx,mjs}"));
@@ -1268,7 +1299,7 @@ mod tests {
             has_storybook: false,
         };
         let json = build_json_config(&info);
-        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let parsed = parse_jsonc_config(&json);
         assert!(parsed["workspaces"]["packages"].is_array());
         let packages = parsed["workspaces"]["packages"].as_array().unwrap();
         assert_eq!(packages.len(), 2);
@@ -1286,7 +1317,7 @@ mod tests {
             has_storybook: true,
         };
         let json = build_json_config(&info);
-        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let parsed = parse_jsonc_config(&json);
         let ignore = parsed["ignorePatterns"].as_array().unwrap();
         assert!(ignore.iter().any(|v| v == ".storybook/**"));
     }
@@ -1303,7 +1334,7 @@ mod tests {
             has_storybook: false,
         };
         let json = build_json_config(&info);
-        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let parsed = parse_jsonc_config(&json);
         assert_eq!(parsed["rules"]["unused-dependencies"], "warn");
     }
 
@@ -1336,6 +1367,8 @@ mod tests {
         };
         let toml = build_toml_config(&info);
         assert!(toml.contains("ignorePatterns = [\".storybook/**\"]"));
+        assert!(toml.contains("[duplicates]"));
+        assert!(toml.contains("#   \"**/lib/**\""));
     }
 
     #[test]
@@ -1353,7 +1386,7 @@ mod tests {
         assert_eq!(exit, ExitCode::SUCCESS);
 
         let content = std::fs::read_to_string(root.join(".fallowrc.json")).unwrap();
-        let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+        let parsed = parse_jsonc_config(&content);
         assert!(parsed["workspaces"]["packages"].is_array());
         assert!(content.contains("{ts,tsx,js,jsx}"));
     }

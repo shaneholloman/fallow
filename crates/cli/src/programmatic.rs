@@ -574,6 +574,7 @@ pub fn detect_duplication(options: &DuplicationOptions) -> ProgrammaticResult<se
         workspace: resolved.workspace.as_deref(),
         changed_workspaces: resolved.changed_workspaces.as_deref(),
         explain: resolved.explain,
+        explain_skipped: false,
         summary: false,
         group_by: None,
     };
