@@ -262,6 +262,43 @@ fn is_js_ts_extension(path: &Path) -> bool {
         })
 }
 
+fn is_plain_css_file(path: &Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| ext == "css")
+}
+
+fn is_bare_style_subpath(specifier: &str) -> bool {
+    is_bare_specifier(specifier)
+        && specifier.contains('/')
+        && Path::new(specifier)
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| {
+                ext.eq_ignore_ascii_case("css")
+                    || ext.eq_ignore_ascii_case("scss")
+                    || ext.eq_ignore_ascii_case("sass")
+                    || ext.eq_ignore_ascii_case("less")
+            })
+}
+
+fn try_css_relative_subpath_fallback(
+    ctx: &ResolveContext<'_>,
+    from_file: &Path,
+    specifier: &str,
+    from_style: bool,
+) -> Option<ResolveResult> {
+    if !is_plain_css_file(from_file) || !is_bare_style_subpath(specifier) {
+        return None;
+    }
+
+    let relative = format!("./{specifier}");
+    match resolve_specifier(ctx, from_file, &relative, from_style) {
+        ResolveResult::Unresolvable(_) => None,
+        result => Some(result),
+    }
+}
+
 fn is_node_modules_path(path: &Path) -> bool {
     path.components().any(|component| match component {
         std::path::Component::Normal(segment) => segment == "node_modules",
@@ -555,6 +592,12 @@ pub(super) fn resolve_specifier(
                 // Classifying them as NpmPackage would cause false "unlisted dependency" reports.
                 try_path_alias_fallback(ctx, specifier)
                     .unwrap_or_else(|| ResolveResult::Unresolvable(specifier.to_string()))
+            } else if let Some(result) =
+                try_css_relative_subpath_fallback(ctx, from_file, specifier, from_style)
+            {
+                result
+            } else if is_plain_css_file(from_file) && is_bare_style_subpath(specifier) {
+                ResolveResult::Unresolvable(specifier.to_string())
             } else if is_bare && is_valid_package_name(specifier) {
                 // Workspace package fallback: self-referencing and cross-workspace
                 // imports without node_modules symlinks. Resolves `@org/pkg/sub`

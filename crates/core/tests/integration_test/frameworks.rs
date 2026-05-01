@@ -267,6 +267,60 @@ fn css_apply_marks_tailwind_as_used() {
 }
 
 #[test]
+fn css_package_subpath_imports_resolve_from_node_modules() {
+    let root = fixture_path("css-package-subpath-import");
+    let config = create_config(root);
+    let results = fallow_core::analyze(&config).expect("analysis should succeed");
+
+    let unresolved_specs: Vec<&str> = results
+        .unresolved_imports
+        .iter()
+        .map(|u| u.specifier.as_str())
+        .collect();
+    assert!(
+        !unresolved_specs
+            .iter()
+            .any(|s| s.contains("tailwindcss/theme.css")),
+        "CSS package subpath import should resolve via node_modules: {unresolved_specs:?}"
+    );
+    assert!(
+        !unresolved_specs
+            .iter()
+            .any(|s| s.contains("tailwindcss/utilities.css")),
+        "CSS package subpath import should resolve via node_modules: {unresolved_specs:?}"
+    );
+    assert!(
+        !unresolved_specs
+            .iter()
+            .any(|s| s.contains("components/button.css")),
+        "CSS local subpath import should still resolve relative to the importing file: \
+         {unresolved_specs:?}"
+    );
+
+    let unused_dep_names: Vec<&str> = results
+        .unused_dependencies
+        .iter()
+        .map(|d| d.package_name.as_str())
+        .collect();
+    assert!(
+        !unused_dep_names.contains(&"tailwindcss"),
+        "tailwindcss imported via CSS package subpaths must not be unused: {unused_dep_names:?}"
+    );
+
+    let unused_file_names: Vec<String> = results
+        .unused_files
+        .iter()
+        .filter_map(|f| f.path.file_name())
+        .filter_map(|f| f.to_str())
+        .map(String::from)
+        .collect();
+    assert!(
+        !unused_file_names.contains(&"button.css".to_string()),
+        "local CSS subpath imports should keep nested CSS files reachable: {unused_file_names:?}"
+    );
+}
+
+#[test]
 fn tailwind_plugin_directive_marks_plugin_targets_used() {
     let root = fixture_path("tailwind-plugin-directive");
     let config = create_config(root);

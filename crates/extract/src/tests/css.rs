@@ -83,6 +83,16 @@ fn extracts_css_import_tailwind_package() {
 }
 
 #[test]
+fn extracts_css_package_subpath_import_as_bare() {
+    let info = parse_css(
+        r#"@import "tailwindcss/theme.css" layer(theme);"#,
+        "styles.css",
+    );
+    assert_eq!(info.imports.len(), 1);
+    assert_eq!(info.imports[0].source, "tailwindcss/theme.css");
+}
+
+#[test]
 fn scss_import_without_dot_slash_normalized() {
     let info = parse_css("@import 'app.scss';", "index.scss");
     assert_eq!(info.imports.len(), 1);

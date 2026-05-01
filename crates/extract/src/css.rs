@@ -89,8 +89,9 @@ fn is_css_url_import(source: &str) -> bool {
 }
 
 /// Normalize a CSS/SCSS import path to use `./` prefix for relative paths.
-/// CSS/SCSS resolve imports without `./` prefix as relative by default,
-/// unlike JS where unprefixed specifiers are bare (npm) specifiers.
+/// Bare file names such as `reset.css` stay relative for CSS ergonomics, while
+/// package subpaths such as `tailwindcss/theme.css` stay bare so bundler-style
+/// package CSS imports resolve through `node_modules`.
 ///
 /// When `is_scss` is true, extensionless specifiers that are not SCSS built-in
 /// modules (`sass:*`) are treated as relative imports (SCSS partial convention).
@@ -108,19 +109,22 @@ fn normalize_css_import_path(path: String, is_scss: bool) -> String {
     if path.starts_with('@') && path.contains('/') {
         return path;
     }
-    // Paths with CSS/SCSS extensions are relative file imports
+    let path_ref = std::path::Path::new(&path);
+    if !is_scss
+        && path.contains('/')
+        && path_ref
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(is_style_extension)
+    {
+        return path;
+    }
+    // Bare filenames with CSS/SCSS extensions are relative file imports.
     let ext = std::path::Path::new(&path)
         .extension()
         .and_then(|e| e.to_str());
     match ext {
-        Some(e)
-            if e.eq_ignore_ascii_case("css")
-                || e.eq_ignore_ascii_case("scss")
-                || e.eq_ignore_ascii_case("sass")
-                || e.eq_ignore_ascii_case("less") =>
-        {
-            format!("./{path}")
-        }
+        Some(e) if is_style_extension(e) => format!("./{path}"),
         _ => {
             // In SCSS, extensionless bare specifiers like `@use 'variables'` are
             // local partials, not npm packages. SCSS built-in modules (`sass:math`,
@@ -132,6 +136,13 @@ fn normalize_css_import_path(path: String, is_scss: bool) -> String {
             }
         }
     }
+}
+
+fn is_style_extension(ext: &str) -> bool {
+    ext.eq_ignore_ascii_case("css")
+        || ext.eq_ignore_ascii_case("scss")
+        || ext.eq_ignore_ascii_case("sass")
+        || ext.eq_ignore_ascii_case("less")
 }
 
 /// Strip comments from CSS/SCSS source to avoid matching directives inside comments.
@@ -670,6 +681,22 @@ mod tests {
     }
 
     #[test]
+    fn normalize_css_package_subpath_stays_bare() {
+        assert_eq!(
+            normalize_css_import_path("tailwindcss/theme.css".to_string(), false),
+            "tailwindcss/theme.css"
+        );
+    }
+
+    #[test]
+    fn normalize_css_package_subpath_with_dotted_name_stays_bare() {
+        assert_eq!(
+            normalize_css_import_path("highlight.js/styles/github.css".to_string(), false),
+            "highlight.js/styles/github.css"
+        );
+    }
+
+    #[test]
     fn normalize_bare_scss_gets_dot_slash() {
         assert_eq!(
             normalize_css_import_path("vars.scss".to_string(), false),
@@ -865,6 +892,13 @@ mod tests {
     fn extract_css_imports_at_import_quoted() {
         let imports = extract_css_imports(r#"@import "./reset.css";"#, false);
         assert_eq!(imports, vec!["./reset.css"]);
+    }
+
+    #[test]
+    fn extract_css_imports_package_subpath_stays_bare() {
+        let imports =
+            extract_css_imports(r#"@import "tailwindcss/theme.css" layer(theme);"#, false);
+        assert_eq!(imports, vec!["tailwindcss/theme.css"]);
     }
 
     #[test]

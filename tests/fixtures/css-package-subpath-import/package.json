@@ -1,0 +1,9 @@
+{
+  "name": "css-package-subpath-import",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "tailwindcss": "4.1.13"
+  },
+  "main": "src/main.ts"
+}
