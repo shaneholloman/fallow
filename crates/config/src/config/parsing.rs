@@ -2382,6 +2382,44 @@ minTokens = 100
         assert_eq!(resolved.rules.unused_exports, Severity::Error);
     }
 
+    // ── include-entry-exports config support (issue #249) ──────
+
+    #[test]
+    fn include_entry_exports_deserializes_from_camelcase_json() {
+        let json = r#"{ "includeEntryExports": true }"#;
+        let config: FallowConfig = serde_json::from_str(json).unwrap();
+        assert!(config.include_entry_exports);
+    }
+
+    #[test]
+    fn include_entry_exports_deserializes_from_camelcase_toml() {
+        let toml_str = "includeEntryExports = true\n";
+        let config: FallowConfig = toml::from_str(toml_str).unwrap();
+        assert!(config.include_entry_exports);
+    }
+
+    #[test]
+    fn include_entry_exports_default_is_false() {
+        let config: FallowConfig = serde_json::from_str("{}").unwrap();
+        assert!(!config.include_entry_exports);
+    }
+
+    #[test]
+    fn include_entry_exports_propagates_through_resolve() {
+        let config = FallowConfig {
+            include_entry_exports: true,
+            ..Default::default()
+        };
+        let resolved = config.resolve(
+            PathBuf::from("/tmp/test"),
+            OutputFormat::Human,
+            1,
+            true,
+            true,
+        );
+        assert!(resolved.include_entry_exports);
+    }
+
     // ── config format fallback to TOML for unknown extensions ───
 
     #[test]

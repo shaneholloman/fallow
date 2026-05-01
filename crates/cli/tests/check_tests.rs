@@ -1,7 +1,9 @@
 #[path = "common/mod.rs"]
 mod common;
 
-use common::{fixture_path, parse_json, redact_all, run_fallow, run_fallow_raw};
+use common::{
+    fixture_path, parse_json, redact_all, run_fallow, run_fallow_combined, run_fallow_raw,
+};
 
 // ---------------------------------------------------------------------------
 // Exit code semantics
@@ -302,6 +304,59 @@ fn check_human_output_unused_exports_only() {
     let root = fixture_path("basic-project");
     let redacted = redact_all(&output.stdout, &root);
     insta::assert_snapshot!("check_human_unused_exports_only", redacted);
+}
+
+// ---------------------------------------------------------------------------
+// --include-entry-exports: global flag + config-file support (issue #249)
+// ---------------------------------------------------------------------------
+
+fn combined_check_unused_export_names(json: &serde_json::Value) -> Vec<String> {
+    json["check"]["unused_exports"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v["export_name"].as_str().map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+#[test]
+fn include_entry_exports_works_in_combined_mode() {
+    // Issue #249: `fallow --include-entry-exports` (combined mode, no subcommand)
+    // previously failed clap parsing because the flag was only on `dead-code`.
+    let output = run_fallow_combined(
+        "entry-export-validation",
+        &["--include-entry-exports", "--format", "json", "--quiet"],
+    );
+    assert!(
+        !output.stderr.contains("unexpected argument")
+            && !output.stderr.contains("error: unrecognized argument"),
+        "combined mode must accept --include-entry-exports; stderr: {}",
+        output.stderr
+    );
+    let json = parse_json(&output);
+    let names = combined_check_unused_export_names(&json);
+    assert!(
+        names.iter().any(|n| n == "meatdata"),
+        "meatdata typo should be flagged in combined mode with --include-entry-exports, got: {names:?}"
+    );
+}
+
+#[test]
+fn include_entry_exports_via_config_file_in_combined_mode() {
+    // Enhancement from issue #249: `includeEntryExports: true` in `.fallowrc.json`
+    // should flow through to combined mode without needing the CLI flag.
+    let output = run_fallow_combined(
+        "entry-export-validation-config",
+        &["--format", "json", "--quiet"],
+    );
+    let json = parse_json(&output);
+    let names = combined_check_unused_export_names(&json);
+    assert!(
+        names.iter().any(|n| n == "meatdata"),
+        "meatdata should be flagged via includeEntryExports in config, got: {names:?}"
+    );
 }
 
 // NOTE: unused-deps human snapshot skipped — dependency iteration order is non-deterministic

@@ -30,6 +30,7 @@ fn external_plugin_config(root: &std::path::Path) -> fallow_config::ResolvedConf
         flags: fallow_config::FlagsConfig::default(),
         resolve: fallow_config::ResolveConfig::default(),
         sealed: false,
+        include_entry_exports: false,
     }
     .resolve(root.to_path_buf(), OutputFormat::Human, 4, true, true)
 }

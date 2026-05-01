@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`includeEntryExports` config option, and `--include-entry-exports` is now a global CLI flag.** Set `"includeEntryExports": true` (JSON / JSONC) or `includeEntryExports = true` (TOML) in your fallow config to opt in to entry-file export validation persistently, without passing `--include-entry-exports` on every run. The flag is now accepted in combined mode (`fallow --include-entry-exports`) as well as on `fallow dead-code` and `fallow audit`; previously the bare combined invocation rejected the flag because it was only defined on the `dead-code` subcommand. Thanks [@filipw01](https://github.com/filipw01) for the report. (Closes [#249](https://github.com/fallow-rs/fallow/issues/249))
+
 ## [2.59.0] - 2026-05-01
 
 ### Added

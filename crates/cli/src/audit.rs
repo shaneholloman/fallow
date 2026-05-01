@@ -98,6 +98,8 @@ pub struct AuditOptions<'a> {
     /// Functions meeting or exceeding this score cause audit to fail.
     pub max_crap: Option<f64>,
     pub gate: AuditGate,
+    /// Report unused exports in entry files (forwarded to the dead-code sub-pass).
+    pub include_entry_exports: bool,
 }
 
 // ── Auto-detect base branch ──────────────────────────────────────
@@ -409,6 +411,7 @@ fn compute_base_snapshot(
         dupes_baseline: None,
         max_crap: opts.max_crap,
         gate: AuditGate::All,
+        include_entry_exports: opts.include_entry_exports,
     };
 
     let base_changed_files = remap_focus_files(changed_files, opts.root, worktree.path());
@@ -1624,7 +1627,7 @@ fn run_audit_check<'a>(
         explain: opts.explain,
         top: None,
         file: &[],
-        include_entry_exports: false,
+        include_entry_exports: opts.include_entry_exports,
         summary: false,
         regression_opts: crate::regression::RegressionOpts {
             fail_on_regression: false,
@@ -2308,6 +2311,7 @@ mod tests {
             dupes_baseline: None,
             max_crap: None,
             gate: AuditGate::All,
+            include_entry_exports: false,
         };
 
         let result = execute_audit(&opts).expect("audit should execute");
@@ -2378,6 +2382,7 @@ mod tests {
             dupes_baseline: None,
             max_crap: None,
             gate: AuditGate::NewOnly,
+            include_entry_exports: false,
         };
 
         let result = execute_audit(&opts).expect("audit should execute");
@@ -2464,6 +2469,7 @@ mod tests {
             dupes_baseline: None,
             max_crap: None,
             gate: AuditGate::NewOnly,
+            include_entry_exports: false,
         };
 
         let result = execute_audit(&opts).expect("audit should execute");
@@ -2540,6 +2546,7 @@ mod tests {
             dupes_baseline: None,
             max_crap: None,
             gate: AuditGate::NewOnly,
+            include_entry_exports: false,
         };
 
         let result = execute_audit(&opts).expect("audit should execute");
@@ -2700,6 +2707,7 @@ mod tests {
             dupes_baseline: None,
             max_crap: None,
             gate: AuditGate::NewOnly,
+            include_entry_exports: false,
         };
 
         let result = execute_audit(&opts).expect("audit should execute");
@@ -2792,6 +2800,7 @@ mod tests {
             dupes_baseline: None,
             max_crap: None,
             gate: AuditGate::All,
+            include_entry_exports: false,
         };
 
         let result = execute_audit(&opts).expect("audit should execute");

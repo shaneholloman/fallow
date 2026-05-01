@@ -91,7 +91,9 @@ pub struct ResolvedConfig {
     /// Module resolver configuration (user-supplied import/export conditions).
     pub resolve: ResolveConfig,
     /// When true, entry file exports are subject to unused-export detection
-    /// instead of being automatically marked as used. Set via CLI `--include-entry-exports`.
+    /// instead of being automatically marked as used. Set via the global CLI flag
+    /// `--include-entry-exports` or via `includeEntryExports: true` in the fallow
+    /// config file; the CLI flag ORs with the config value (CLI wins when set).
     pub include_entry_exports: bool,
 }
 
@@ -233,7 +235,7 @@ impl FallowConfig {
             public_packages: self.public_packages,
             flags: self.flags,
             resolve: self.resolve,
-            include_entry_exports: false,
+            include_entry_exports: self.include_entry_exports,
         }
     }
 }
@@ -318,6 +320,7 @@ mod tests {
             flags: FlagsConfig::default(),
             resolve: ResolveConfig::default(),
             sealed: false,
+            include_entry_exports: false,
         };
         let resolved = config.resolve(
             PathBuf::from("/project"),
@@ -364,6 +367,7 @@ mod tests {
             flags: FlagsConfig::default(),
             resolve: ResolveConfig::default(),
             sealed: false,
+            include_entry_exports: false,
         };
         let resolved = config.resolve(
             PathBuf::from("/project"),
@@ -426,6 +430,7 @@ mod tests {
             flags: FlagsConfig::default(),
             resolve: ResolveConfig::default(),
             sealed: false,
+            include_entry_exports: false,
         };
         let resolved = config.resolve(
             PathBuf::from("/project"),
@@ -472,6 +477,7 @@ mod tests {
             flags: FlagsConfig::default(),
             resolve: ResolveConfig::default(),
             sealed: false,
+            include_entry_exports: false,
         }
     }
 

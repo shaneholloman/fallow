@@ -292,6 +292,7 @@ fn ignore_patterns_applied_to_workspace_package_json_for_unused_deps() {
         flags: fallow_config::FlagsConfig::default(),
         resolve: fallow_config::ResolveConfig::default(),
         sealed: false,
+        include_entry_exports: false,
     }
     .resolve(root, OutputFormat::Human, 4, true, true);
 

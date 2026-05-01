@@ -36,6 +36,7 @@ pub fn make_config(root: PathBuf, no_cache: bool) -> fallow_config::ResolvedConf
         flags: fallow_config::FlagsConfig::default(),
         resolve: fallow_config::ResolveConfig::default(),
         sealed: false,
+        include_entry_exports: false,
     }
     .resolve(root, OutputFormat::Human, 4, no_cache, true)
 }

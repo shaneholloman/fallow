@@ -38,6 +38,7 @@ fn create_boundary_config(
         flags: FlagsConfig::default(),
         resolve: ResolveConfig::default(),
         sealed: false,
+        include_entry_exports: false,
     }
     .resolve(root, OutputFormat::Human, 4, true, true)
 }
@@ -175,6 +176,7 @@ fn no_violations_when_rule_is_off() {
         flags: FlagsConfig::default(),
         resolve: ResolveConfig::default(),
         sealed: false,
+        include_entry_exports: false,
     }
     .resolve(root, OutputFormat::Human, 4, true, true);
 
@@ -224,6 +226,7 @@ fn preset_detects_boundary_violation() {
         flags: FlagsConfig::default(),
         resolve: ResolveConfig::default(),
         sealed: false,
+        include_entry_exports: false,
     }
     .resolve(root, OutputFormat::Human, 4, true, true);
     let results = fallow_core::analyze(&config).expect("analysis should succeed");
@@ -309,6 +312,7 @@ fn root_field_classifies_per_subtree() {
         flags: FlagsConfig::default(),
         resolve: ResolveConfig::default(),
         sealed: false,
+        include_entry_exports: false,
     }
     .resolve(root, OutputFormat::Human, 4, true, true);
     let results = fallow_core::analyze(&config).expect("analysis should succeed");
@@ -405,6 +409,7 @@ fn root_field_genuinely_disambiguates_flat_patterns() {
         flags: FlagsConfig::default(),
         resolve: ResolveConfig::default(),
         sealed: false,
+        include_entry_exports: false,
     }
     .resolve(root.clone(), OutputFormat::Human, 4, true, true);
     let flat_results = fallow_core::analyze(&flat_config).expect("analysis should succeed");
@@ -462,6 +467,7 @@ fn root_field_genuinely_disambiguates_flat_patterns() {
         flags: FlagsConfig::default(),
         resolve: ResolveConfig::default(),
         sealed: false,
+        include_entry_exports: false,
     }
     .resolve(root, OutputFormat::Human, 4, true, true);
     let scoped_results = fallow_core::analyze(&scoped_config).expect("analysis should succeed");
@@ -512,6 +518,7 @@ fn bulletproof_preset_detects_violation() {
         flags: FlagsConfig::default(),
         resolve: ResolveConfig::default(),
         sealed: false,
+        include_entry_exports: false,
     }
     .resolve(root, OutputFormat::Human, 4, true, true);
     let results = fallow_core::analyze(&config).expect("analysis should succeed");

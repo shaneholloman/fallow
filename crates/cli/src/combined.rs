@@ -43,6 +43,7 @@ pub struct CombinedOptions<'a> {
     pub score: bool,
     pub trend: bool,
     pub save_snapshot: Option<&'a Option<String>>,
+    pub include_entry_exports: bool,
     pub regression_opts: regression::RegressionOpts<'a>,
 }
 
@@ -104,7 +105,7 @@ pub fn run_combined(opts: &CombinedOptions<'_>) -> ExitCode {
             explain: opts.explain,
             top: None,
             file: &[],
-            include_entry_exports: false,
+            include_entry_exports: opts.include_entry_exports,
             summary: opts.summary,
             regression_opts: opts.regression_opts,
             retain_modules_for_health: opts.run_health,

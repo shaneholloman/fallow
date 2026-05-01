@@ -242,6 +242,13 @@ struct Cli {
     )]
     #[arg(long, value_name = "PATH", num_args = 0..=1, default_missing_value = "")]
     save_snapshot: Option<Option<String>>,
+
+    /// Report unused exports in entry files instead of auto-marking them as used.
+    /// Catches typos in framework exports (e.g., `meatdata` instead of `metadata`).
+    /// Also configurable via `includeEntryExports: true` in the config file; the
+    /// CLI flag wins when set.
+    #[arg(long, global = true)]
+    include_entry_exports: bool,
 }
 
 #[derive(Subcommand)]
@@ -326,11 +333,6 @@ enum Command {
         /// are reported. Useful for lint-staged pre-commit hooks.
         #[arg(long, value_name = "PATH")]
         file: Vec<std::path::PathBuf>,
-
-        /// Report unused exports in entry files instead of auto-marking them as used.
-        /// Catches typos in framework exports (e.g., `meatdata` instead of `metadata`).
-        #[arg(long)]
-        include_entry_exports: bool,
     },
 
     /// Watch for changes and re-run analysis
@@ -1769,6 +1771,7 @@ fn dispatch_bare_command(
         score: cli.score || cli.trend,
         trend: cli.trend,
         save_snapshot: cli.save_snapshot.as_ref(),
+        include_entry_exports: cli.include_entry_exports,
         regression_opts: build_regression_opts(
             cli.fail_on_regression,
             tolerance,
@@ -1824,7 +1827,6 @@ fn dispatch_subcommand(
             trace_dependency,
             top,
             file,
-            include_entry_exports,
         } => {
             let (output, quiet, fail_on_issues) = apply_ci_defaults(
                 cli.ci,
@@ -1882,7 +1884,7 @@ fn dispatch_subcommand(
                 explain: cli.explain,
                 top,
                 file: &file,
-                include_entry_exports,
+                include_entry_exports: cli.include_entry_exports,
                 summary: cli.summary,
                 regression_opts: build_regression_opts(
                     cli.fail_on_regression,
@@ -1915,6 +1917,7 @@ fn dispatch_subcommand(
                 production,
                 clear_screen: !no_clear,
                 explain: cli.explain,
+                include_entry_exports: cli.include_entry_exports,
             })
         }
         Command::Fix { dry_run, yes } => {
@@ -2203,6 +2206,7 @@ fn dispatch_subcommand(
                 dupes_baseline: resolved_dupes_baseline.as_deref(),
                 max_crap,
                 gate: gate.map_or(audit_cfg.gate, Into::into),
+                include_entry_exports: cli.include_entry_exports,
             })
         }
         Command::Schema => unreachable!("handled above"),

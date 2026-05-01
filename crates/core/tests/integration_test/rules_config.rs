@@ -102,6 +102,7 @@ fn ignore_exports_wildcard() {
         flags: fallow_config::FlagsConfig::default(),
         resolve: fallow_config::ResolveConfig::default(),
         sealed: false,
+        include_entry_exports: false,
     }
     .resolve(root, OutputFormat::Human, 4, true, true);
 
@@ -155,6 +156,7 @@ fn ignore_exports_specific() {
         flags: fallow_config::FlagsConfig::default(),
         resolve: fallow_config::ResolveConfig::default(),
         sealed: false,
+        include_entry_exports: false,
     }
     .resolve(root, OutputFormat::Human, 4, true, true);
 
@@ -329,6 +331,7 @@ fn ignore_dependencies_config() {
         flags: fallow_config::FlagsConfig::default(),
         resolve: fallow_config::ResolveConfig::default(),
         sealed: false,
+        include_entry_exports: false,
     }
     .resolve(root, OutputFormat::Human, 4, true, true);
 

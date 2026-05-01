@@ -354,6 +354,7 @@ mod tests {
             flags: fallow_config::FlagsConfig::default(),
             resolve: fallow_config::ResolveConfig::default(),
             sealed: false,
+            include_entry_exports: false,
         }
         .resolve(
             PathBuf::from("/project"),
@@ -618,6 +619,7 @@ mod tests {
             flags: fallow_config::FlagsConfig::default(),
             resolve: fallow_config::ResolveConfig::default(),
             sealed: false,
+            include_entry_exports: false,
             overrides: vec![fallow_config::ConfigOverride {
                 files: vec!["**/*.test.ts".to_string()],
                 rules: fallow_config::PartialRulesConfig {

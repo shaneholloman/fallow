@@ -187,7 +187,7 @@ inputs:
     description: 'Comma-separated issue types to report (dead-code command). Valid: unused-files, unused-exports, unused-types, unused-deps, unused-enum-members, unused-class-members, unresolved-imports, unlisted-deps, duplicate-exports, circular-deps'
     required: false
   include-entry-exports:
-    description: 'Report unused exports in entry files instead of auto-marking them as used. Catches framework export typos (dead-code command).'
+    description: 'Report unused exports in entry files instead of auto-marking them as used. Catches framework export typos. Applied to dead-code analysis; also configurable persistently via includeEntryExports in your fallow config.'
     required: false
     default: 'false'
   # Regression detection

@@ -719,6 +719,7 @@ mod tests {
                 flags: FlagsConfig::default(),
                 resolve: ResolveConfig::default(),
                 sealed: false,
+                include_entry_exports: false,
             }
             .resolve(root, OutputFormat::Human, 1, true, true)
         }

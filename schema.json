@@ -234,6 +234,11 @@
       "description": "Mark this config as sealed: `extends` paths must be file-relative and\nresolve within this config's own directory. `npm:` and `https:` extends\nare rejected. Useful for library publishers and monorepo sub-packages\nthat want to guarantee their config is self-contained and not subject\nto ancestor configs being injected via `extends`.\n\nDiscovery is unaffected (first-match-wins already stops the directory\nwalk at the nearest config). This only constrains `extends`.",
       "type": "boolean",
       "default": false
+    },
+    "includeEntryExports": {
+      "description": "Report unused exports in entry files instead of auto-marking them as\nused. Catches typos in framework exports (e.g. `meatdata` instead of\n`metadata`). The CLI flag `--include-entry-exports` (global) overrides\nthis when set; otherwise the config value is used.",
+      "type": "boolean",
+      "default": false
     }
   },
   "additionalProperties": false,

@@ -276,6 +276,13 @@ pub struct FallowConfig {
     /// walk at the nearest config). This only constrains `extends`.
     #[serde(default)]
     pub sealed: bool,
+
+    /// Report unused exports in entry files instead of auto-marking them as
+    /// used. Catches typos in framework exports (e.g. `meatdata` instead of
+    /// `metadata`). The CLI flag `--include-entry-exports` (global) overrides
+    /// this when set; otherwise the config value is used.
+    #[serde(default)]
+    pub include_entry_exports: bool,
 }
 
 /// Analysis-specific production-mode selector.

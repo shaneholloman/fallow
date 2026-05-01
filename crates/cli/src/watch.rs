@@ -24,6 +24,11 @@ pub struct WatchOptions<'a> {
     pub production: bool,
     pub clear_screen: bool,
     pub explain: bool,
+    /// Mirror of the global `--include-entry-exports` flag. When true, ORs into the
+    /// loaded config's `include_entry_exports` field so the CLI flag also takes
+    /// effect under watch mode (config-file-driven `includeEntryExports: true`
+    /// already worked through plain config loading).
+    pub include_entry_exports: bool,
 }
 
 type LoadConfigFn = fn(
@@ -136,7 +141,10 @@ fn reload_config_or_keep_previous(
         opts.production,
         opts.quiet,
     ) {
-        Ok(reloaded) => {
+        Ok(mut reloaded) => {
+            if opts.include_entry_exports {
+                reloaded.include_entry_exports = true;
+            }
             *config = reloaded;
         }
         Err(_) => {
@@ -158,7 +166,12 @@ pub fn run_watch(opts: &WatchOptions<'_>) -> ExitCode {
         opts.production,
         opts.quiet,
     ) {
-        Ok(c) => c,
+        Ok(mut c) => {
+            if opts.include_entry_exports {
+                c.include_entry_exports = true;
+            }
+            c
+        }
         Err(code) => return code,
     };
 
@@ -401,6 +414,7 @@ mod tests {
             flags: fallow_config::FlagsConfig::default(),
             resolve: fallow_config::ResolveConfig::default(),
             sealed: false,
+            include_entry_exports: false,
         }
         .resolve(root.to_path_buf(), output, threads, false, quiet)
     }
@@ -421,6 +435,7 @@ mod tests {
             production: false,
             clear_screen: false,
             explain: false,
+            include_entry_exports: false,
         }
     }
 
@@ -441,6 +456,31 @@ mod tests {
         assert!(matches!(config.output, OutputFormat::Json));
         assert_eq!(config.threads, 8);
         assert!(config.quiet);
+    }
+
+    #[test]
+    fn reload_config_applies_include_entry_exports_override() {
+        // Issue #249 follow-up: --include-entry-exports must take effect under
+        // watch mode after a config reload, not just on the initial load.
+        let root = Path::new("/project");
+        let mut config = make_config(root, OutputFormat::Human, 1, false);
+        assert!(!config.include_entry_exports);
+
+        let mut opts = make_watch_options(root, OutputFormat::Json, 8, true);
+        opts.include_entry_exports = true;
+
+        reload_config_or_keep_previous(
+            &mut config,
+            &opts,
+            |_root, _config_path, output, _no_cache, threads, _production, quiet| {
+                Ok(make_config(Path::new("/project"), output, threads, quiet))
+            },
+        );
+
+        assert!(
+            config.include_entry_exports,
+            "CLI flag should OR into reloaded config"
+        );
     }
 
     #[test]
