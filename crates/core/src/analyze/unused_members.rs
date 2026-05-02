@@ -1,7 +1,8 @@
 use fallow_config::{ScopedUsedClassMemberRule, UsedClassMemberRule};
 use globset::GlobMatcher;
+use rayon::prelude::*;
 use rustc_hash::{FxHashMap, FxHashSet};
-use std::cell::Cell;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::discover::FileId;
 use crate::extract::{
@@ -39,14 +40,14 @@ struct ClassMemberAllowlist<'a> {
 struct MemberPattern<'a> {
     raw: &'a str,
     matcher: GlobMatcher,
-    matched: Cell<bool>,
+    matched: AtomicBool,
 }
 
 struct ScopedMemberPattern<'a> {
     raw: &'a str,
     matcher: GlobMatcher,
     rule: &'a ScopedUsedClassMemberRule,
-    matched: Cell<bool>,
+    matched: AtomicBool,
 }
 
 impl<'a> ClassMemberAllowlist<'a> {
@@ -72,7 +73,7 @@ impl<'a> ClassMemberAllowlist<'a> {
             self.global_patterns.push(MemberPattern {
                 raw: member,
                 matcher: pattern,
-                matched: Cell::new(false),
+                matched: AtomicBool::new(false),
             });
         } else {
             self.global.insert(member);
@@ -85,7 +86,7 @@ impl<'a> ClassMemberAllowlist<'a> {
                 raw: member,
                 matcher: pattern,
                 rule,
-                matched: Cell::new(false),
+                matched: AtomicBool::new(false),
             });
         } else {
             self.scoped.entry(member).or_default().push(rule);
@@ -118,7 +119,7 @@ impl<'a> ClassMemberAllowlist<'a> {
         for pattern in self
             .global_patterns
             .iter()
-            .filter(|pattern| !pattern.matched.get())
+            .filter(|pattern| !pattern.matched.load(Ordering::Relaxed))
         {
             tracing::warn!(
                 "usedClassMembers glob pattern '{}' did not match any class member",
@@ -129,7 +130,7 @@ impl<'a> ClassMemberAllowlist<'a> {
         for pattern in self
             .scoped_patterns
             .iter()
-            .filter(|pattern| !pattern.matched.get())
+            .filter(|pattern| !pattern.matched.load(Ordering::Relaxed))
         {
             tracing::warn!(
                 "usedClassMembers scoped glob pattern '{}' did not match any class member for {}",
@@ -144,7 +145,7 @@ impl MemberPattern<'_> {
     fn matches(&self, member_name: &str) -> bool {
         let matches = self.matcher.is_match(member_name);
         if matches {
-            self.matched.set(true);
+            self.matched.store(true, Ordering::Relaxed);
         }
         matches
     }
@@ -162,7 +163,7 @@ impl ScopedMemberPattern<'_> {
                 .rule
                 .matches_heritage(super_class, implemented_interfaces);
         if matches {
-            self.matched.set(true);
+            self.matched.store(true, Ordering::Relaxed);
         }
         matches
     }
@@ -942,124 +943,143 @@ pub fn find_unused_members(
         &mut self_accessed_members,
     );
 
-    for module in &graph.modules {
-        if !module.is_reachable() || module.is_entry_point() {
-            continue;
-        }
+    let member_results: Vec<(Vec<UnusedMember>, Vec<UnusedMember>)> = graph
+        .modules
+        .par_iter()
+        .map(|module| {
+            let mut unused_enum_members = Vec::new();
+            let mut unused_class_members = Vec::new();
 
-        for export in &module.exports {
-            if export.members.is_empty() {
-                continue;
+            if !module.is_reachable() || module.is_entry_point() {
+                return (unused_enum_members, unused_class_members);
             }
 
-            // If the export itself is unused, skip member analysis (whole export is dead)
-            if export.references.is_empty() && !graph.has_namespace_import(module.file_id) {
-                continue;
-            }
-
-            let export_name = export.name.to_string();
-            let export_key = ExportKey::new(module.file_id, export_name.clone());
-            let (super_class, implemented_interfaces) = class_heritage_by_export
-                .get(&export_key)
-                .map_or((None, &[][..]), |(super_class, interfaces)| {
-                    (super_class.as_deref(), interfaces.as_slice())
-                });
-
-            // If this export is used as a whole object (Object.values, for..in, etc.),
-            // all members are considered used — skip individual member analysis.
-            if whole_object_used_exports.contains(&export_key) {
-                continue;
-            }
-
-            // Get `this.member` accesses from this file (internal class usage)
-            let file_self_accesses = self_accessed_members.get(&module.file_id);
-
-            for member in &export.members {
-                // Per-member unused detection on TS namespaces is not yet
-                // wired; the namespace as a whole is still tracked via the
-                // unused-export detector, so a fully-unused namespace remains
-                // reported and only the per-member granularity is missing.
-                if matches!(member.kind, MemberKind::NamespaceMember) {
+            for export in &module.exports {
+                if export.members.is_empty() {
                     continue;
                 }
 
-                // Check if this member is accessed anywhere via external import
-                if accessed_members
+                // If the export itself is unused, skip member analysis (whole export is dead)
+                if export.references.is_empty() && !graph.has_namespace_import(module.file_id) {
+                    continue;
+                }
+
+                let export_name = export.name.to_string();
+                let export_key = ExportKey::new(module.file_id, export_name.clone());
+                let (super_class, implemented_interfaces) = class_heritage_by_export
                     .get(&export_key)
-                    .is_some_and(|s| s.contains(&member.name))
-                {
+                    .map_or((None, &[][..]), |(super_class, interfaces)| {
+                        (super_class.as_deref(), interfaces.as_slice())
+                    });
+
+                // If this export is used as a whole object (Object.values, for..in, etc.),
+                // all members are considered used — skip individual member analysis.
+                if whole_object_used_exports.contains(&export_key) {
                     continue;
                 }
 
-                // Check if this member is accessed via `this.member` within the same file
-                // (internal class usage — e.g., constructor sets this.label, methods use this.label)
-                if matches!(
-                    member.kind,
-                    MemberKind::ClassMethod | MemberKind::ClassProperty
-                ) && file_self_accesses.is_some_and(|accesses| accesses.contains(&member.name))
-                {
-                    continue;
-                }
+                // Get `this.member` accesses from this file (internal class usage)
+                let file_self_accesses = self_accessed_members.get(&module.file_id);
 
-                // Skip decorated class members — decorators like @Column(), @ApiProperty(),
-                // @Inject() etc. indicate runtime usage by frameworks (NestJS, TypeORM,
-                // class-validator, class-transformer). These members are accessed
-                // reflectively and should never be flagged as unused.
-                if member.has_decorator {
-                    continue;
-                }
-
-                // Skip React class component lifecycle methods — they are called by the
-                // React runtime, not user code, so they should never be flagged as unused.
-                // Also skip Angular lifecycle hooks (OnInit, OnDestroy, etc.).
-                // The user allowlist extends these built-ins with framework-invoked names
-                // contributed by plugins and top-level config (ag-Grid's `agInit`, etc.).
-                if matches!(
-                    member.kind,
-                    MemberKind::ClassMethod | MemberKind::ClassProperty
-                ) && (is_react_lifecycle_method(&member.name)
-                    || is_angular_lifecycle_method(&member.name)
-                    || allowlist.matches(member.name.as_str(), super_class, implemented_interfaces))
-                {
-                    continue;
-                }
-
-                let (line, col) = byte_offset_to_line_col(
-                    line_offsets_by_file,
-                    module.file_id,
-                    member.span.start,
-                );
-
-                // Check inline suppression
-                let issue_kind = match member.kind {
-                    MemberKind::EnumMember => IssueKind::UnusedEnumMember,
-                    MemberKind::ClassMethod | MemberKind::ClassProperty => {
-                        IssueKind::UnusedClassMember
+                for member in &export.members {
+                    // Per-member unused detection on TS namespaces is not yet
+                    // wired; the namespace as a whole is still tracked via the
+                    // unused-export detector, so a fully-unused namespace remains
+                    // reported and only the per-member granularity is missing.
+                    if matches!(member.kind, MemberKind::NamespaceMember) {
+                        continue;
                     }
-                    MemberKind::NamespaceMember => unreachable!(),
-                };
-                if suppressions.is_suppressed(module.file_id, line, issue_kind) {
-                    continue;
-                }
 
-                let unused = UnusedMember {
-                    path: module.path.clone(),
-                    parent_name: export_name.clone(),
-                    member_name: member.name.clone(),
-                    kind: member.kind,
-                    line,
-                    col,
-                };
-
-                match member.kind {
-                    MemberKind::EnumMember => unused_enum_members.push(unused),
-                    MemberKind::ClassMethod | MemberKind::ClassProperty => {
-                        unused_class_members.push(unused);
+                    // Check if this member is accessed anywhere via external import
+                    if accessed_members
+                        .get(&export_key)
+                        .is_some_and(|s| s.contains(&member.name))
+                    {
+                        continue;
                     }
-                    MemberKind::NamespaceMember => unreachable!(),
+
+                    // Check if this member is accessed via `this.member` within the same file
+                    // (internal class usage — e.g., constructor sets this.label, methods use this.label)
+                    if matches!(
+                        member.kind,
+                        MemberKind::ClassMethod | MemberKind::ClassProperty
+                    ) && file_self_accesses
+                        .is_some_and(|accesses| accesses.contains(&member.name))
+                    {
+                        continue;
+                    }
+
+                    // Skip decorated class members — decorators like @Column(), @ApiProperty(),
+                    // @Inject() etc. indicate runtime usage by frameworks (NestJS, TypeORM,
+                    // class-validator, class-transformer). These members are accessed
+                    // reflectively and should never be flagged as unused.
+                    if member.has_decorator {
+                        continue;
+                    }
+
+                    // Skip React class component lifecycle methods — they are called by the
+                    // React runtime, not user code, so they should never be flagged as unused.
+                    // Also skip Angular lifecycle hooks (OnInit, OnDestroy, etc.).
+                    // The user allowlist extends these built-ins with framework-invoked names
+                    // contributed by plugins and top-level config (ag-Grid's `agInit`, etc.).
+                    if matches!(
+                        member.kind,
+                        MemberKind::ClassMethod | MemberKind::ClassProperty
+                    ) && (is_react_lifecycle_method(&member.name)
+                        || is_angular_lifecycle_method(&member.name)
+                        || allowlist.matches(
+                            member.name.as_str(),
+                            super_class,
+                            implemented_interfaces,
+                        ))
+                    {
+                        continue;
+                    }
+
+                    let (line, col) = byte_offset_to_line_col(
+                        line_offsets_by_file,
+                        module.file_id,
+                        member.span.start,
+                    );
+
+                    // Check inline suppression
+                    let issue_kind = match member.kind {
+                        MemberKind::EnumMember => IssueKind::UnusedEnumMember,
+                        MemberKind::ClassMethod | MemberKind::ClassProperty => {
+                            IssueKind::UnusedClassMember
+                        }
+                        MemberKind::NamespaceMember => unreachable!(),
+                    };
+                    if suppressions.is_suppressed(module.file_id, line, issue_kind) {
+                        continue;
+                    }
+
+                    let unused = UnusedMember {
+                        path: module.path.clone(),
+                        parent_name: export_name.clone(),
+                        member_name: member.name.clone(),
+                        kind: member.kind,
+                        line,
+                        col,
+                    };
+
+                    match member.kind {
+                        MemberKind::EnumMember => unused_enum_members.push(unused),
+                        MemberKind::ClassMethod | MemberKind::ClassProperty => {
+                            unused_class_members.push(unused);
+                        }
+                        MemberKind::NamespaceMember => unreachable!(),
+                    }
                 }
             }
-        }
+
+            (unused_enum_members, unused_class_members)
+        })
+        .collect();
+
+    for (enum_members, class_members) in member_results {
+        unused_enum_members.extend(enum_members);
+        unused_class_members.extend(class_members);
     }
 
     allowlist.warn_unmatched_patterns();
@@ -1778,8 +1798,8 @@ mod tests {
 
         assert!(allowlist.matches("enterRule", None, &[]));
 
-        assert!(allowlist.global_patterns[0].matched.get());
-        assert!(!allowlist.global_patterns[1].matched.get());
+        assert!(allowlist.global_patterns[0].matched.load(Ordering::Relaxed));
+        assert!(!allowlist.global_patterns[1].matched.load(Ordering::Relaxed));
     }
 
     #[test]

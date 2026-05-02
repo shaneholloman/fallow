@@ -1,5 +1,6 @@
 use std::sync::LazyLock;
 
+use rayon::prelude::*;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use fallow_config::ResolvedConfig;
@@ -221,150 +222,169 @@ pub fn find_unused_exports(
         .map(|m| m.file_id.0)
         .collect();
 
-    for module in &graph.modules {
-        // Compute relative path once per module for glob matching
-        let relative_path = module
-            .path
-            .strip_prefix(&config.root)
-            .unwrap_or(&module.path);
-        let file_str = relative_path.to_string_lossy();
+    let module_results: Vec<(Vec<UnusedExport>, Vec<UnusedExport>, Vec<StaleSuppression>)> = graph
+        .modules
+        .par_iter()
+        .map(|module| {
+            let mut unused_exports = Vec::new();
+            let mut unused_types = Vec::new();
+            let mut stale_expected_unused = Vec::new();
 
-        // Collect ignore/plugin matchers that apply to this file
-        let matching_ignore: Vec<&[String]> = ignore_matchers
-            .iter()
-            .filter(|(m, _)| m.is_match(file_str.as_ref()))
-            .map(|(_, exports)| *exports)
-            .collect();
+            // Compute relative path once per module for glob matching
+            let relative_path = module
+                .path
+                .strip_prefix(&config.root)
+                .unwrap_or(&module.path);
+            let file_str = relative_path.to_string_lossy();
 
-        let matching_plugin: Vec<&[&str]> = plugin_matchers
-            .iter()
-            .filter(|rule| rule.matches(file_str.as_ref()))
-            .map(|rule| rule.exports.as_slice())
-            .collect();
+            // Collect ignore/plugin matchers that apply to this file
+            let matching_ignore: Vec<&[String]> = ignore_matchers
+                .iter()
+                .filter(|(m, _)| m.is_match(file_str.as_ref()))
+                .map(|(_, exports)| *exports)
+                .collect();
 
-        if should_skip_module(
-            module,
-            !matching_plugin.is_empty(),
-            config.include_entry_exports,
-        ) {
-            continue;
-        }
+            let matching_plugin: Vec<&[&str]> = plugin_matchers
+                .iter()
+                .filter(|rule| rule.matches(file_str.as_ref()))
+                .map(|rule| rule.exports.as_slice())
+                .collect();
 
-        let same_file_used_exports = if let Some(module_info_by_id) = &module_info_by_id {
-            module_info_by_id
-                .get(&module.file_id)
-                .map_or_else(FxHashSet::default, |info| {
-                    collect_exports_used_in_file(info, &module.path)
-                })
-        } else {
-            FxHashSet::default()
-        };
-
-        // Namespace imports are now handled with member-access narrowing in graph.rs:
-        // only specific accessed members get references populated. No blanket skip needed.
-
-        // Pre-compute the set of re-exported names for O(1) is_re_export lookups
-        // inside the export loop. Barrel files synthesize one ExportSymbol per
-        // ReExportEdge, so the naive iter().any() check would be O(N²).
-        let re_export_names: FxHashSet<&str> = module
-            .re_exports
-            .iter()
-            .map(|re| re.exported_name.as_str())
-            .collect();
-
-        for export in &module.exports {
-            // For unreachable modules, only references from reachable files count —
-            // references from other unreachable modules don't save an export.
-            let is_referenced = if module.is_reachable() {
-                !export.references.is_empty()
-            } else {
-                export
-                    .references
-                    .iter()
-                    .any(|r| reachable_files.contains(&r.from_file.0))
-            };
-            // Handle @expected-unused: if the export IS used (has references from
-            // reachable modules), report as stale. If it's NOT used, suppress it
-            // silently (the tag is working as intended). Note: re-exports through
-            // barrel files DO count as references here, since the reference list
-            // is already filtered to reachable modules above.
-            if matches!(
-                export.visibility,
-                fallow_types::extract::VisibilityTag::ExpectedUnused
+            if should_skip_module(
+                module,
+                !matching_plugin.is_empty(),
+                config.include_entry_exports,
             ) {
-                if is_referenced {
-                    let (line, col) = byte_offset_to_line_col(
-                        line_offsets_by_file,
-                        module.file_id,
-                        export.span.start,
-                    );
-                    stale_expected_unused.push(StaleSuppression {
-                        path: module.path.clone(),
-                        line,
-                        col,
-                        origin: SuppressionOrigin::JsdocTag {
-                            export_name: export.name.to_string(),
-                        },
-                    });
+                return (unused_exports, unused_types, stale_expected_unused);
+            }
+
+            let same_file_used_exports = if let Some(module_info_by_id) = &module_info_by_id {
+                module_info_by_id
+                    .get(&module.file_id)
+                    .map_or_else(FxHashSet::default, |info| {
+                        collect_exports_used_in_file(info, &module.path)
+                    })
+            } else {
+                FxHashSet::default()
+            };
+
+            // Namespace imports are now handled with member-access narrowing in graph.rs:
+            // only specific accessed members get references populated. No blanket skip needed.
+
+            // Pre-compute the set of re-exported names for O(1) is_re_export lookups
+            // inside the export loop. Barrel files synthesize one ExportSymbol per
+            // ReExportEdge, so the naive iter().any() check would be O(N²).
+            let re_export_names: FxHashSet<&str> = module
+                .re_exports
+                .iter()
+                .map(|re| re.exported_name.as_str())
+                .collect();
+
+            for export in &module.exports {
+                // For unreachable modules, only references from reachable files count —
+                // references from other unreachable modules don't save an export.
+                let is_referenced = if module.is_reachable() {
+                    !export.references.is_empty()
+                } else {
+                    export
+                        .references
+                        .iter()
+                        .any(|r| reachable_files.contains(&r.from_file.0))
+                };
+                // Handle @expected-unused: if the export IS used (has references from
+                // reachable modules), report as stale. If it's NOT used, suppress it
+                // silently (the tag is working as intended). Note: re-exports through
+                // barrel files DO count as references here, since the reference list
+                // is already filtered to reachable modules above.
+                if matches!(
+                    export.visibility,
+                    fallow_types::extract::VisibilityTag::ExpectedUnused
+                ) {
+                    if is_referenced {
+                        let (line, col) = byte_offset_to_line_col(
+                            line_offsets_by_file,
+                            module.file_id,
+                            export.span.start,
+                        );
+                        stale_expected_unused.push(StaleSuppression {
+                            path: module.path.clone(),
+                            line,
+                            col,
+                            origin: SuppressionOrigin::JsdocTag {
+                                export_name: export.name.to_string(),
+                            },
+                        });
+                    }
+                    continue;
                 }
-                continue;
+
+                // Other visibility tags (@public, @internal, @alpha, @beta) permanently suppress
+                if export.visibility.suppresses_unused() || is_referenced {
+                    continue;
+                }
+
+                let export_str = export.name.to_string();
+
+                if config
+                    .ignore_exports_used_in_file
+                    .suppresses(export.is_type_only)
+                    && same_file_used_exports.contains(export_str.as_str())
+                {
+                    continue;
+                }
+
+                if is_export_ignored(&export_str, &matching_ignore, &matching_plugin) {
+                    continue;
+                }
+
+                let (line, col) = byte_offset_to_line_col(
+                    line_offsets_by_file,
+                    module.file_id,
+                    export.span.start,
+                );
+
+                // Detect re-exports semantically by looking up the export name in the
+                // module's re_exports set, rather than relying on a span sentinel.
+                // This catches both synthesized re-exports (which still use Span::default()
+                // for narrowing/star cases) and real re-exports (which carry the visitor's
+                // span for accurate line-number reporting).
+                let is_re_export = re_export_names.contains(export_str.as_str());
+
+                // Check inline suppression
+                let issue_kind = if export.is_type_only {
+                    IssueKind::UnusedType
+                } else {
+                    IssueKind::UnusedExport
+                };
+                if suppressions.is_suppressed(module.file_id, line, issue_kind) {
+                    continue;
+                }
+
+                let unused = UnusedExport {
+                    path: module.path.clone(),
+                    export_name: export_str,
+                    is_type_only: export.is_type_only,
+                    line,
+                    col,
+                    span_start: export.span.start,
+                    is_re_export,
+                };
+
+                if export.is_type_only {
+                    unused_types.push(unused);
+                } else {
+                    unused_exports.push(unused);
+                }
             }
 
-            // Other visibility tags (@public, @internal, @alpha, @beta) permanently suppress
-            if export.visibility.suppresses_unused() || is_referenced {
-                continue;
-            }
+            (unused_exports, unused_types, stale_expected_unused)
+        })
+        .collect();
 
-            let export_str = export.name.to_string();
-
-            if config
-                .ignore_exports_used_in_file
-                .suppresses(export.is_type_only)
-                && same_file_used_exports.contains(export_str.as_str())
-            {
-                continue;
-            }
-
-            if is_export_ignored(&export_str, &matching_ignore, &matching_plugin) {
-                continue;
-            }
-
-            let (line, col) =
-                byte_offset_to_line_col(line_offsets_by_file, module.file_id, export.span.start);
-
-            // Detect re-exports semantically by looking up the export name in the
-            // module's re_exports set, rather than relying on a span sentinel.
-            // This catches both synthesized re-exports (which still use Span::default()
-            // for narrowing/star cases) and real re-exports (which carry the visitor's
-            // span for accurate line-number reporting).
-            let is_re_export = re_export_names.contains(export_str.as_str());
-
-            // Check inline suppression
-            let issue_kind = if export.is_type_only {
-                IssueKind::UnusedType
-            } else {
-                IssueKind::UnusedExport
-            };
-            if suppressions.is_suppressed(module.file_id, line, issue_kind) {
-                continue;
-            }
-
-            let unused = UnusedExport {
-                path: module.path.clone(),
-                export_name: export_str,
-                is_type_only: export.is_type_only,
-                line,
-                col,
-                span_start: export.span.start,
-                is_re_export,
-            };
-
-            if export.is_type_only {
-                unused_types.push(unused);
-            } else {
-                unused_exports.push(unused);
-            }
-        }
+    for (exports, types, stale_expected) in module_results {
+        unused_exports.extend(exports);
+        unused_types.extend(types);
+        stale_expected_unused.extend(stale_expected);
     }
 
     (unused_exports, unused_types, stale_expected_unused)

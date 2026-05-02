@@ -125,6 +125,48 @@ fn is_cross_package_cycle(
     false
 }
 
+fn find_circular_dependencies(
+    graph: &ModuleGraph,
+    line_offsets_map: &LineOffsetsMap<'_>,
+    suppressions: &crate::suppress::SuppressionContext<'_>,
+    workspaces: &[fallow_config::WorkspaceInfo],
+) -> Vec<CircularDependency> {
+    let cycles = graph.find_cycles();
+    let mut dependencies: Vec<CircularDependency> = cycles
+        .into_iter()
+        .filter_map(|cycle| {
+            if is_circular_dependency_suppressed(graph, line_offsets_map, suppressions, &cycle) {
+                return None;
+            }
+
+            let files: Vec<std::path::PathBuf> = cycle
+                .iter()
+                .map(|&id| graph.modules[id.0 as usize].path.clone())
+                .collect();
+            let length = files.len();
+            // Look up the import span from cycle[0] -> cycle[1] for precise location.
+            let (line, col) =
+                cycle_edge_line_col(graph, line_offsets_map, &cycle, 0).unwrap_or((1, 0));
+            Some(CircularDependency {
+                files,
+                length,
+                line,
+                col,
+                is_cross_package: false,
+            })
+        })
+        .collect();
+
+    // Mark cycles that cross workspace package boundaries.
+    if !workspaces.is_empty() {
+        for dep in &mut dependencies {
+            dep.is_cross_package = is_cross_package_cycle(&dep.files, workspaces);
+        }
+    }
+
+    dependencies
+}
+
 /// Find all dead code, with optional resolved module data, plugin context, and workspace info.
 #[expect(
     clippy::too_many_lines,
@@ -152,209 +194,284 @@ pub fn find_dead_code_full(
         .map(|m| (m.file_id, m.line_offsets.as_slice()))
         .collect();
 
-    let mut results = AnalysisResults::default();
-
-    if config.rules.unused_files != Severity::Off {
-        results.unused_files = find_unused_files(graph, &suppressions);
-    }
-
-    if config.rules.unused_exports != Severity::Off
-        || config.rules.unused_types != Severity::Off
-        || config.rules.private_type_leaks != Severity::Off
-    {
-        let (exports, types, stale_expected) = find_unused_exports(
-            graph,
-            modules,
-            config,
-            plugin_result,
-            &suppressions,
-            &line_offsets_by_file,
-        );
-        if config.rules.unused_exports != Severity::Off {
-            results.unused_exports = exports;
-        }
-        if config.rules.unused_types != Severity::Off {
-            results.unused_types = types;
-            suppress_signature_backing_types(&mut results.unused_types, graph, modules);
-        }
-        if config.rules.private_type_leaks != Severity::Off {
-            results.private_type_leaks = find_private_type_leaks(
-                graph,
-                modules,
-                config,
-                &suppressions,
-                &line_offsets_by_file,
-            );
-        }
-        // @expected-unused tags that became stale (export is now used)
-        if config.rules.stale_suppressions != Severity::Off {
-            results.stale_suppressions.extend(stale_expected);
-        }
-    }
-
-    if config.rules.unused_enum_members != Severity::Off
-        || config.rules.unused_class_members != Severity::Off
-    {
-        // Merge the top-level config rules with any plugin-contributed rules.
-        // Plain string entries behave like the old global allowlist; scoped
-        // object entries only apply to classes that match `extends` /
-        // `implements` constraints.
-        let mut user_class_members = config.used_class_members.clone();
-        if let Some(plugin_result) = plugin_result {
-            user_class_members.extend(plugin_result.used_class_members.iter().cloned());
-        }
-
-        let (enum_members, class_members) = find_unused_members(
-            graph,
-            resolved_modules,
-            modules,
-            &suppressions,
-            &line_offsets_by_file,
-            &user_class_members,
-        );
-        if config.rules.unused_enum_members != Severity::Off {
-            results.unused_enum_members = enum_members;
-        }
-        if config.rules.unused_class_members != Severity::Off {
-            results.unused_class_members = class_members;
-        }
-    }
-
     // Build merged dependency set from root + all workspace package.json files
     let pkg_path = config.root.join("package.json");
     let pkg = PackageJson::load(&pkg_path).ok();
-    if let Some(ref pkg) = pkg {
-        if config.rules.unused_dependencies != Severity::Off
-            || config.rules.unused_dev_dependencies != Severity::Off
-            || config.rules.unused_optional_dependencies != Severity::Off
-        {
-            let (deps, dev_deps, optional_deps) =
-                find_unused_dependencies(graph, pkg, config, plugin_result, workspaces);
-            if config.rules.unused_dependencies != Severity::Off {
-                results.unused_dependencies = deps;
-            }
-            if config.rules.unused_dev_dependencies != Severity::Off {
-                results.unused_dev_dependencies = dev_deps;
-            }
-            if config.rules.unused_optional_dependencies != Severity::Off {
-                results.unused_optional_dependencies = optional_deps;
-            }
-        }
 
-        if config.rules.unlisted_dependencies != Severity::Off {
-            results.unlisted_dependencies = find_unlisted_dependencies(
-                graph,
-                pkg,
-                config,
-                workspaces,
-                plugin_result,
-                resolved_modules,
-                &line_offsets_by_file,
-            );
-        }
+    // Merge the top-level config rules with any plugin-contributed rules.
+    // Plain string entries behave like the old global allowlist; scoped object
+    // entries only apply to classes that match `extends` / `implements`.
+    let mut user_class_members = config.used_class_members.clone();
+    if let Some(plugin_result) = plugin_result {
+        user_class_members.extend(plugin_result.used_class_members.iter().cloned());
     }
 
-    if config.rules.unresolved_imports != Severity::Off && !resolved_modules.is_empty() {
-        let virtual_prefixes: Vec<&str> = plugin_result
-            .map(|pr| {
-                pr.virtual_module_prefixes
-                    .iter()
-                    .map(String::as_str)
-                    .collect()
-            })
-            .unwrap_or_default();
-        let generated_patterns: Vec<&str> = plugin_result
-            .map(|pr| {
-                pr.generated_import_patterns
-                    .iter()
-                    .map(String::as_str)
-                    .collect()
-            })
-            .unwrap_or_default();
-        results.unresolved_imports = find_unresolved_imports(
-            resolved_modules,
-            config,
-            &suppressions,
-            &virtual_prefixes,
-            &generated_patterns,
-            &line_offsets_by_file,
-        );
-    }
+    let virtual_prefixes: Vec<&str> = plugin_result
+        .map(|pr| {
+            pr.virtual_module_prefixes
+                .iter()
+                .map(String::as_str)
+                .collect()
+        })
+        .unwrap_or_default();
+    let generated_patterns: Vec<&str> = plugin_result
+        .map(|pr| {
+            pr.generated_import_patterns
+                .iter()
+                .map(String::as_str)
+                .collect()
+        })
+        .unwrap_or_default();
 
-    if config.rules.duplicate_exports != Severity::Off {
-        results.duplicate_exports =
-            find_duplicate_exports(graph, &suppressions, &line_offsets_by_file);
-    }
+    let (
+        (unused_files, export_results),
+        (
+            (member_results, dependency_results),
+            (
+                (unresolved_imports, duplicate_exports),
+                (boundary_violations, (circular_dependencies, export_usages)),
+            ),
+        ),
+    ) = rayon::join(
+        || {
+            rayon::join(
+                || {
+                    if config.rules.unused_files != Severity::Off {
+                        find_unused_files(graph, &suppressions)
+                    } else {
+                        Vec::new()
+                    }
+                },
+                || {
+                    let mut results = AnalysisResults::default();
+                    if config.rules.unused_exports != Severity::Off
+                        || config.rules.unused_types != Severity::Off
+                        || config.rules.private_type_leaks != Severity::Off
+                    {
+                        let (exports, types, stale_expected) = find_unused_exports(
+                            graph,
+                            modules,
+                            config,
+                            plugin_result,
+                            &suppressions,
+                            &line_offsets_by_file,
+                        );
+                        if config.rules.unused_exports != Severity::Off {
+                            results.unused_exports = exports;
+                        }
+                        if config.rules.unused_types != Severity::Off {
+                            results.unused_types = types;
+                            suppress_signature_backing_types(
+                                &mut results.unused_types,
+                                graph,
+                                modules,
+                            );
+                        }
+                        if config.rules.private_type_leaks != Severity::Off {
+                            results.private_type_leaks = find_private_type_leaks(
+                                graph,
+                                modules,
+                                config,
+                                &suppressions,
+                                &line_offsets_by_file,
+                            );
+                        }
+                        // @expected-unused tags that became stale (export is now used).
+                        if config.rules.stale_suppressions != Severity::Off {
+                            results.stale_suppressions.extend(stale_expected);
+                        }
+                    }
+                    results
+                },
+            )
+        },
+        || {
+            rayon::join(
+                || {
+                    rayon::join(
+                        || {
+                            let mut results = AnalysisResults::default();
+                            if config.rules.unused_enum_members != Severity::Off
+                                || config.rules.unused_class_members != Severity::Off
+                            {
+                                let (enum_members, class_members) = find_unused_members(
+                                    graph,
+                                    resolved_modules,
+                                    modules,
+                                    &suppressions,
+                                    &line_offsets_by_file,
+                                    &user_class_members,
+                                );
+                                if config.rules.unused_enum_members != Severity::Off {
+                                    results.unused_enum_members = enum_members;
+                                }
+                                if config.rules.unused_class_members != Severity::Off {
+                                    results.unused_class_members = class_members;
+                                }
+                            }
+                            results
+                        },
+                        || {
+                            let mut results = AnalysisResults::default();
+                            if let Some(ref pkg) = pkg {
+                                if config.rules.unused_dependencies != Severity::Off
+                                    || config.rules.unused_dev_dependencies != Severity::Off
+                                    || config.rules.unused_optional_dependencies != Severity::Off
+                                {
+                                    let (deps, dev_deps, optional_deps) = find_unused_dependencies(
+                                        graph,
+                                        pkg,
+                                        config,
+                                        plugin_result,
+                                        workspaces,
+                                    );
+                                    if config.rules.unused_dependencies != Severity::Off {
+                                        results.unused_dependencies = deps;
+                                    }
+                                    if config.rules.unused_dev_dependencies != Severity::Off {
+                                        results.unused_dev_dependencies = dev_deps;
+                                    }
+                                    if config.rules.unused_optional_dependencies != Severity::Off {
+                                        results.unused_optional_dependencies = optional_deps;
+                                    }
+                                }
 
-    // In production mode, detect dependencies that are only used via type-only imports
-    if config.production
-        && let Some(ref pkg) = pkg
-    {
-        results.type_only_dependencies =
-            find_type_only_dependencies(graph, pkg, config, workspaces);
-    }
+                                if config.rules.unlisted_dependencies != Severity::Off {
+                                    results.unlisted_dependencies = find_unlisted_dependencies(
+                                        graph,
+                                        pkg,
+                                        config,
+                                        workspaces,
+                                        plugin_result,
+                                        resolved_modules,
+                                        &line_offsets_by_file,
+                                    );
+                                }
 
-    // In non-production mode, detect production deps only imported by test/dev files
-    if !config.production
-        && config.rules.test_only_dependencies != Severity::Off
-        && let Some(ref pkg) = pkg
-    {
-        results.test_only_dependencies =
-            find_test_only_dependencies(graph, pkg, config, workspaces);
-    }
+                                // In production mode, detect dependencies that are only used via
+                                // type-only imports.
+                                if config.production {
+                                    results.type_only_dependencies =
+                                        find_type_only_dependencies(graph, pkg, config, workspaces);
+                                }
 
-    // Detect architecture boundary violations
-    if config.rules.boundary_violation != Severity::Off && !config.boundaries.is_empty() {
-        results.boundary_violations =
-            boundary::find_boundary_violations(graph, config, &suppressions, &line_offsets_by_file);
-    }
+                                // In non-production mode, detect production deps only imported by
+                                // test/dev files.
+                                if !config.production
+                                    && config.rules.test_only_dependencies != Severity::Off
+                                {
+                                    results.test_only_dependencies =
+                                        find_test_only_dependencies(graph, pkg, config, workspaces);
+                                }
+                            }
+                            results
+                        },
+                    )
+                },
+                || {
+                    rayon::join(
+                        || {
+                            rayon::join(
+                                || {
+                                    if config.rules.unresolved_imports != Severity::Off
+                                        && !resolved_modules.is_empty()
+                                    {
+                                        find_unresolved_imports(
+                                            resolved_modules,
+                                            config,
+                                            &suppressions,
+                                            &virtual_prefixes,
+                                            &generated_patterns,
+                                            &line_offsets_by_file,
+                                        )
+                                    } else {
+                                        Vec::new()
+                                    }
+                                },
+                                || {
+                                    if config.rules.duplicate_exports != Severity::Off {
+                                        find_duplicate_exports(
+                                            graph,
+                                            &suppressions,
+                                            &line_offsets_by_file,
+                                        )
+                                    } else {
+                                        Vec::new()
+                                    }
+                                },
+                            )
+                        },
+                        || {
+                            rayon::join(
+                                || {
+                                    if config.rules.boundary_violation != Severity::Off
+                                        && !config.boundaries.is_empty()
+                                    {
+                                        boundary::find_boundary_violations(
+                                            graph,
+                                            config,
+                                            &suppressions,
+                                            &line_offsets_by_file,
+                                        )
+                                    } else {
+                                        Vec::new()
+                                    }
+                                },
+                                || {
+                                    rayon::join(
+                                        || {
+                                            if config.rules.circular_dependencies != Severity::Off {
+                                                find_circular_dependencies(
+                                                    graph,
+                                                    &line_offsets_by_file,
+                                                    &suppressions,
+                                                    workspaces,
+                                                )
+                                            } else {
+                                                Vec::new()
+                                            }
+                                        },
+                                        || {
+                                            // Collect export usage counts for Code Lens (LSP
+                                            // feature). Skipped in CLI mode since the field is
+                                            // #[serde(skip)] in all output formats.
+                                            if collect_usages {
+                                                collect_export_usages(graph, &line_offsets_by_file)
+                                            } else {
+                                                Vec::new()
+                                            }
+                                        },
+                                    )
+                                },
+                            )
+                        },
+                    )
+                },
+            )
+        },
+    );
 
-    // Detect circular dependencies
-    if config.rules.circular_dependencies != Severity::Off {
-        let cycles = graph.find_cycles();
-        results.circular_dependencies = cycles
-            .into_iter()
-            .filter_map(|cycle| {
-                if is_circular_dependency_suppressed(
-                    graph,
-                    &line_offsets_by_file,
-                    &suppressions,
-                    &cycle,
-                ) {
-                    return None;
-                }
-
-                let files: Vec<std::path::PathBuf> = cycle
-                    .iter()
-                    .map(|&id| graph.modules[id.0 as usize].path.clone())
-                    .collect();
-                let length = files.len();
-                // Look up the import span from cycle[0] → cycle[1] for precise location
-                let (line, col) =
-                    cycle_edge_line_col(graph, &line_offsets_by_file, &cycle, 0).unwrap_or((1, 0));
-                Some(CircularDependency {
-                    files,
-                    length,
-                    line,
-                    col,
-                    is_cross_package: false,
-                })
-            })
-            .collect();
-
-        // Mark cycles that cross workspace package boundaries
-        if !workspaces.is_empty() {
-            for dep in &mut results.circular_dependencies {
-                dep.is_cross_package = is_cross_package_cycle(&dep.files, workspaces);
-            }
-        }
-    }
-
-    // Collect export usage counts for Code Lens (LSP feature).
-    // Skipped in CLI mode since the field is #[serde(skip)] in all output formats.
-    if collect_usages {
-        results.export_usages = collect_export_usages(graph, &line_offsets_by_file);
-    }
+    let mut results = AnalysisResults {
+        unused_files,
+        unused_exports: export_results.unused_exports,
+        unused_types: export_results.unused_types,
+        private_type_leaks: export_results.private_type_leaks,
+        stale_suppressions: export_results.stale_suppressions,
+        unused_enum_members: member_results.unused_enum_members,
+        unused_class_members: member_results.unused_class_members,
+        unused_dependencies: dependency_results.unused_dependencies,
+        unused_dev_dependencies: dependency_results.unused_dev_dependencies,
+        unused_optional_dependencies: dependency_results.unused_optional_dependencies,
+        unlisted_dependencies: dependency_results.unlisted_dependencies,
+        type_only_dependencies: dependency_results.type_only_dependencies,
+        test_only_dependencies: dependency_results.test_only_dependencies,
+        unresolved_imports,
+        duplicate_exports,
+        boundary_violations,
+        circular_dependencies,
+        export_usages,
+        ..AnalysisResults::default()
+    };
 
     // Filter out unused exports/types from public packages.
     // Public packages are workspace packages whose exports are intended for external consumers.
