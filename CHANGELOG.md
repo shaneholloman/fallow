@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.62.0] - 2026-05-02
+
+### Added
+
+- **`usedClassMembers` entries accept glob patterns.** Member strings containing `*` or `?` now compile as glob matchers, so a single rule can cover the entire family of methods a framework dispatches reflectively. Use `"*"` to match every member on a heritage-matching class, `"enter*"` / `"*Handler"` for prefix or suffix matching, or `"on*Event"` for combined prefix+suffix. The shape (`{ extends?, implements?, members }`) is unchanged; exact-string entries still work as before. Glob patterns matching zero members across the codebase emit a `WARN` so dead allowlist entries surface. Designed for parser-generator listeners (ANTLR), code-generated bridges (`protoc-ts`, `openapi-typescript`, `graphql-codegen`), and abstract framework bases that dispatch on a member-name prefix instead of an enumerated list. Thanks [@OmerGronich](https://github.com/OmerGronich) for the report. (Closes [#254](https://github.com/fallow-rs/fallow/issues/254))
+- **`overrides[].rules.circular-dependency: "off"` suppresses cycles whose files all match the override glob.** Previously `circular-dependency` was the only rule that ignored per-folder `overrides[]` entries; you had to disable cycle detection globally or add `// fallow-ignore-file circular-dependency` to every file in every cycle. Now a cycle is suppressed when **every** file in the cycle resolves to `Severity::Off` for `circular-dependency` via `overrides[]`. Cycles that touch even one non-overridden file remain reported, preserving real-positive detection on shared modules. Thanks [@OmerGronich](https://github.com/OmerGronich) for the report. (Closes [#255](https://github.com/fallow-rs/fallow/issues/255))
+- **First-class blast-radius and importance sections on `fallow coverage analyze`.** New `--blast-radius` and `--importance` flags surface runtime-weighted blast-radius and importance findings in the human output, alongside the existing hot-path / cold-path sections.
+- **Runtime coverage `--top` flag.** Limits the runtime findings + hot-path display to the top N entries, matching `fallow dead-code`'s top-N flag for parity.
+
+### Changed
+
+- **`analyze` stage runs detectors in parallel.** The pipeline's analyze stage now schedules its ten independent detectors (`unused_files`, `unused_exports`, `unused_members`, dependency detectors, `unresolved_imports`, `duplicate_exports`, `boundary_violations`, `circular_dependencies`, etc.) across rayon worker threads instead of serially on a single core. On a synthetic 24,320-file monorepo with realistic barrel files and cross-workspace imports the analyze stage drops from `~6.75s` to under half a second on a 14-core machine. Real-world fixtures (`next.js`, `preact`) show a `~2x` speedup on the analyze stage with byte-identical results. Find-unused-exports and find-unused-members also parallelise their inner module loops via rayon. Thanks [@OmerGronich](https://github.com/OmerGronich) for the report. (Closes [#259](https://github.com/fallow-rs/fallow/issues/259))
+- **Git churn cache is incremental.** `.fallow/churn.bin` now stores per-commit events keyed by `last_indexed_sha`. When `HEAD` advances from the cached SHA, fallow runs `git log <cached>..HEAD --numstat` and merges the delta into the cached state instead of re-shelling out for the entire churn window. CI runs that fallow on every push and pre-commit hooks now hit the cache for the bulk of the work, paying only the marginal-commit cost. The cold path is unchanged. The cache automatically invalidates when the `--since` window changes or when `cache.last_indexed_sha` is no longer reachable from the current HEAD (force-push, branch switch). Thanks [@OmerGronich](https://github.com/OmerGronich) for the report. (Closes [#258](https://github.com/fallow-rs/fallow/issues/258))
+- **`--performance` table includes the duplication stage.** The `Pipeline Performance` table on `fallow --performance` (combined mode) now prints a `duplication: <ms>` row alongside the other stages instead of leaving the cost as an easy-to-miss parenthetical in the body output. The dead-code-only and dupes-only timing breakdowns are unchanged. Thanks [@OmerGronich](https://github.com/OmerGronich) for the report. (Closes [#257](https://github.com/fallow-rs/fallow/issues/257))
+
+### Fixed
+
+- **`circular-dependency` line-level inline directives now actually suppress.** `// fallow-ignore-next-line circular-dependency` on the offending import line previously landed in `stale_suppressions` and the cycle still appeared in the output, even though `fallow dead-code --format json` recommended exactly that comment in `actions[]`. The directive now decrements the cycle count as expected, and IDE/CLI consumers of the recommended `actions[]` produce working patches instead of silent no-ops. Singular and plural slug aliases (`circular-dependency` vs `circular-dependencies`) are now interchangeable across inline directives, `rules`, and `overrides[].rules`, so the wrong-form / right-form mismatch between surfaces is resolved. Thanks [@pippenz](https://github.com/pippenz) for the report. (Closes [#256](https://github.com/fallow-rs/fallow/issues/256))
+- **Bare `() => import('./X')` route callbacks credit the default export.** Object-literal properties named `component`, `loadChildren`, or `loadComponent` whose value is `() => import('./X')` (or a function-expression equivalent) now credit the target module's default export as used, even when no `.then(m => m.default)` is spelled. The control case (`.then(m => m.default)`) was already covered. Fixes the `unused-export` false positive on the standard Angular Router (`loadChildren: () => import('./feature.routes')`) and Vue Router (`component: () => import('./View.vue')`) lazy-loading shapes. The property-name list is an exact whitelist; other property names with the same shape (e.g. `loader`, `Component`) are not credited. Thanks [@OmerGronich](https://github.com/OmerGronich) for the report. (Closes [#253](https://github.com/fallow-rs/fallow/issues/253))
+- **CSS `@import 'pkg/subpath.css'` resolves through `node_modules` for both relative and bare specifiers.** Tailwind v4 `@import 'tailwindcss/theme.css'` and `@import 'tailwindcss/utilities.css'` patterns no longer surface as unresolved imports or as unused-dependency on `tailwindcss`. The CSS extractor preserves the package subpath, the resolver now probes the npm package's subpath via the standard `node_modules` walk-up, and the dependency credit flows through the resolved hit.
+
 ## [2.61.0] - 2026-05-01
 
 ### Added
@@ -1919,7 +1940,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--changed-since` and `--fail-on-issues` for CI
 - Cross-workspace resolution for npm/yarn/pnpm workspaces
 
-[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.61.0...HEAD
+[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.62.0...HEAD
+[2.62.0]: https://github.com/fallow-rs/fallow/compare/v2.61.0...v2.62.0
 [2.61.0]: https://github.com/fallow-rs/fallow/compare/v2.60.0...v2.61.0
 [2.60.0]: https://github.com/fallow-rs/fallow/compare/v2.59.0...v2.60.0
 [2.59.0]: https://github.com/fallow-rs/fallow/compare/v2.58.0...v2.59.0
