@@ -1,5 +1,7 @@
 use fallow_config::{ScopedUsedClassMemberRule, UsedClassMemberRule};
+use globset::GlobMatcher;
 use rustc_hash::{FxHashMap, FxHashSet};
+use std::cell::Cell;
 
 use crate::discover::FileId;
 use crate::extract::{
@@ -23,12 +25,28 @@ use super::{LineOffsetsMap, byte_offset_to_line_col};
 /// allowlist with framework-invoked method names contributed by plugins and
 /// top-level config (see `FallowConfig::used_class_members` and
 /// `Plugin::used_class_members`). Plain string entries suppress matching member
-/// names globally; scoped object entries only suppress classes whose heritage
-/// clause matches the configured `extends` / `implements` constraints.
+/// names or glob patterns globally; scoped object entries only suppress classes
+/// whose heritage clause matches the configured `extends` / `implements`
+/// constraints.
 #[derive(Default)]
 struct ClassMemberAllowlist<'a> {
     global: FxHashSet<&'a str>,
+    global_patterns: Vec<MemberPattern<'a>>,
     scoped: FxHashMap<&'a str, Vec<&'a ScopedUsedClassMemberRule>>,
+    scoped_patterns: Vec<ScopedMemberPattern<'a>>,
+}
+
+struct MemberPattern<'a> {
+    raw: &'a str,
+    matcher: GlobMatcher,
+    matched: Cell<bool>,
+}
+
+struct ScopedMemberPattern<'a> {
+    raw: &'a str,
+    matcher: GlobMatcher,
+    rule: &'a ScopedUsedClassMemberRule,
+    matched: Cell<bool>,
 }
 
 impl<'a> ClassMemberAllowlist<'a> {
@@ -37,20 +55,41 @@ impl<'a> ClassMemberAllowlist<'a> {
         for rule in rules {
             match rule {
                 UsedClassMemberRule::Name(name) => {
-                    allowlist.global.insert(name.as_str());
+                    allowlist.insert_global(name);
                 }
                 UsedClassMemberRule::Scoped(rule) => {
                     for member in &rule.members {
-                        allowlist
-                            .scoped
-                            .entry(member.as_str())
-                            .or_default()
-                            .push(rule);
+                        allowlist.insert_scoped(member, rule);
                     }
                 }
             }
         }
         allowlist
+    }
+
+    fn insert_global(&mut self, member: &'a str) {
+        if let Some(pattern) = compile_member_pattern(member) {
+            self.global_patterns.push(MemberPattern {
+                raw: member,
+                matcher: pattern,
+                matched: Cell::new(false),
+            });
+        } else {
+            self.global.insert(member);
+        }
+    }
+
+    fn insert_scoped(&mut self, member: &'a str, rule: &'a ScopedUsedClassMemberRule) {
+        if let Some(pattern) = compile_member_pattern(member) {
+            self.scoped_patterns.push(ScopedMemberPattern {
+                raw: member,
+                matcher: pattern,
+                rule,
+                matched: Cell::new(false),
+            });
+        } else {
+            self.scoped.entry(member).or_default().push(rule);
+        }
     }
 
     fn matches(
@@ -60,12 +99,94 @@ impl<'a> ClassMemberAllowlist<'a> {
         implemented_interfaces: &[String],
     ) -> bool {
         self.global.contains(member_name)
+            || self
+                .global_patterns
+                .iter()
+                .any(|pattern| pattern.matches(member_name))
             || self.scoped.get(member_name).is_some_and(|rules| {
                 rules
                     .iter()
                     .any(|rule| rule.matches_heritage(super_class, implemented_interfaces))
             })
+            || self
+                .scoped_patterns
+                .iter()
+                .any(|pattern| pattern.matches(member_name, super_class, implemented_interfaces))
     }
+
+    fn warn_unmatched_patterns(&self) {
+        for pattern in self
+            .global_patterns
+            .iter()
+            .filter(|pattern| !pattern.matched.get())
+        {
+            tracing::warn!(
+                "usedClassMembers glob pattern '{}' did not match any class member",
+                pattern.raw
+            );
+        }
+
+        for pattern in self
+            .scoped_patterns
+            .iter()
+            .filter(|pattern| !pattern.matched.get())
+        {
+            tracing::warn!(
+                "usedClassMembers scoped glob pattern '{}' did not match any class member for {}",
+                pattern.raw,
+                heritage_clause(pattern.rule)
+            );
+        }
+    }
+}
+
+impl MemberPattern<'_> {
+    fn matches(&self, member_name: &str) -> bool {
+        let matches = self.matcher.is_match(member_name);
+        if matches {
+            self.matched.set(true);
+        }
+        matches
+    }
+}
+
+impl ScopedMemberPattern<'_> {
+    fn matches(
+        &self,
+        member_name: &str,
+        super_class: Option<&str>,
+        implemented_interfaces: &[String],
+    ) -> bool {
+        let matches = self.matcher.is_match(member_name)
+            && self
+                .rule
+                .matches_heritage(super_class, implemented_interfaces);
+        if matches {
+            self.matched.set(true);
+        }
+        matches
+    }
+}
+
+fn heritage_clause(rule: &ScopedUsedClassMemberRule) -> String {
+    match (rule.extends.as_deref(), rule.implements.as_deref()) {
+        (Some(extends), Some(implements)) => {
+            format!("extends='{extends}', implements='{implements}'")
+        }
+        (Some(extends), None) => format!("extends='{extends}'"),
+        (None, Some(implements)) => format!("implements='{implements}'"),
+        (None, None) => "unconstrained heritage".to_string(),
+    }
+}
+
+fn compile_member_pattern(member: &str) -> Option<GlobMatcher> {
+    if !member.contains('*') && !member.contains('?') {
+        return None;
+    }
+
+    globset::Glob::new(member)
+        .ok()
+        .map(|glob| glob.compile_matcher())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -941,6 +1062,8 @@ pub fn find_unused_members(
         }
     }
 
+    allowlist.warn_unmatched_patterns();
+
     (unused_enum_members, unused_class_members)
 }
 
@@ -1609,6 +1732,57 @@ mod tests {
     }
 
     #[test]
+    fn user_class_member_allowlist_globs_match_member_names() {
+        let mut graph = build_graph(&[("/src/entry.ts", true), ("/src/listener.ts", false)]);
+        graph.modules[1].set_reachable(true);
+        graph.modules[1].exports = vec![make_export_with_members(
+            "GrammarListener",
+            vec![
+                make_member("enterRule", MemberKind::ClassMethod),
+                make_member("exitRule", MemberKind::ClassMethod),
+                make_member("onNodeEvent", MemberKind::ClassMethod),
+                make_member("customHelper", MemberKind::ClassMethod),
+            ],
+            Some(0),
+        )];
+
+        let allowlist = vec![
+            UsedClassMemberRule::from("enter*"),
+            UsedClassMemberRule::from("exit*"),
+            UsedClassMemberRule::from("on?odeEvent"),
+        ];
+
+        let (_, class_members) = find_unused_members(
+            &graph,
+            &[],
+            &[],
+            &SuppressionContext::empty(),
+            &FxHashMap::default(),
+            &allowlist,
+        );
+        assert_eq!(
+            class_members.len(),
+            1,
+            "only customHelper should remain unused"
+        );
+        assert_eq!(class_members[0].member_name, "customHelper");
+    }
+
+    #[test]
+    fn member_glob_patterns_track_whether_they_matched() {
+        let rules = vec![
+            UsedClassMemberRule::from("enter*"),
+            UsedClassMemberRule::from("missing*"),
+        ];
+        let allowlist = ClassMemberAllowlist::from_rules(&rules);
+
+        assert!(allowlist.matches("enterRule", None, &[]));
+
+        assert!(allowlist.global_patterns[0].matched.get());
+        assert!(!allowlist.global_patterns[1].matched.get());
+    }
+
+    #[test]
     fn user_class_member_allowlist_does_not_affect_enums() {
         // The allowlist is scoped to class members; matching enum member names
         // must still be flagged as unused.
@@ -1670,6 +1844,78 @@ mod tests {
 
         assert_eq!(class_members.len(), 1);
         assert_eq!(class_members[0].member_name, "customHelper");
+    }
+
+    #[test]
+    fn scoped_allowlist_globs_match_only_matching_heritage() {
+        let mut graph = build_graph(&[
+            ("/src/entry.ts", true),
+            ("/src/listener.ts", false),
+            ("/src/unrelated.ts", false),
+        ]);
+        graph.modules[1].set_reachable(true);
+        graph.modules[1].exports = vec![make_export_with_members(
+            "GrammarListener",
+            vec![
+                make_member("enterRule", MemberKind::ClassMethod),
+                make_member("exitRule", MemberKind::ClassMethod),
+                make_member("customHelper", MemberKind::ClassMethod),
+            ],
+            Some(0),
+        )];
+        graph.modules[2].set_reachable(true);
+        graph.modules[2].exports = vec![make_export_with_members(
+            "DashboardComponent",
+            vec![make_member("enterRule", MemberKind::ClassMethod)],
+            Some(0),
+        )];
+
+        let modules = vec![make_module_with_class_heritage(
+            1,
+            "GrammarListener",
+            Some("BaseListener"),
+            &[],
+        )];
+        let allowlist = vec![UsedClassMemberRule::Scoped(ScopedUsedClassMemberRule {
+            extends: Some("BaseListener".to_string()),
+            implements: None,
+            members: vec!["enter*".to_string(), "exit*".to_string()],
+        })];
+
+        let (_, class_members) = find_unused_members(
+            &graph,
+            &[],
+            &modules,
+            &SuppressionContext::empty(),
+            &FxHashMap::default(),
+            &allowlist,
+        );
+        assert_eq!(
+            class_members.len(),
+            2,
+            "only unrelated enterRule and listener customHelper should remain unused: {class_members:?}"
+        );
+        assert!(
+            class_members
+                .iter()
+                .any(|member| member.parent_name == "DashboardComponent"
+                    && member.member_name == "enterRule"),
+            "scoped glob must not suppress unrelated classes: {class_members:?}"
+        );
+        assert!(
+            class_members
+                .iter()
+                .any(|member| member.parent_name == "GrammarListener"
+                    && member.member_name == "customHelper"),
+            "scoped glob must not suppress unmatched members: {class_members:?}"
+        );
+        assert!(
+            !class_members
+                .iter()
+                .any(|member| member.parent_name == "GrammarListener"
+                    && (member.member_name == "enterRule" || member.member_name == "exitRule")),
+            "scoped glob should suppress matching listener members: {class_members:?}"
+        );
     }
 
     #[test]

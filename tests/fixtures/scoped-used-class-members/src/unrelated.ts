@@ -8,4 +8,8 @@ export class DashboardComponent {
   authorize(): boolean {
     return false;
   }
+
+  enterDeploy(): void {}
+
+  deployHandler(): void {}
 }

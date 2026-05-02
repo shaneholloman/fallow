@@ -82,3 +82,51 @@ fn scoped_used_class_members_respect_class_heritage() {
         "combined scoped allowlist must not hide other members: {unused_members:?}"
     );
 }
+
+#[test]
+fn scoped_used_class_members_support_glob_patterns() {
+    let root = fixture_path("scoped-used-class-members");
+    let mut config = create_config(root);
+    config.used_class_members = vec![UsedClassMemberRule::Scoped(ScopedUsedClassMemberRule {
+        extends: Some("BaseCommand".to_string()),
+        implements: None,
+        members: vec![
+            "enter*".to_string(),
+            "exit*".to_string(),
+            "*Handler".to_string(),
+        ],
+    })];
+
+    let results = fallow_core::analyze(&config).expect("analysis should succeed");
+    let unused_members: Vec<String> = results
+        .unused_class_members
+        .iter()
+        .map(|m| format!("{}.{}", m.parent_name, m.member_name))
+        .collect();
+
+    assert!(
+        !unused_members.contains(&"DeployCommand.enterDeploy".to_string()),
+        "enter* should suppress matching BaseCommand subclass members: {unused_members:?}"
+    );
+    assert!(
+        !unused_members.contains(&"DeployCommand.exitDeploy".to_string()),
+        "exit* should suppress matching BaseCommand subclass members: {unused_members:?}"
+    );
+    assert!(
+        !unused_members.contains(&"DeployCommand.deployHandler".to_string()),
+        "*Handler should suppress matching BaseCommand subclass members: {unused_members:?}"
+    );
+
+    assert!(
+        unused_members.contains(&"DashboardComponent.enterDeploy".to_string()),
+        "scoped globs must not suppress unrelated classes: {unused_members:?}"
+    );
+    assert!(
+        unused_members.contains(&"DashboardComponent.deployHandler".to_string()),
+        "scoped globs must not suppress unrelated classes: {unused_members:?}"
+    );
+    assert!(
+        unused_members.contains(&"DeployCommand.cleanup".to_string()),
+        "scoped globs must not suppress unmatched members: {unused_members:?}"
+    );
+}

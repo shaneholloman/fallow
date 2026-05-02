@@ -3,13 +3,13 @@ use serde::{Deserialize, Serialize};
 
 /// A `usedClassMembers` entry from config or an external plugin.
 ///
-/// Supports either a plain member name (`"agInit"`) or a scoped rule that
-/// only applies when a class matches specific `extends` / `implements`
-/// heritage clauses.
+/// Supports either a plain member name or glob pattern (`"agInit"`,
+/// `"enter*"`) or a scoped rule that only applies when a class matches
+/// specific `extends` / `implements` heritage clauses.
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum UsedClassMemberRule {
-    /// Globally suppress this class member name for all classes.
+    /// Globally suppress this class member name or glob pattern for all classes.
     Name(String),
     /// Suppress these class member names only for matching classes.
     Scoped(ScopedUsedClassMemberRule),
@@ -37,7 +37,7 @@ pub struct ScopedUsedClassMemberRule {
     /// Only apply when the class implements this interface name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub implements: Option<String>,
-    /// Member names that should be treated as framework-used.
+    /// Member names or glob patterns that should be treated as framework-used.
     pub members: Vec<String>,
 }
 
