@@ -1814,6 +1814,34 @@ fn dynamic_import_string_literal() {
 }
 
 #[test]
+fn dynamic_import_in_object_property_callback_credits_default() {
+    let info = parse("const route = { loadChildren: () => import('./feature.routes') };");
+    assert_eq!(info.dynamic_imports.len(), 1);
+    assert_eq!(info.dynamic_imports[0].source, "./feature.routes");
+    assert_eq!(info.dynamic_imports[0].destructured_names, vec!["default"]);
+    assert!(info.dynamic_imports[0].local_name.is_none());
+}
+
+#[test]
+fn dynamic_import_in_object_property_function_callback_credits_default() {
+    let info =
+        parse("const route = { loadChildren: function() { return import('./feature.routes'); } };");
+    assert_eq!(info.dynamic_imports.len(), 1);
+    assert_eq!(info.dynamic_imports[0].source, "./feature.routes");
+    assert_eq!(info.dynamic_imports[0].destructured_names, vec!["default"]);
+    assert!(info.dynamic_imports[0].local_name.is_none());
+}
+
+#[test]
+fn dynamic_import_in_unknown_object_property_callback_stays_side_effect_only() {
+    let info = parse("const loaders = { arbitrary: () => import('./maybe-side-effect') };");
+    assert_eq!(info.dynamic_imports.len(), 1);
+    assert_eq!(info.dynamic_imports[0].source, "./maybe-side-effect");
+    assert!(info.dynamic_imports[0].destructured_names.is_empty());
+    assert!(info.dynamic_imports[0].local_name.is_none());
+}
+
+#[test]
 fn dynamic_import_assigned_to_variable() {
     let info = parse("const mod = import('./lazy');");
     assert_eq!(info.dynamic_imports.len(), 1);

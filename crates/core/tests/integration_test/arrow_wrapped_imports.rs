@@ -64,11 +64,26 @@ fn arrow_wrapped_lazy_imports_credit_default_exports() {
         "Bar.tsx default export should be credited via arrow-wrapped import, unused exports: {unused_export_names:?}"
     );
 
+    // Angular-style route callbacks also consume the module default implicitly.
+    assert!(
+        !unused_export_names
+            .iter()
+            .any(|(name, file)| *name == "default" && file == "feature.routes.ts"),
+        "feature.routes.ts default export should be credited via route callback import, unused exports: {unused_export_names:?}"
+    );
+
     // Foo.tsx unusedNamedExport SHOULD be in unused exports (only default is credited)
     assert!(
         unused_export_names
             .iter()
             .any(|(name, file)| *name == "unusedNamedExport" && file == "Foo.tsx"),
         "unusedNamedExport should be unused (only default is credited via lazy import), unused exports: {unused_export_names:?}"
+    );
+
+    assert!(
+        unused_export_names
+            .iter()
+            .any(|(name, file)| *name == "unusedRouteHelper" && file == "feature.routes.ts"),
+        "unusedRouteHelper should remain unused; only default is credited via route callback import, unused exports: {unused_export_names:?}"
     );
 }

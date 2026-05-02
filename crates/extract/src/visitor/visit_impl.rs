@@ -29,7 +29,7 @@ use super::helpers::{
 };
 use super::{
     ModuleInfoExtractor, try_extract_arrow_wrapped_import, try_extract_dynamic_import,
-    try_extract_import_then_callback, try_extract_require,
+    try_extract_import_then_callback, try_extract_property_callback_import, try_extract_require,
 };
 
 #[derive(Default)]
@@ -1104,6 +1104,20 @@ impl<'a> Visit<'a> for ModuleInfoExtractor {
             self.handle_dynamic_import_declaration(declarator, import_expr, source);
         }
         walk::walk_variable_declaration(self, decl);
+    }
+
+    fn visit_object_property(&mut self, prop: &ObjectProperty<'a>) {
+        if let Some((import_expr, source)) = try_extract_property_callback_import(prop) {
+            self.dynamic_imports.push(DynamicImportInfo {
+                source: source.to_string(),
+                span: import_expr.span,
+                destructured_names: vec!["default".to_string()],
+                local_name: None,
+            });
+            self.handled_import_spans.insert(import_expr.span);
+        }
+
+        walk::walk_object_property(self, prop);
     }
 
     fn visit_call_expression(&mut self, expr: &CallExpression<'a>) {

@@ -6,7 +6,7 @@ mod visit_impl;
 
 use oxc_ast::ast::{
     Argument, BindingPattern, CallExpression, Expression, ImportExpression, ObjectPattern,
-    ObjectPropertyKind, Statement,
+    ObjectProperty, ObjectPropertyKind, Statement,
 };
 use oxc_span::Span;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -386,18 +386,61 @@ fn try_extract_require<'a, 'b>(
 fn try_extract_dynamic_import<'a, 'b>(
     init: &'b Expression<'a>,
 ) -> Option<(&'b ImportExpression<'a>, &'b str)> {
-    let import_expr = match init {
-        Expression::AwaitExpression(await_expr) => match &await_expr.argument {
-            Expression::ImportExpression(imp) => imp,
-            _ => return None,
-        },
-        Expression::ImportExpression(imp) => imp,
+    let import_expr = extract_import_expression(init)?;
+    let Expression::StringLiteral(lit) = &import_expr.source else {
+        return None;
+    };
+    Some((import_expr, &lit.value))
+}
+
+/// Try to extract a dynamic import returned by a known route/component callback.
+///
+/// This covers framework route declarations such as
+/// `loadChildren: () => import('./feature.routes')` and Vue-style
+/// `component: () => import('./View.vue')`, where the framework consumes the
+/// module default export even though user code does not spell `.default`.
+fn try_extract_property_callback_import<'a, 'b>(
+    prop: &'b ObjectProperty<'a>,
+) -> Option<(&'b ImportExpression<'a>, &'b str)> {
+    let property_name = prop.key.static_name()?;
+    if !matches!(
+        property_name.as_ref(),
+        "component" | "loadChildren" | "loadComponent"
+    ) {
+        return None;
+    }
+
+    let import_expr = match &prop.value {
+        Expression::ArrowFunctionExpression(arrow) => {
+            if arrow.expression {
+                let Some(Statement::ExpressionStatement(expr_stmt)) = arrow.body.statements.first()
+                else {
+                    return None;
+                };
+                extract_import_expression(&expr_stmt.expression)?
+            } else {
+                extract_import_from_return_body(&arrow.body.statements)?
+            }
+        }
+        Expression::FunctionExpression(func) => {
+            let body = func.body.as_ref()?;
+            extract_import_from_return_body(&body.statements)?
+        }
         _ => return None,
     };
     let Expression::StringLiteral(lit) = &import_expr.source else {
         return None;
     };
     Some((import_expr, &lit.value))
+}
+
+fn extract_import_expression<'a, 'b>(expr: &'b Expression<'a>) -> Option<&'b ImportExpression<'a>> {
+    match expr {
+        Expression::AwaitExpression(await_expr) => extract_import_expression(&await_expr.argument),
+        Expression::ImportExpression(imp) => Some(imp),
+        Expression::ParenthesizedExpression(paren) => extract_import_expression(&paren.expression),
+        _ => None,
+    }
 }
 
 /// Try to extract a dynamic `import()` expression wrapped in an arrow function
@@ -459,7 +502,8 @@ fn extract_import_from_return_body<'a, 'b>(
 ) -> Option<&'b ImportExpression<'a>> {
     for stmt in stmts.iter().rev() {
         if let Statement::ReturnStatement(ret) = stmt
-            && let Some(Expression::ImportExpression(imp)) = &ret.argument
+            && let Some(argument) = &ret.argument
+            && let Some(imp) = extract_import_expression(argument)
         {
             return Some(imp);
         }
