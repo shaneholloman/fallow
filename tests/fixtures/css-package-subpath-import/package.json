@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "dependencies": {
+    "shadcn": "4.6.0",
     "tailwindcss": "4.1.13"
   },
   "main": "src/main.ts"

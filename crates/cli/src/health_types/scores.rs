@@ -31,16 +31,19 @@ pub const MI_DENSITY_MIN_LINES: f64 = 50.0;
 /// score = 100
 ///   - min(dead_file_pct × 0.2, 15)
 ///   - min(dead_export_pct × 0.2, 15)
-///   - min(max(0, avg_cyclomatic − 1.5) × 5, 20)
-///   - min(max(0, p90_cyclomatic − 10), 10)
-///   - min(max(0, 70 − maintainability_avg) × 0.5, 15)
-///   - min(hotspot_count / total_files × 200, 10)
-///   - min(unused_dep_count, 10)
-///   - min(circular_dep_count, 10)
-///   - min(max(0, very_high_risk_pct − 5) × 0.5, 10)    [unit size]
-///   - min(max(0, p95_fan_in − 30) × 0.25, 5)            [coupling]
+///   - min(critical_complexity_pct × 4, 20)
+///   - 0 when critical_complexity_pct is available; otherwise min(max(0, p90_cyclomatic − 10), 10)
+///   - min(maintainability_low_pct × 1.5, 15)
+///   - min(hotspot_top_pct_count / ceil(total_files × 0.01) × 10, 10)
+///   - min(unused_deps_per_k_files × 0.5, 25)
+///   - min(circular_deps_per_k_files × 0.5, 25)
+///   - min(functions_over_60_loc_per_k × 0.5, 10)        [unit size]
+///   - min(coupling_high_pct × 0.5, 5)                   [coupling]
 ///   - min(max(0, duplication_pct − 5) × 1.0, 10)        [duplication]
 /// ```
+///
+/// Older snapshots that lack the scale-invariant fields fall back to the
+/// previous average/p90/count aggregators.
 ///
 /// Missing metrics (from pipelines that didn't run) don't penalize. `--score`
 /// computes the score and duplication penalty, but churn-backed hotspot
@@ -50,8 +53,12 @@ pub const MI_DENSITY_MIN_LINES: f64 = 50.0;
 /// ## Letter Grades
 ///
 /// A: score ≥ 85, B: 70–84, C: 55–69, D: 40–54, F: below 40.
+pub const HEALTH_SCORE_FORMULA_VERSION: u32 = 2;
+
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct HealthScore {
+    /// Formula version used to compute the score and penalties.
+    pub formula_version: u32,
     /// Overall score (0–100, higher is better).
     pub score: f64,
     /// Letter grade: A, B, C, D, or F.
@@ -72,26 +79,26 @@ pub struct HealthScorePenalties {
     /// Points lost from dead exports (max 15).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dead_exports: Option<f64>,
-    /// Points lost from average cyclomatic complexity (max 20).
+    /// Points lost from critical-complexity density (max 20).
     pub complexity: f64,
-    /// Points lost from p90 cyclomatic complexity (max 10).
+    /// Points lost from legacy p90 cyclomatic complexity (0 for current scale-invariant runs).
     pub p90_complexity: f64,
-    /// Points lost from low maintainability index (max 15).
+    /// Points lost from low maintainability index density (max 15).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub maintainability: Option<f64>,
     /// Points lost from hotspot files (max 10).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hotspots: Option<f64>,
-    /// Points lost from unused dependencies (max 10).
+    /// Points lost from unused dependency density (max 25).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unused_deps: Option<f64>,
-    /// Points lost from circular dependencies (max 10).
+    /// Points lost from circular dependency density (max 25).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub circular_deps: Option<f64>,
-    /// Points lost from oversized functions (max 10).
+    /// Points lost from oversized-function density (max 10).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unit_size: Option<f64>,
-    /// Points lost from coupling concentration (max 5).
+    /// Points lost from coupling concentration density (max 5).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub coupling: Option<f64>,
     /// Points lost from code duplication (max 10).
@@ -711,6 +718,7 @@ mod tests {
     #[test]
     fn health_score_serializes_correctly() {
         let score = HealthScore {
+            formula_version: HEALTH_SCORE_FORMULA_VERSION,
             score: 78.5,
             grade: "B",
             penalties: HealthScorePenalties {
@@ -729,6 +737,7 @@ mod tests {
         };
         let json = serde_json::to_string(&score).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["formula_version"], HEALTH_SCORE_FORMULA_VERSION);
         assert_eq!(parsed["score"], 78.5);
         assert_eq!(parsed["grade"], "B");
         assert_eq!(parsed["penalties"]["dead_files"], 3.1);

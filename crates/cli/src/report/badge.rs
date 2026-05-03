@@ -320,10 +320,13 @@ mod tests {
 
     #[test]
     fn print_health_badge_with_score() {
-        use crate::health_types::{HealthScore, HealthScorePenalties};
+        use crate::health_types::{
+            HEALTH_SCORE_FORMULA_VERSION, HealthScore, HealthScorePenalties,
+        };
 
         let mut report = empty_report();
         report.health_score = Some(HealthScore {
+            formula_version: HEALTH_SCORE_FORMULA_VERSION,
             score: 87.3,
             grade: "A",
             penalties: HealthScorePenalties {

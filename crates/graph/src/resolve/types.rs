@@ -97,6 +97,10 @@ impl Default for ResolvedModule {
 pub(super) struct ResolveContext<'a> {
     /// The oxc_resolver instance (configured once, shared across threads).
     pub resolver: &'a Resolver,
+    /// CSS-only resolver with the package.json `style` condition enabled.
+    /// Used only for stylesheet package subpaths so JS/TS imports do not
+    /// accidentally prefer CSS export branches.
+    pub style_resolver: &'a Resolver,
     /// Canonical path → FileId lookup (raw paths when root is canonical).
     pub path_to_id: &'a FxHashMap<&'a Path, FileId>,
     /// Raw (non-canonical) path → FileId lookup.

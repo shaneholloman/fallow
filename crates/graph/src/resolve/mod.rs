@@ -116,8 +116,11 @@ pub fn resolve_all_imports(
     // FileIds are sequential 0..n, so direct array indexing is faster than FxHashMap.
     let file_paths: Vec<&Path> = files.iter().map(|f| f.path.as_path()).collect();
 
-    // Create resolver ONCE and share across threads (oxc_resolver::Resolver is Send + Sync)
+    // Create resolvers ONCE and share across threads (oxc_resolver::Resolver is Send + Sync).
     let resolver = create_resolver(active_plugins, extra_conditions);
+    let mut style_conditions = extra_conditions.to_vec();
+    style_conditions.push("style".to_string());
+    let style_resolver = create_resolver(active_plugins, &style_conditions);
 
     // Lazy canonical fallback — only needed when root is canonical (path_to_id uses raw paths).
     // When root is NOT canonical, path_to_id already uses canonical paths, no fallback needed.
@@ -133,6 +136,7 @@ pub fn resolve_all_imports(
     // Shared resolution context — avoids passing 6 arguments to every resolve_specifier call
     let ctx = ResolveContext {
         resolver: &resolver,
+        style_resolver: &style_resolver,
         path_to_id: &path_to_id,
         raw_path_to_id: &raw_path_to_id,
         workspace_roots: &workspace_roots,

@@ -8,7 +8,8 @@
 /// v5: Added duplication penalty to health score formula.
 /// v6: Added `total_loc` to vital signs (always computed from parsed modules).
 /// v7: MI formula dampening for small files (values change for files < 50 lines).
-pub const SNAPSHOT_SCHEMA_VERSION: u32 = 7;
+/// v8: Added scale-invariant tail/density metrics for health score calibration.
+pub const SNAPSHOT_SCHEMA_VERSION: u32 = 8;
 
 /// Project-wide vital signs — a fixed set of metrics for trend tracking.
 ///
@@ -25,6 +26,9 @@ pub struct VitalSigns {
     pub dead_export_pct: Option<f64>,
     /// Average cyclomatic complexity across all functions.
     pub avg_cyclomatic: f64,
+    /// Percentage of functions at or above the critical cyclomatic threshold.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub critical_complexity_pct: Option<f64>,
     /// 90th percentile cyclomatic complexity.
     pub p90_cyclomatic: u32,
     /// Code duplication percentage (None if duplication pipeline was not run).
@@ -33,21 +37,36 @@ pub struct VitalSigns {
     /// Number of hotspot files (score >= 50). None if git history unavailable.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hotspot_count: Option<u32>,
+    /// Number of files in the top 1% of the within-project hotspot ranking.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub hotspot_top_pct_count: Option<u32>,
     /// Average maintainability index across all scored files (0–100).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub maintainability_avg: Option<f64>,
+    /// Percentage of scored files with maintainability index below 70.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub maintainability_low_pct: Option<f64>,
     /// Number of unused dependencies (dependencies + devDependencies + optional).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unused_dep_count: Option<u32>,
+    /// Unused dependencies per 1,000 files.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub unused_deps_per_k_files: Option<f64>,
     /// Number of circular dependency chains.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub circular_dep_count: Option<u32>,
+    /// Circular dependency chains per 1,000 files.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub circular_deps_per_k_files: Option<f64>,
     /// Raw counts backing the percentages (for orientation header display).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub counts: Option<VitalSignsCounts>,
     /// Function size risk profile: percentage of functions in each size bin.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub unit_size_profile: Option<RiskProfile>,
+    /// Functions above 60 LOC per 1,000 functions.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub functions_over_60_loc_per_k: Option<f64>,
     /// Parameter count risk profile: percentage of functions in each param bin.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub unit_interfacing_profile: Option<RiskProfile>,
@@ -147,14 +166,20 @@ mod tests {
             dead_file_pct: Some(3.2),
             dead_export_pct: Some(8.1),
             avg_cyclomatic: 4.7,
+            critical_complexity_pct: Some(1.2),
             p90_cyclomatic: 12,
             duplication_pct: None,
             hotspot_count: Some(5),
+            hotspot_top_pct_count: Some(12),
             maintainability_avg: Some(72.4),
+            maintainability_low_pct: Some(4.1),
             unused_dep_count: Some(4),
+            unused_deps_per_k_files: Some(3.3),
             circular_dep_count: Some(2),
+            circular_deps_per_k_files: Some(1.7),
             counts: None,
             unit_size_profile: None,
+            functions_over_60_loc_per_k: Some(8.2),
             unit_interfacing_profile: None,
             p95_fan_in: None,
             coupling_high_pct: None,
@@ -183,14 +208,20 @@ mod tests {
                 dead_file_pct: Some(3.2),
                 dead_export_pct: Some(8.1),
                 avg_cyclomatic: 4.7,
+                critical_complexity_pct: None,
                 p90_cyclomatic: 12,
                 duplication_pct: None,
                 hotspot_count: None,
+                hotspot_top_pct_count: None,
                 maintainability_avg: Some(72.4),
+                maintainability_low_pct: None,
                 unused_dep_count: Some(4),
+                unused_deps_per_k_files: None,
                 circular_dep_count: Some(2),
+                circular_deps_per_k_files: None,
                 counts: None,
                 unit_size_profile: None,
+                functions_over_60_loc_per_k: None,
                 unit_interfacing_profile: None,
                 p95_fan_in: None,
                 coupling_high_pct: None,
@@ -226,14 +257,20 @@ mod tests {
             dead_file_pct: None,
             dead_export_pct: None,
             avg_cyclomatic: 5.0,
+            critical_complexity_pct: None,
             p90_cyclomatic: 10,
             duplication_pct: None,
             hotspot_count: None,
+            hotspot_top_pct_count: None,
             maintainability_avg: None,
+            maintainability_low_pct: None,
             unused_dep_count: None,
+            unused_deps_per_k_files: None,
             circular_dep_count: None,
+            circular_deps_per_k_files: None,
             counts: None,
             unit_size_profile: None,
+            functions_over_60_loc_per_k: None,
             unit_interfacing_profile: None,
             p95_fan_in: None,
             coupling_high_pct: None,
@@ -253,8 +290,8 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_schema_version_is_seven() {
-        assert_eq!(SNAPSHOT_SCHEMA_VERSION, 7);
+    fn snapshot_schema_version_is_eight() {
+        assert_eq!(SNAPSHOT_SCHEMA_VERSION, 8);
     }
 
     #[test]

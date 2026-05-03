@@ -10,9 +10,10 @@ use std::path::{Path, PathBuf};
 const SECS_PER_DAY: u64 = 86_400;
 
 use crate::health_types::{
-    FileHealthScore, HOTSPOT_SCORE_THRESHOLD, HealthScore, HealthScorePenalties, HealthTrend,
-    HotspotEntry, RiskProfile, SNAPSHOT_SCHEMA_VERSION, TrendCount, TrendDirection, TrendMetric,
-    TrendPoint, VitalSigns, VitalSignsCounts, VitalSignsSnapshot, letter_grade,
+    DEFAULT_CYCLOMATIC_CRITICAL, FileHealthScore, HEALTH_SCORE_FORMULA_VERSION,
+    HOTSPOT_SCORE_THRESHOLD, HealthScore, HealthScorePenalties, HealthTrend, HotspotEntry,
+    RiskProfile, SNAPSHOT_SCHEMA_VERSION, TrendCount, TrendDirection, TrendMetric, TrendPoint,
+    VitalSigns, VitalSignsCounts, VitalSignsSnapshot, letter_grade,
 };
 
 /// Data sources for computing vital signs.
@@ -64,7 +65,8 @@ pub struct AnalysisCounts {
 /// Compute vital signs from available health data.
 #[expect(
     clippy::cast_possible_truncation,
-    reason = "percentile indices, dep counts, hotspot counts, and LOC per file are bounded by project size"
+    clippy::too_many_lines,
+    reason = "vital-sign aggregation keeps the metric definitions in one ordered block; percentile indices, dep counts, hotspot counts, and LOC per file are bounded by project size"
 )]
 pub fn compute_vital_signs(input: &VitalSignsInput<'_>) -> VitalSigns {
     // Cyclomatic complexity: always available from parsed modules
@@ -79,6 +81,15 @@ pub fn compute_vital_signs(input: &VitalSignsInput<'_>) -> VitalSigns {
     } else {
         let sum: u64 = all_cyclomatic.iter().map(|&c| u64::from(c)).sum();
         (sum as f64 / all_cyclomatic.len() as f64 * 10.0).round() / 10.0
+    };
+    let critical_complexity_pct = if all_cyclomatic.is_empty() {
+        None
+    } else {
+        let critical_count = all_cyclomatic
+            .iter()
+            .filter(|&&c| c >= DEFAULT_CYCLOMATIC_CRITICAL)
+            .count();
+        Some((critical_count as f64 / all_cyclomatic.len() as f64 * 1000.0).round() / 10.0)
     };
 
     let p90_cyclomatic = if all_cyclomatic.is_empty() {
@@ -114,6 +125,20 @@ pub fn compute_vital_signs(input: &VitalSignsInput<'_>) -> VitalSigns {
         } else {
             (None, None, None, None)
         };
+    let unused_deps_per_k_files = unused_dep_count.map(|count| {
+        if input.total_files == 0 {
+            0.0
+        } else {
+            (f64::from(count) / input.total_files as f64 * 10_000.0).round() / 10.0
+        }
+    });
+    let circular_deps_per_k_files = circular_dep_count.map(|count| {
+        if input.total_files == 0 {
+            0.0
+        } else {
+            (f64::from(count) / input.total_files as f64 * 10_000.0).round() / 10.0
+        }
+    });
 
     // Maintainability average: from file scores
     let maintainability_avg = input.file_scores.and_then(|scores| {
@@ -123,12 +148,33 @@ pub fn compute_vital_signs(input: &VitalSignsInput<'_>) -> VitalSigns {
         let sum: f64 = scores.iter().map(|s| s.maintainability_index).sum();
         Some((sum / scores.len() as f64 * 10.0).round() / 10.0)
     });
+    let maintainability_low_pct = input.file_scores.and_then(|scores| {
+        if scores.is_empty() {
+            return None;
+        }
+        let low_count = scores
+            .iter()
+            .filter(|s| s.maintainability_index < 70.0)
+            .count();
+        Some((low_count as f64 / scores.len() as f64 * 1000.0).round() / 10.0)
+    });
 
     // Hotspot count: files with score >= threshold
     let hotspot_count = input.hotspots.map(|entries| {
         entries
             .iter()
             .filter(|e| e.score >= HOTSPOT_SCORE_THRESHOLD)
+            .count() as u32
+    });
+    let hotspot_top_pct_count = input.hotspots.map(|entries| {
+        if input.total_files == 0 || entries.is_empty() {
+            return 0;
+        }
+        let top_count = (input.total_files as f64 * 0.01).ceil() as usize;
+        entries
+            .iter()
+            .take(top_count.max(1))
+            .filter(|entry| entry.score > 0.0)
             .count() as u32
     });
 
@@ -151,13 +197,22 @@ pub fn compute_vital_signs(input: &VitalSignsInput<'_>) -> VitalSigns {
     });
 
     // Unit size risk profile: bin functions by line count
-    let unit_size_profile = if all_cyclomatic.is_empty() {
+    let all_line_counts: Vec<u32> = input
+        .selected_modules()
+        .flat_map(|m| m.complexity.iter().map(|c| c.line_count))
+        .collect();
+    let functions_over_60_loc_per_k = if all_line_counts.is_empty() {
         None
     } else {
-        let all_line_counts: Vec<u32> = input
-            .selected_modules()
-            .flat_map(|m| m.complexity.iter().map(|c| c.line_count))
-            .collect();
+        let over_60 = all_line_counts
+            .iter()
+            .filter(|&&line_count| line_count > 60)
+            .count();
+        Some((over_60 as f64 / all_line_counts.len() as f64 * 10_000.0).round() / 10.0)
+    };
+    let unit_size_profile = if all_line_counts.is_empty() {
+        None
+    } else {
         Some(compute_size_risk_profile(&all_line_counts))
     };
 
@@ -183,14 +238,20 @@ pub fn compute_vital_signs(input: &VitalSignsInput<'_>) -> VitalSigns {
         dead_file_pct,
         dead_export_pct,
         avg_cyclomatic,
+        critical_complexity_pct,
         p90_cyclomatic,
         duplication_pct: None, // Lazy: only set if duplication pipeline was run
         hotspot_count,
+        hotspot_top_pct_count,
         maintainability_avg,
+        maintainability_low_pct,
         unused_dep_count,
+        unused_deps_per_k_files,
         circular_dep_count,
+        circular_deps_per_k_files,
         counts,
         unit_size_profile,
+        functions_over_60_loc_per_k,
         unit_interfacing_profile,
         p95_fan_in,
         coupling_high_pct,
@@ -311,63 +372,106 @@ pub fn compute_health_score(vs: &VitalSigns, total_files: usize) -> HealthScore 
         score -= p;
     }
 
-    // Complexity penalty: 5 points per unit above 1.5, max 20
-    let complexity_penalty = round1(((vs.avg_cyclomatic - 1.5).max(0.0) * 5.0).min(20.0));
+    // Complexity penalty: prefer scale-invariant critical-complexity density
+    // when current vital signs provide it. Fall back to the legacy average for
+    // older snapshots/tests that predate the tail metric.
+    let complexity_penalty = if let Some(critical_pct) = vs.critical_complexity_pct {
+        round1((critical_pct * 4.0).min(20.0))
+    } else {
+        round1(((vs.avg_cyclomatic - 1.5).max(0.0) * 5.0).min(20.0))
+    };
     score -= complexity_penalty;
 
-    // P90 penalty: 1 point per unit above 10, max 10
-    let p90_penalty = round1((f64::from(vs.p90_cyclomatic) - 10.0).clamp(0.0, 10.0));
+    // P90 is retained for backward-compatible output, but new runs fold
+    // complexity tail risk into the scale-invariant complexity penalty.
+    let p90_penalty = if vs.critical_complexity_pct.is_some() {
+        0.0
+    } else {
+        round1((f64::from(vs.p90_cyclomatic) - 10.0).clamp(0.0, 10.0))
+    };
     score -= p90_penalty;
 
-    // Maintainability penalty: 0.5 points per unit below 70, max 15
-    let maintainability_penalty = vs
-        .maintainability_avg
-        .map(|mi| round1(((70.0 - mi).max(0.0) * 0.5).min(15.0)));
+    // Maintainability penalty: prefer percentage of low-MI files over mean MI
+    // so a large low-quality tail is not diluted by many trivial files.
+    let maintainability_penalty = if let Some(low_pct) = vs.maintainability_low_pct {
+        Some(round1((low_pct * 1.5).min(15.0)))
+    } else {
+        vs.maintainability_avg
+            .map(|mi| round1(((70.0 - mi).max(0.0) * 0.5).min(15.0)))
+    };
     if let Some(p) = maintainability_penalty {
         score -= p;
     }
 
-    // Hotspot penalty: normalized by total files, max 10
-    let hotspot_penalty = vs.hotspot_count.map(|hc| {
+    // Hotspot penalty: prefer coverage of the top 1% within-project ranking.
+    // The legacy fixed score threshold can be unreachable when churn and
+    // density maxima live in different files; scoring against the percentile
+    // bucket lets the dimension use its full 10-point budget.
+    let hotspot_penalty = if let Some(top_pct_count) = vs.hotspot_top_pct_count {
         if total_files > 0 {
-            round1((f64::from(hc) / total_files as f64 * 200.0).min(10.0))
+            let top_pct_bucket = (total_files as f64 * 0.01).ceil().max(1.0);
+            Some(round1(
+                (f64::from(top_pct_count) / top_pct_bucket * 10.0).min(10.0),
+            ))
         } else {
-            0.0
+            Some(0.0)
         }
-    });
+    } else {
+        vs.hotspot_count.map(|hc| {
+            if total_files > 0 {
+                round1((f64::from(hc) / total_files as f64 * 200.0).min(10.0))
+            } else {
+                0.0
+            }
+        })
+    };
     if let Some(p) = hotspot_penalty {
         score -= p;
     }
 
-    // Unused dep penalty: 1 point per dep, max 10
-    let unused_deps_penalty = vs
-        .unused_dep_count
-        .map(|ud| round1(f64::from(ud).min(10.0)));
+    // Unused dep penalty: prefer density per 1k files, cap 25.
+    let unused_deps_penalty = if let Some(per_k) = vs.unused_deps_per_k_files {
+        Some(round1((per_k * 0.5).min(25.0)))
+    } else {
+        vs.unused_dep_count
+            .map(|ud| round1(f64::from(ud).min(10.0)))
+    };
     if let Some(p) = unused_deps_penalty {
         score -= p;
     }
 
-    // Circular dep penalty: 1 point per chain, max 10
-    let circular_deps_penalty = vs
-        .circular_dep_count
-        .map(|cd| round1(f64::from(cd).min(10.0)));
+    // Circular dep penalty: prefer density per 1k files, cap 25.
+    let circular_deps_penalty = if let Some(per_k) = vs.circular_deps_per_k_files {
+        Some(round1((per_k * 0.5).min(25.0)))
+    } else {
+        vs.circular_dep_count
+            .map(|cd| round1(f64::from(cd).min(10.0)))
+    };
     if let Some(p) = circular_deps_penalty {
         score -= p;
     }
 
-    // Unit size penalty: penalize when >5% of functions are very high risk (>60 LOC), max 10
-    let unit_size_penalty = vs
-        .unit_size_profile
-        .as_ref()
-        .map(|profile| round1(((profile.very_high_risk - 5.0).max(0.0) * 0.5).min(10.0)));
+    // Unit size penalty: prefer functions >60 LOC per 1k functions. The legacy
+    // percentage floor diluted thousands of oversized functions in large repos.
+    let unit_size_penalty = if let Some(per_k) = vs.functions_over_60_loc_per_k {
+        Some(round1((per_k * 0.5).min(10.0)))
+    } else {
+        vs.unit_size_profile
+            .as_ref()
+            .map(|profile| round1(((profile.very_high_risk - 5.0).max(0.0) * 0.5).min(10.0)))
+    };
     if let Some(p) = unit_size_penalty {
         score -= p;
     }
 
-    // Coupling concentration penalty: penalize when p95 fan-in exceeds 30, max 5
-    let coupling_penalty = vs
-        .p95_fan_in
-        .map(|p95| round1(((f64::from(p95) - 30.0).max(0.0) * 0.25).min(5.0)));
+    // Coupling concentration penalty: prefer the percentage of high fan-in files
+    // over p95 so heavy-tailed hubs above p99 still contribute.
+    let coupling_penalty = if let Some(high_pct) = vs.coupling_high_pct {
+        Some(round1((high_pct * 0.5).min(5.0)))
+    } else {
+        vs.p95_fan_in
+            .map(|p95| round1(((f64::from(p95) - 30.0).max(0.0) * 0.25).min(5.0)))
+    };
     if let Some(p) = coupling_penalty {
         score -= p;
     }
@@ -385,6 +489,7 @@ pub fn compute_health_score(vs: &VitalSigns, total_files: usize) -> HealthScore 
     let grade = letter_grade(score);
 
     HealthScore {
+        formula_version: HEALTH_SCORE_FORMULA_VERSION,
         score,
         grade,
         penalties: HealthScorePenalties {
@@ -929,6 +1034,17 @@ mod tests {
             .collect()
     }
 
+    fn assert_close(actual: f64, expected: f64) {
+        assert!(
+            (actual - expected).abs() < f64::EPSILON,
+            "expected {expected}, got {actual}"
+        );
+    }
+
+    fn assert_some_close(actual: Option<f64>, expected: f64) {
+        assert_close(actual.expect("expected metric to be present"), expected);
+    }
+
     #[test]
     fn compute_cyclomatic_stats() {
         let modules = make_modules();
@@ -1026,6 +1142,7 @@ mod tests {
         };
         let vs = compute_vital_signs(&input);
         assert_eq!(vs.hotspot_count, Some(2)); // 80.0 and 50.0 meet threshold
+        assert_eq!(vs.hotspot_top_pct_count, Some(1)); // top 1% bucket rounds up to one file
     }
 
     #[test]
@@ -1232,19 +1349,41 @@ mod tests {
     }
 
     #[test]
+    fn health_score_hotspot_top_pct_can_use_full_budget() {
+        let vs = VitalSigns {
+            avg_cyclomatic: 1.0,
+            p90_cyclomatic: 2,
+            hotspot_count: Some(0),
+            hotspot_top_pct_count: Some(250),
+            ..Default::default()
+        };
+
+        let score = compute_health_score(&vs, 25_000);
+
+        assert_some_close(score.penalties.hotspots, 10.0);
+        assert_close(score.score, 90.0);
+    }
+
+    #[test]
     fn health_score_duplication_penalty() {
         let vs = VitalSigns {
             dead_file_pct: None,
             dead_export_pct: None,
             avg_cyclomatic: 1.0,
+            critical_complexity_pct: None,
             p90_cyclomatic: 2,
             duplication_pct: Some(10.0), // 10% - 5% = 5 points
             hotspot_count: None,
+            hotspot_top_pct_count: None,
             maintainability_avg: None,
+            maintainability_low_pct: None,
             unused_dep_count: None,
+            unused_deps_per_k_files: None,
             circular_dep_count: None,
+            circular_deps_per_k_files: None,
             counts: None,
             unit_size_profile: None,
+            functions_over_60_loc_per_k: None,
             unit_interfacing_profile: None,
             p95_fan_in: None,
             coupling_high_pct: None,
@@ -1268,6 +1407,52 @@ mod tests {
         };
         let score_high = compute_health_score(&vs_high, 100);
         assert_eq!(score_high.penalties.duplication, Some(10.0));
+    }
+
+    #[test]
+    fn health_score_uses_scale_invariant_monorepo_signals() {
+        let vs = VitalSigns {
+            dead_file_pct: Some(4.0),
+            dead_export_pct: Some(9.0),
+            avg_cyclomatic: 2.3,
+            critical_complexity_pct: Some(2.3),
+            p90_cyclomatic: 4,
+            duplication_pct: Some(6.0),
+            hotspot_count: Some(0),
+            hotspot_top_pct_count: Some(250),
+            maintainability_avg: Some(91.0),
+            maintainability_low_pct: Some(8.0),
+            unused_dep_count: Some(180),
+            unused_deps_per_k_files: Some(7.2),
+            circular_dep_count: Some(450),
+            circular_deps_per_k_files: Some(18.0),
+            unit_size_profile: Some(RiskProfile {
+                low_risk: 80.0,
+                medium_risk: 12.7,
+                high_risk: 5.0,
+                very_high_risk: 2.3,
+            }),
+            functions_over_60_loc_per_k: Some(23.0),
+            p95_fan_in: Some(7),
+            coupling_high_pct: Some(4.0),
+            ..Default::default()
+        };
+        let score = compute_health_score(&vs, 25_000);
+        let penalties = &score.penalties;
+
+        assert_some_close(penalties.dead_files, 0.8);
+        assert_some_close(penalties.dead_exports, 1.8);
+        assert_close(penalties.complexity, 9.2);
+        assert!((penalties.p90_complexity).abs() < f64::EPSILON);
+        assert_some_close(penalties.maintainability, 12.0);
+        assert_some_close(penalties.hotspots, 10.0);
+        assert_some_close(penalties.unused_deps, 3.6);
+        assert_some_close(penalties.circular_deps, 9.0);
+        assert_some_close(penalties.unit_size, 10.0);
+        assert_some_close(penalties.coupling, 2.0);
+        assert_some_close(penalties.duplication, 1.0);
+        assert_close(score.score, 40.6);
+        assert_eq!(score.grade, "D");
     }
 
     // --- load_snapshots ---

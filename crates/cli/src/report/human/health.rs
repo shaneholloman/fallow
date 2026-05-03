@@ -2173,6 +2173,7 @@ mod tests {
         let root = PathBuf::from("/project");
         let mut report = empty_report();
         report.health_score = Some(crate::health_types::HealthScore {
+            formula_version: crate::health_types::HEALTH_SCORE_FORMULA_VERSION,
             score: 92.0,
             grade: "A",
             penalties: crate::health_types::HealthScorePenalties {
@@ -2204,6 +2205,7 @@ mod tests {
         let root = PathBuf::from("/project");
         let mut report = empty_report();
         report.health_score = Some(crate::health_types::HealthScore {
+            formula_version: crate::health_types::HEALTH_SCORE_FORMULA_VERSION,
             score: 76.0,
             grade: "B",
             penalties: crate::health_types::HealthScorePenalties {
@@ -2236,6 +2238,7 @@ mod tests {
         let root = PathBuf::from("/project");
         let mut report = empty_report();
         report.health_score = Some(crate::health_types::HealthScore {
+            formula_version: crate::health_types::HEALTH_SCORE_FORMULA_VERSION,
             score: 60.0,
             grade: "C",
             penalties: crate::health_types::HealthScorePenalties {
@@ -2262,6 +2265,7 @@ mod tests {
         let root = PathBuf::from("/project");
         let mut report = empty_report();
         report.health_score = Some(crate::health_types::HealthScore {
+            formula_version: crate::health_types::HEALTH_SCORE_FORMULA_VERSION,
             score: 30.0,
             grade: "F",
             penalties: crate::health_types::HealthScorePenalties {
@@ -2288,6 +2292,7 @@ mod tests {
         let root = PathBuf::from("/project");
         let mut report = empty_report();
         report.health_score = Some(crate::health_types::HealthScore {
+            formula_version: crate::health_types::HEALTH_SCORE_FORMULA_VERSION,
             score: 90.0,
             grade: "A",
             penalties: crate::health_types::HealthScorePenalties {
@@ -2315,6 +2320,7 @@ mod tests {
         let root = PathBuf::from("/project");
         let mut report = empty_report();
         report.health_score = Some(crate::health_types::HealthScore {
+            formula_version: crate::health_types::HEALTH_SCORE_FORMULA_VERSION,
             score: 85.0,
             grade: "A",
             penalties: crate::health_types::HealthScorePenalties {
@@ -2341,6 +2347,7 @@ mod tests {
         let root = PathBuf::from("/project");
         let mut report = empty_report();
         report.health_score = Some(crate::health_types::HealthScore {
+            formula_version: crate::health_types::HEALTH_SCORE_FORMULA_VERSION,
             score: 100.0,
             grade: "A",
             penalties: crate::health_types::HealthScorePenalties {
@@ -2555,6 +2562,7 @@ mod tests {
             p95_fan_in: None,
             coupling_high_pct: None,
             total_loc: 42_381,
+            ..Default::default()
         });
         let lines = build_health_human_lines(&report, &root);
         let text = plain(&lines);
@@ -2589,6 +2597,7 @@ mod tests {
             p95_fan_in: None,
             coupling_high_pct: None,
             total_loc: 0,
+            ..Default::default()
         });
         report.health_trend = Some(crate::health_types::HealthTrend {
             compared_to: crate::health_types::TrendPoint {
@@ -2630,6 +2639,7 @@ mod tests {
             p95_fan_in: None,
             coupling_high_pct: None,
             total_loc: 0,
+            ..Default::default()
         });
         let lines = build_health_human_lines(&report, &root);
         let text = plain(&lines);
@@ -2661,6 +2671,7 @@ mod tests {
             p95_fan_in: None,
             coupling_high_pct: None,
             total_loc: 0,
+            ..Default::default()
         });
         let lines = build_health_human_lines(&report, &root);
         let text = plain(&lines);
@@ -2689,6 +2700,7 @@ mod tests {
             p95_fan_in: None,
             coupling_high_pct: None,
             total_loc: 0,
+            ..Default::default()
         });
         let lines = build_health_human_lines(&report, &root);
         let text = plain(&lines);
@@ -3259,6 +3271,7 @@ mod tests {
             coverage_tier: None,
         }];
         report.health_score = Some(crate::health_types::HealthScore {
+            formula_version: crate::health_types::HEALTH_SCORE_FORMULA_VERSION,
             score: 75.0,
             grade: "B",
             penalties: crate::health_types::HealthScorePenalties {

@@ -1802,6 +1802,7 @@ mod tests {
                 p95_fan_in: None,
                 coupling_high_pct: None,
                 total_loc: 15_200,
+                ..Default::default()
             }),
             ..Default::default()
         };

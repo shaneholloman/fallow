@@ -96,12 +96,21 @@ fn resolve_file_with_tsconfig_fallback(
     from_file: &Path,
     specifier: &str,
 ) -> ResolveFileAttempt {
-    match ctx.resolver.resolve_file(from_file, specifier) {
+    resolve_file_with_resolver_and_tsconfig_fallback(ctx, ctx.resolver, from_file, specifier)
+}
+
+fn resolve_file_with_resolver_and_tsconfig_fallback(
+    ctx: &ResolveContext<'_>,
+    resolver: &Resolver,
+    from_file: &Path,
+    specifier: &str,
+) -> ResolveFileAttempt {
+    match resolver.resolve_file(from_file, specifier) {
         Ok(resolution) => ResolveFileAttempt::Resolved(resolution),
         Err(err) if is_tsconfig_error(&err) => {
             warn_once_tsconfig(ctx, &err);
             let dir = from_file.parent().unwrap_or(from_file);
-            match ctx.resolver.resolve(dir, specifier) {
+            match resolver.resolve(dir, specifier) {
                 Ok(resolution) => ResolveFileAttempt::Resolved(resolution),
                 Err(_) => ResolveFileAttempt::Failed {
                     used_tsconfig_fallback: true,
@@ -324,6 +333,66 @@ fn should_preserve_node_modules_style_file(
     is_node_modules_path(from_file) && (specifier.starts_with('.') || specifier.starts_with('/'))
 }
 
+fn try_style_condition_package_resolution(
+    ctx: &ResolveContext<'_>,
+    from_file: &Path,
+    specifier: &str,
+    from_style: bool,
+) -> Option<ResolveResult> {
+    if !is_bare_style_subpath(specifier) || (!from_style && !is_style_file(from_file)) {
+        return None;
+    }
+
+    let ResolveFileAttempt::Resolved(resolved) = resolve_file_with_resolver_and_tsconfig_fallback(
+        ctx,
+        ctx.style_resolver,
+        from_file,
+        specifier,
+    ) else {
+        return None;
+    };
+    let resolved_path = resolved.path();
+
+    if let Some(&file_id) = ctx.raw_path_to_id.get(resolved_path) {
+        return Some(ResolveResult::InternalModule(file_id));
+    }
+
+    if let Some(pkg_name) = extract_package_name_from_node_modules_path(resolved_path)
+        && !ctx.workspace_roots.contains_key(pkg_name.as_str())
+    {
+        return Some(ResolveResult::NpmPackage(pkg_name));
+    }
+
+    if let Ok(canonical) = dunce::canonicalize(resolved_path) {
+        if let Some(&file_id) = ctx.path_to_id.get(canonical.as_path()) {
+            return Some(ResolveResult::InternalModule(file_id));
+        }
+        if let Some(fallback) = ctx.canonical_fallback
+            && let Some(file_id) = fallback.get(&canonical)
+        {
+            return Some(ResolveResult::InternalModule(file_id));
+        }
+        if let Some(file_id) = try_source_fallback(&canonical, ctx.path_to_id) {
+            return Some(ResolveResult::InternalModule(file_id));
+        }
+        if let Some(file_id) =
+            try_pnpm_workspace_fallback(&canonical, ctx.path_to_id, ctx.workspace_roots)
+        {
+            return Some(ResolveResult::InternalModule(file_id));
+        }
+        if let Some(pkg_name) = extract_package_name_from_node_modules_path(&canonical)
+            && !ctx.workspace_roots.contains_key(pkg_name.as_str())
+        {
+            return Some(ResolveResult::NpmPackage(pkg_name));
+        }
+        return Some(ResolveResult::ExternalFile(canonical));
+    }
+
+    extract_package_name_from_node_modules_path(resolved_path)
+        .map(ResolveResult::NpmPackage)
+        .or_else(|| Some(ResolveResult::ExternalFile(resolved_path.to_path_buf())))
+}
+
 /// Resolve a single import specifier to a target.
 ///
 /// `from_style` is `true` for imports extracted from CSS contexts (currently
@@ -431,6 +500,12 @@ pub(super) fn resolve_specifier(
         .path_aliases
         .iter()
         .any(|(prefix, _)| specifier.starts_with(prefix));
+
+    if let Some(result) =
+        try_style_condition_package_resolution(ctx, from_file, specifier, from_style)
+    {
+        return result;
+    }
 
     // Use resolve_file instead of resolve so that TsconfigDiscovery::Auto works.
     // oxc_resolver's resolve() ignores Auto tsconfig discovery — only resolve_file()

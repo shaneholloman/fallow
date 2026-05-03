@@ -1984,6 +1984,7 @@ fn markdown_health_with_vital_signs_snapshot() {
         p95_fan_in: None,
         coupling_high_pct: None,
         total_loc: 42_000,
+        ..Default::default()
     });
     let output = build_health_markdown(&report, &root);
     insta::assert_snapshot!("markdown_health_with_vital_signs", output);
@@ -2107,8 +2108,10 @@ fn health_report_with_score(root: &Path) -> HealthReport {
         p95_fan_in: None,
         coupling_high_pct: None,
         total_loc: 85_000,
+        ..Default::default()
     });
     report.health_score = Some(HealthScore {
+        formula_version: HEALTH_SCORE_FORMULA_VERSION,
         score: 76.9,
         grade: "B",
         penalties: HealthScorePenalties {

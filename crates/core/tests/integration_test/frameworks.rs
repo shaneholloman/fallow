@@ -292,6 +292,13 @@ fn css_package_subpath_imports_resolve_from_node_modules() {
     assert!(
         !unresolved_specs
             .iter()
+            .any(|s| s.contains("shadcn/tailwind.css")),
+        "CSS package subpath import should resolve through package.json exports style condition: \
+         {unresolved_specs:?}"
+    );
+    assert!(
+        !unresolved_specs
+            .iter()
             .any(|s| s.contains("components/button.css")),
         "CSS local subpath import should still resolve relative to the importing file: \
          {unresolved_specs:?}"
@@ -305,6 +312,11 @@ fn css_package_subpath_imports_resolve_from_node_modules() {
     assert!(
         !unused_dep_names.contains(&"tailwindcss"),
         "tailwindcss imported via CSS package subpaths must not be unused: {unused_dep_names:?}"
+    );
+    assert!(
+        !unused_dep_names.contains(&"shadcn"),
+        "shadcn imported via package.json exports style condition must not be unused: \
+         {unused_dep_names:?}"
     );
 
     let unused_file_names: Vec<String> = results

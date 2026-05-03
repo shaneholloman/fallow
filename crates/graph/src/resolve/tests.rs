@@ -38,6 +38,7 @@ fn dummy_span() -> Span {
 #[cfg(not(miri))]
 fn with_empty_ctx<F: FnOnce(&ResolveContext)>(f: F) {
     let resolver = specifier::create_resolver(&[], &[]);
+    let style_resolver = specifier::create_resolver(&[], &["style".to_string()]);
     let path_to_id = FxHashMap::default();
     let raw_path_to_id = FxHashMap::default();
     let workspace_roots = FxHashMap::default();
@@ -45,6 +46,7 @@ fn with_empty_ctx<F: FnOnce(&ResolveContext)>(f: F) {
     let tsconfig_warned = std::sync::Mutex::new(FxHashSet::default());
     let ctx = ResolveContext {
         resolver: &resolver,
+        style_resolver: &style_resolver,
         path_to_id: &path_to_id,
         raw_path_to_id: &raw_path_to_id,
         workspace_roots: &workspace_roots,
@@ -1439,6 +1441,7 @@ fn specifier_pascal_scope_alias_returns_unresolvable() {
 fn specifier_plugin_alias_match_returns_unresolvable() {
     // Plugin-provided path aliases that fail resolution should also be Unresolvable
     let resolver = specifier::create_resolver(&[], &[]);
+    let style_resolver = specifier::create_resolver(&[], &["style".to_string()]);
     let path_to_id = FxHashMap::default();
     let raw_path_to_id = FxHashMap::default();
     let workspace_roots = FxHashMap::default();
@@ -1447,6 +1450,7 @@ fn specifier_plugin_alias_match_returns_unresolvable() {
     let tsconfig_warned = std::sync::Mutex::new(FxHashSet::default());
     let ctx = ResolveContext {
         resolver: &resolver,
+        style_resolver: &style_resolver,
         path_to_id: &path_to_id,
         raw_path_to_id: &raw_path_to_id,
         workspace_roots: &workspace_roots,

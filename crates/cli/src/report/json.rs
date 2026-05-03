@@ -113,7 +113,7 @@ pub(super) fn print_grouped_json(
 /// Bump this when the structure of the JSON output changes in a
 /// backwards-incompatible way (removing/renaming fields, changing types).
 /// Adding new fields is always backwards-compatible and does not require a bump.
-const SCHEMA_VERSION: u32 = 4;
+const SCHEMA_VERSION: u32 = 5;
 const RUNTIME_COVERAGE_SCHEMA_VERSION: &str = "1";
 
 /// Build a JSON envelope with standard metadata fields at the top.
@@ -1587,7 +1587,7 @@ mod tests {
         let elapsed = Duration::from_millis(123);
         let output = build_json(&results, &root, elapsed).expect("should serialize");
 
-        assert_eq!(output["schema_version"], 4);
+        assert_eq!(output["schema_version"], 5);
         assert!(output["version"].is_string());
         assert_eq!(output["elapsed_ms"], 123);
         assert_eq!(output["total_issues"], 0);
@@ -2244,14 +2244,14 @@ mod tests {
     // ── Schema version stability ────────────────────────────────────
 
     #[test]
-    fn json_schema_version_is_4() {
+    fn json_schema_version_is_5() {
         let root = PathBuf::from("/project");
         let results = AnalysisResults::default();
         let elapsed = Duration::from_millis(0);
         let output = build_json(&results, &root, elapsed).expect("should serialize");
 
         assert_eq!(output["schema_version"], SCHEMA_VERSION);
-        assert_eq!(output["schema_version"], 4);
+        assert_eq!(output["schema_version"], 5);
     }
 
     // ── Version string ──────────────────────────────────────────────
@@ -2457,7 +2457,7 @@ mod tests {
         let output = build_json(&results, &root, elapsed).expect("should serialize");
 
         // Metadata should reflect our explicit values, not anything from AnalysisResults.
-        assert_eq!(output["schema_version"], 4);
+        assert_eq!(output["schema_version"], 5);
         assert_eq!(output["elapsed_ms"], 99);
     }
 
@@ -2529,7 +2529,7 @@ mod tests {
         let elapsed = Duration::from_millis(42);
         let output = build_json_envelope(report, elapsed);
 
-        assert_eq!(output["schema_version"], 4);
+        assert_eq!(output["schema_version"], 5);
         assert!(output["version"].is_string());
         assert_eq!(output["elapsed_ms"], 42);
         assert!(output["findings"].is_array());

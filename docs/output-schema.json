@@ -1179,8 +1179,8 @@
 
     "SchemaVersion": {
       "type": "integer",
-      "description": "Schema version for this output format (independent of tool version). Bump policy: ADDITIVE changes (new optional top-level fields, new optional struct fields, new array entries, new MCP tools, new CLI flags that map to new optional fields) do NOT bump the version; consumers receive new fields without breaking. BREAKING changes (renamed fields, removed fields, type changes, enum-variant removals, semantic changes to existing fields) DO bump. To detect newly-added fields without a bump, check field presence via JSON-key existence rather than gating on the version. v4 was introduced alongside fallow-cov-protocol 0.2 (per-finding verdict, stable IDs, evidence block, renamed summary fields); the runtime-coverage block is extended additively as the protocol evolves (currently 0.3, which adds an optional capture_quality summary field). Other additive examples: dupes --group-by adds optional grouped_by, total_issues, groups fields without bumping.",
-      "examples": [4]
+      "description": "Schema version for this output format (independent of tool version). Bump policy: ADDITIVE changes (new optional top-level fields, new optional struct fields, new array entries, new MCP tools, new CLI flags that map to new optional fields) do NOT bump the version; consumers receive new fields without breaking. BREAKING changes (renamed fields, removed fields, type changes, enum-variant removals, semantic changes to existing fields) DO bump. To detect newly-added fields without a bump, check field presence via JSON-key existence rather than gating on the version. v4 was introduced alongside fallow-cov-protocol 0.2 (per-finding verdict, stable IDs, evidence block, renamed summary fields); v5 introduced health_score formula_version 2 with scale-invariant scoring semantics. The runtime-coverage block is extended additively as the protocol evolves (currently 0.3, which adds an optional capture_quality summary field). Other additive examples: dupes --group-by adds optional grouped_by, total_issues, groups fields without bumping.",
+      "examples": [5]
     },
     "ToolVersion": {
       "type": "string",
@@ -1728,8 +1728,9 @@
     "HealthScore": {
       "type": "object",
       "description": "Project-level health score. Score = 100 minus available penalties from dead code, complexity, maintainability, hotspots, unused deps, circular deps, unit size, coupling, and duplication. Missing metrics do not penalize; --score computes the score and duplication penalty, while churn-backed hotspot penalties require hotspot analysis (--hotspots, or --targets with --score).",
-      "required": ["score", "grade", "penalties"],
+      "required": ["formula_version", "score", "grade", "penalties"],
       "properties": {
+        "formula_version": { "type": "integer", "description": "Health score formula version. Version 2 uses scale-invariant density/tail metrics for monorepo-safe scoring." },
         "score": { "type": "number", "description": "Overall score (0-100, higher is better). Reproducible: 100 - sum(penalties) == score." },
         "grade": { "type": "string", "enum": ["A", "B", "C", "D", "F"], "description": "Letter grade. A: score >= 85, B: 70-84, C: 55-69, D: 40-54, F: below 40." },
         "penalties": { "$ref": "#/definitions/HealthScorePenalties" }
@@ -1743,14 +1744,14 @@
       "properties": {
         "dead_files": { "type": ["number", "null"], "description": "Points lost from dead files (max 15). Null if dead code pipeline not run." },
         "dead_exports": { "type": ["number", "null"], "description": "Points lost from dead exports (max 15). Null if dead code pipeline not run." },
-        "complexity": { "type": "number", "description": "Points lost from average cyclomatic complexity above 1.5 (max 20)." },
-        "p90_complexity": { "type": "number", "description": "Points lost from p90 cyclomatic complexity above 10 (max 10)." },
-        "maintainability": { "type": ["number", "null"], "description": "Points lost from low maintainability index (max 15). Null if file-scores not computed." },
-        "hotspots": { "type": ["number", "null"], "description": "Points lost from hotspot density (max 10). Null if hotspots not computed." },
-        "unused_deps": { "type": ["number", "null"], "description": "Points lost from unused dependencies (max 10). Null if dead code pipeline not run." },
-        "circular_deps": { "type": ["number", "null"], "description": "Points lost from circular dependencies (max 10). Null if dead code pipeline not run." },
-        "unit_size": { "type": ["number", "null"], "description": "Points lost from oversized functions (max 10). Null if no functions analyzed." },
-        "coupling": { "type": ["number", "null"], "description": "Points lost from coupling concentration (max 5). Null if file scores not computed." },
+        "complexity": { "type": "number", "description": "Points lost from critical-complexity density (max 20). Older snapshots without density fields fall back to average cyclomatic complexity above 1.5." },
+        "p90_complexity": { "type": "number", "description": "Points lost from legacy p90 cyclomatic complexity above 10. Current scale-invariant runs report 0 because tail complexity is folded into complexity." },
+        "maintainability": { "type": ["number", "null"], "description": "Points lost from low maintainability density (max 15). Null if file-scores not computed." },
+        "hotspots": { "type": ["number", "null"], "description": "Points lost from top-percentile hotspot density (max 10). Null if hotspots not computed." },
+        "unused_deps": { "type": ["number", "null"], "description": "Points lost from unused dependency density (max 25). Null if dead code pipeline not run." },
+        "circular_deps": { "type": ["number", "null"], "description": "Points lost from circular dependency density (max 25). Null if dead code pipeline not run." },
+        "unit_size": { "type": ["number", "null"], "description": "Points lost from oversized-function density (max 10). Null if no functions analyzed." },
+        "coupling": { "type": ["number", "null"], "description": "Points lost from coupling concentration density (max 5). Null if file scores not computed." },
         "duplication": { "type": ["number", "null"], "description": "Points lost from code duplication (max 10). Penalty = min(max(0, duplication_pct - 5) * 1, 10). Null if duplication pipeline not run." }
       }
     },
@@ -1763,17 +1764,23 @@
         "dead_file_pct": { "type": ["number", "null"], "description": "Percentage of unreachable files." },
         "dead_export_pct": { "type": ["number", "null"], "description": "Percentage of unused exports." },
         "avg_cyclomatic": { "type": "number", "description": "Average cyclomatic complexity." },
+        "critical_complexity_pct": { "type": ["number", "null"], "description": "Percentage of functions at or above the critical cyclomatic threshold. Used by the scale-invariant health score." },
         "p90_cyclomatic": { "type": "integer", "description": "90th percentile cyclomatic complexity." },
         "duplication_pct": { "type": ["number", "null"], "description": "Code duplication percentage. Null if duplication pipeline was not run." },
         "hotspot_count": { "type": ["integer", "null"], "description": "Files with hotspot score >= 50. Null if git history unavailable." },
+        "hotspot_top_pct_count": { "type": ["integer", "null"], "description": "Files in the top 1% of the within-project hotspot ranking. Null if git history unavailable." },
         "maintainability_avg": { "type": ["number", "null"], "description": "Average maintainability index (0-100)." },
+        "maintainability_low_pct": { "type": ["number", "null"], "description": "Percentage of scored files with maintainability index below 70. Null if file scores were not computed." },
         "unused_dep_count": { "type": ["integer", "null"], "description": "Number of unused dependencies." },
+        "unused_deps_per_k_files": { "type": ["number", "null"], "description": "Unused dependencies per 1,000 files. Null if dead code analysis did not run." },
         "circular_dep_count": { "type": ["integer", "null"], "description": "Number of circular dependency chains." },
+        "circular_deps_per_k_files": { "type": ["number", "null"], "description": "Circular dependency chains per 1,000 files. Null if dead code analysis did not run." },
         "counts": {
           "$ref": "#/definitions/VitalSignsCounts",
           "description": "Raw counts behind the vital signs percentages. Always present when vital_signs is present."
         },
         "unit_size_profile": { "$ref": "#/definitions/RiskProfile", "description": "Function size risk profile. Null if no functions analyzed." },
+        "functions_over_60_loc_per_k": { "type": ["number", "null"], "description": "Functions above 60 LOC per 1,000 functions. Null if no functions analyzed." },
         "unit_interfacing_profile": { "$ref": "#/definitions/RiskProfile", "description": "Parameter count risk profile. Null if no functions analyzed." },
         "p95_fan_in": { "type": ["integer", "null"], "description": "95th percentile fan-in across all files. Null if file scores not computed." },
         "coupling_high_pct": { "type": ["number", "null"], "description": "Percentage of files with fan-in above the effective threshold. Null if file scores not computed." },
