@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.64.0] - 2026-05-04
+
+### Added
+
+- **Webpack `resolve.alias` and entry `context` are parsed from `webpack.config.{js,ts,cjs,mjs}`.** Aliases written as `'@components': path.resolve(__dirname, 'src/components')` (or `path.join(__dirname, ...)`, or plain string values) now feed the resolver, matching what Vite, Nuxt, and SvelteKit already do. Aliased imports (`import { Button } from '@components/Button'`) no longer surface as `unresolved-import`, and files reachable only through an alias no longer cascade as `unused-file` / `unused-export`. The Webpack 5 entry-descriptor shape (`entry: { app: { import: './src/app.ts' } }`), object-array entries (`entry: { app: ['./polyfill.ts', './app.ts'] }`), and the optional top-level `context: path.resolve(__dirname, 'src')` are also recognized; entries are normalized against the context path so descriptor + context configurations resolve end-to-end. Dynamic and function-valued entries remain out of scope; static evaluation of those would require a much larger change. Thanks [@michaljuris](https://github.com/michaljuris) for the detailed report including the workaround analysis. (Closes [#273](https://github.com/fallow-rs/fallow/issues/273))
+- **`tap` and `tsd` test runners get built-in plugin support.** The `tap` plugin activates from a `tap` dependency and treats node-tap's default test discovery (`test/`, `tests/`, `__tests__/`, `*.test.*` / `*.spec.*`, top-level `test.*` / `tests.*`) plus `.taprc` configs as reachable. The `tsd` plugin activates from a `tsd` dependency and treats `.test-d.ts(x)` declaration tests plus `package.json#tsd.directory` as reachable. Test-only code in either runner no longer surfaces as `unused-file`.
+
+### Fixed
+
+- **Bundler entry patterns with a leading `./` now resolve.** Webpack/Rollup/Rspack/Rsbuild/Rolldown configs commonly write `entry: './src/app.ts'` or `input: './src/index.js'`. The entry-pattern matcher compiles globs with `literal_separator(true)`, so a `./src/app.ts` pattern would never match the project-relative path `src/app.ts` in the file index, and the entry was silently dropped. `extend_entry_patterns` and `push_entry_pattern` now strip the prefix at the push site, so descriptor entries without an accompanying `context:` and plain string entries with `./` both resolve end-to-end.
+- **`import * as ns from './x'` namespace member access is credited through re-exporting barrels.** A namespace import that flows into an object literal (`const API = { motionNet: { adEngine } }`) and is then read via a chained property access (`API.motionNet.adEngine.getMetaAssetsTeam`) now correctly credits `getMetaAssetsTeam` as used, even when the namespace target is itself a `export * from './queries'` barrel. Previously the leaf access stopped tracking at the object literal and the `getMetaAssetsTeam` export surfaced as unused. Thanks [@filipw01](https://github.com/filipw01) for the report with a complete reproduction. (Closes [#269](https://github.com/fallow-rs/fallow/issues/269))
+- **Public-package class members are no longer flagged as unused.** When a workspace package is listed in `publicPackages` (because it's published as a library), classes re-exported from the package's entry file are part of the public API. Member methods that aren't called inside the workspace previously surfaced as `unused-class-member` even when their containing class was clearly part of the package's exported surface. The same logic that already suppressed enum members on public packages now extends to class members. Non-public packages still report unused members so consumers of the workspace's own internal classes still benefit from member-level dead-code detection. Thanks [@ghost23](https://github.com/ghost23) for the report. (Closes [#267](https://github.com/fallow-rs/fallow/issues/267))
+- **Playwright Page Object Model methods consumed through nested fixture types are credited.** Fixtures with nested object-literal types (`{ pages: { adminPage: AdminPage } }`) and fixtures that reference a named type alias for the inner shape (`type PageFixtures = { adminPage: AdminPage }; type MyFixtures = { pages: PageFixtures }`) now credit POM methods accessed through the dotted path (`pages.adminPage.assertGreeting()`). The visitor walks both the type-side and the destructure-side via a dotted path, so multi-level `{ pages: { adminPage } }` destructures and `await pages.adminPage.method()` chains both flow into use credits.
+- **`.gts` (Glimmer TypeScript) imports honor `tsconfig.json#paths` aliases.** Imports inside `.gts` files now go through the same TypeScript path-alias resolver the rest of the codebase uses, so Ember + Glimmer projects with `paths: { "@app/*": ["src/*"] }` no longer surface every aliased import as `unresolved-import`. Thanks [@square-brackets](https://github.com/square-brackets) for the report. (Closes [#270](https://github.com/fallow-rs/fallow/issues/270))
+- **`vitest.config.*` default exports and Storybook story conventions stop appearing as unused under `--include-entry-exports`.** With `--include-entry-exports`, the strict reachability check previously flagged `vitest.config.ts`'s default export and `*.stories.*` / `.storybook/**` exports even though they're framework-consumed. The Vitest plugin now contributes `used_exports` for `vitest.config.*` and `vitest.workspace.*` (default), and the Storybook plugin contributes a `*` wildcard for `**/*.stories.*` and `.storybook/**`. The wildcard required restoring symmetry in `is_export_ignored` so plugin-supplied `used_exports` honor `*` the same way user-config `ignoreExports` already did. Thanks [@filipw01](https://github.com/filipw01) for the report. (Fixes [#271](https://github.com/fallow-rs/fallow/issues/271))
+
 ## [2.63.0] - 2026-05-04
 
 ### Added
@@ -1957,7 +1973,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--changed-since` and `--fail-on-issues` for CI
 - Cross-workspace resolution for npm/yarn/pnpm workspaces
 
-[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.63.0...HEAD
+[Unreleased]: https://github.com/fallow-rs/fallow/compare/v2.64.0...HEAD
+[2.64.0]: https://github.com/fallow-rs/fallow/compare/v2.63.0...v2.64.0
 [2.63.0]: https://github.com/fallow-rs/fallow/compare/v2.62.0...v2.63.0
 [2.62.0]: https://github.com/fallow-rs/fallow/compare/v2.61.0...v2.62.0
 [2.61.0]: https://github.com/fallow-rs/fallow/compare/v2.60.0...v2.61.0
