@@ -208,7 +208,7 @@
       ]
     },
     "publicPackages": {
-      "description": "Workspace package name patterns that are public libraries.\nExports from these packages are not flagged as unused.",
+      "description": "Workspace package name patterns that are public libraries.\nExported API surface from these packages is not flagged as unused.",
       "type": "array",
       "items": {
         "type": "string"

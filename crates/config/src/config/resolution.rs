@@ -84,7 +84,7 @@ pub struct ResolvedConfig {
     /// Optional CODEOWNERS file path (passed through for `--group-by owner`).
     pub codeowners: Option<String>,
     /// Workspace package name patterns that are public libraries.
-    /// Exports from these packages are not flagged as unused.
+    /// Exported API surface from these packages is not flagged as unused.
     pub public_packages: Vec<String>,
     /// Feature flag detection configuration.
     pub flags: FlagsConfig,

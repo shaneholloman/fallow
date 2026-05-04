@@ -104,6 +104,63 @@ fn workspace_project_discovers_workspace_packages() {
 }
 
 #[test]
+fn public_packages_suppress_exported_class_and_enum_members() {
+    let root = fixture_path("public-package-members");
+
+    let mut config = create_config(root);
+    config.public_packages = vec!["@workspace/public-lib".to_string()];
+    let results = fallow_core::analyze(&config).expect("analysis should succeed");
+
+    let unused_class_members: Vec<String> = results
+        .unused_class_members
+        .iter()
+        .map(|m| format!("{}.{}", m.parent_name, m.member_name))
+        .collect();
+    assert!(
+        !unused_class_members.contains(&"WorkspaceService.externalApiMethod".to_string()),
+        "public package class members are public API and should not be flagged: {unused_class_members:?}"
+    );
+
+    let unused_enum_members: Vec<String> = results
+        .unused_enum_members
+        .iter()
+        .map(|m| format!("{}.{}", m.parent_name, m.member_name))
+        .collect();
+    assert!(
+        !unused_enum_members.contains(&"PublicStatus.External".to_string()),
+        "public package enum members are public API and should not be flagged: {unused_enum_members:?}"
+    );
+}
+
+#[test]
+fn non_public_packages_still_report_unused_class_and_enum_members() {
+    let root = fixture_path("public-package-members");
+
+    let config = create_config(root);
+    let results = fallow_core::analyze(&config).expect("analysis should succeed");
+
+    let unused_class_members: Vec<String> = results
+        .unused_class_members
+        .iter()
+        .map(|m| format!("{}.{}", m.parent_name, m.member_name))
+        .collect();
+    assert!(
+        unused_class_members.contains(&"WorkspaceService.externalApiMethod".to_string()),
+        "non-public packages should still report unused class members: {unused_class_members:?}"
+    );
+
+    let unused_enum_members: Vec<String> = results
+        .unused_enum_members
+        .iter()
+        .map(|m| format!("{}.{}", m.parent_name, m.member_name))
+        .collect();
+    assert!(
+        unused_enum_members.contains(&"PublicStatus.External".to_string()),
+        "non-public packages should still report unused enum members: {unused_enum_members:?}"
+    );
+}
+
+#[test]
 fn project_state_stable_file_ids_by_path() {
     // FileIds should be deterministic: sorted by path, not size.
     // Running discovery twice on the same project must produce identical IDs.

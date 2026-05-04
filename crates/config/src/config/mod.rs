@@ -247,7 +247,7 @@ pub struct FallowConfig {
     pub codeowners: Option<String>,
 
     /// Workspace package name patterns that are public libraries.
-    /// Exports from these packages are not flagged as unused.
+    /// Exported API surface from these packages is not flagged as unused.
     #[serde(default)]
     pub public_packages: Vec<String>,
 

@@ -125,6 +125,28 @@ fn is_cross_package_cycle(
     false
 }
 
+fn public_workspace_roots<'a>(
+    public_packages: &[String],
+    workspaces: &'a [fallow_config::WorkspaceInfo],
+) -> Vec<&'a std::path::Path> {
+    if public_packages.is_empty() || workspaces.is_empty() {
+        return Vec::new();
+    }
+
+    workspaces
+        .iter()
+        .filter(|ws| {
+            public_packages.iter().any(|pattern| {
+                ws.name == *pattern
+                    || globset::Glob::new(pattern)
+                        .ok()
+                        .is_some_and(|g| g.compile_matcher().is_match(&ws.name))
+            })
+        })
+        .map(|ws| ws.root.as_path())
+        .collect()
+}
+
 fn find_circular_dependencies(
     graph: &ModuleGraph,
     line_offsets_map: &LineOffsetsMap<'_>,
@@ -474,30 +496,22 @@ pub fn find_dead_code_full(
         ..AnalysisResults::default()
     };
 
-    // Filter out unused exports/types from public packages.
+    // Filter out exported API surface from public packages.
     // Public packages are workspace packages whose exports are intended for external consumers.
-    if !config.public_packages.is_empty() && !workspaces.is_empty() {
-        let public_roots: Vec<&std::path::Path> = workspaces
-            .iter()
-            .filter(|ws| {
-                config.public_packages.iter().any(|pattern| {
-                    ws.name == *pattern
-                        || globset::Glob::new(pattern)
-                            .ok()
-                            .is_some_and(|g| g.compile_matcher().is_match(&ws.name))
-                })
-            })
-            .map(|ws| ws.root.as_path())
-            .collect();
-
-        if !public_roots.is_empty() {
-            results
-                .unused_exports
-                .retain(|e| !public_roots.iter().any(|root| e.path.starts_with(root)));
-            results
-                .unused_types
-                .retain(|e| !public_roots.iter().any(|root| e.path.starts_with(root)));
-        }
+    let public_roots = public_workspace_roots(&config.public_packages, workspaces);
+    if !public_roots.is_empty() {
+        results
+            .unused_exports
+            .retain(|e| !public_roots.iter().any(|root| e.path.starts_with(root)));
+        results
+            .unused_types
+            .retain(|e| !public_roots.iter().any(|root| e.path.starts_with(root)));
+        results
+            .unused_enum_members
+            .retain(|e| !public_roots.iter().any(|root| e.path.starts_with(root)));
+        results
+            .unused_class_members
+            .retain(|e| !public_roots.iter().any(|root| e.path.starts_with(root)));
     }
 
     // Detect stale suppression comments (must run after all detectors)
