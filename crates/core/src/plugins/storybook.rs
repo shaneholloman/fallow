@@ -38,6 +38,8 @@ const TOOLING_DEPENDENCIES: &[&str] = &[
     "@storybook/preview-api",
 ];
 
+const STORYBOOK_EXPORTS: &[&str] = &["*"];
+
 define_plugin! {
     struct StorybookPlugin => "storybook",
     enablers: ENABLERS,
@@ -45,6 +47,10 @@ define_plugin! {
     config_patterns: CONFIG_PATTERNS,
     always_used: ALWAYS_USED,
     tooling_dependencies: TOOLING_DEPENDENCIES,
+    used_exports: [
+        ("**/*.stories.{ts,tsx,js,jsx,mdx}", STORYBOOK_EXPORTS),
+        (".storybook/**/*.{ts,tsx,js,jsx}", STORYBOOK_EXPORTS),
+    ],
     resolve_config(config_path, source, _root) {
         let mut result = PluginResult::default();
 

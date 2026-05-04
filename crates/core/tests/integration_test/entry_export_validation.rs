@@ -84,3 +84,73 @@ fn entry_exports_detected_via_config_file_include_entry_exports() {
         "helper should not be flagged (imported by consumer.ts), found: {unused_export_names:?}"
     );
 }
+
+#[test]
+fn vitest_config_default_export_is_framework_used_with_include_entry_exports() {
+    let root = fixture_path("vitest-include-entry-exports-workspace");
+    let mut config = create_config(root);
+    config.include_entry_exports = true;
+    let results = fallow_core::analyze(&config).expect("analysis should succeed");
+
+    let unused_exports: Vec<(String, String)> = results
+        .unused_exports
+        .iter()
+        .map(|export| {
+            (
+                export
+                    .path
+                    .strip_prefix(&config.root)
+                    .unwrap_or(&export.path)
+                    .to_string_lossy()
+                    .replace('\\', "/"),
+                export.export_name.clone(),
+            )
+        })
+        .collect();
+
+    assert!(
+        !unused_exports.iter().any(|(path, export)| {
+            path == "packages/web/charts/vitest.config.mts" && export == "default"
+        }),
+        "Vitest config default export should be framework-used, found: {unused_exports:?}"
+    );
+}
+
+#[test]
+fn storybook_exports_are_framework_used_with_include_entry_exports() {
+    let root = fixture_path("storybook-include-entry-exports");
+    let mut config = create_config(root);
+    config.include_entry_exports = true;
+    let results = fallow_core::analyze(&config).expect("analysis should succeed");
+
+    let unused_exports: Vec<(String, String)> = results
+        .unused_exports
+        .iter()
+        .map(|export| {
+            (
+                export
+                    .path
+                    .strip_prefix(&config.root)
+                    .unwrap_or(&export.path)
+                    .to_string_lossy()
+                    .replace('\\', "/"),
+                export.export_name.clone(),
+            )
+        })
+        .collect();
+
+    for (path, export) in [
+        ("src/Button.stories.ts", "default"),
+        ("src/Button.stories.ts", "Default"),
+        ("src/Button.stories.ts", "Secondary"),
+        (".storybook/preview.ts", "parameters"),
+        (".storybook/preview.ts", "decorators"),
+    ] {
+        assert!(
+            !unused_exports
+                .iter()
+                .any(|(unused_path, unused_export)| unused_path == path && unused_export == export),
+            "{path}:{export} should be framework-used, found: {unused_exports:?}"
+        );
+    }
+}

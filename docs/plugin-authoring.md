@@ -156,11 +156,13 @@ Packages that are tooling dependencies -- used via CLI commands or config files,
 ### `usedExports`
 
 Exports that are always considered used for files matching a glob pattern. Use this for convention-based frameworks where specific export names have special meaning.
+Use `"*"` when every export in matching convention files is consumed by the framework.
 
 ```jsonc
 {
   "usedExports": [
     { "pattern": "src/routes/**/*.{ts,tsx}", "exports": ["default", "loader", "action", "meta"] },
+    { "pattern": "src/**/*.stories.{ts,tsx}", "exports": ["*"] },
     { "pattern": "src/middleware.ts", "exports": ["default"] }
   ]
 }

@@ -37,6 +37,7 @@ const ALWAYS_USED: &[&str] = &[
 ];
 
 const TOOLING_DEPENDENCIES: &[&str] = &["vitest"];
+const CONFIG_EXPORTS: &[&str] = &["default"];
 
 const FIXTURE_PATTERNS: &[&str] = &[
     "**/__fixtures__/**/*.{ts,tsx,js,jsx,json}",
@@ -115,6 +116,13 @@ impl Plugin for VitestPlugin {
 
     fn tooling_dependencies(&self) -> &'static [&'static str] {
         TOOLING_DEPENDENCIES
+    }
+
+    fn used_exports(&self) -> Vec<(&'static str, &'static [&'static str])> {
+        vec![
+            ("vitest.config.{ts,js,mts,mjs}", CONFIG_EXPORTS),
+            ("vitest.workspace.{ts,js}", CONFIG_EXPORTS),
+        ]
     }
 
     fn fixture_glob_patterns(&self) -> &'static [&'static str] {

@@ -113,7 +113,7 @@ fn is_export_ignored(
         .any(|exports| exports.iter().any(|e| e == "*" || e == export_name))
         || matching_plugin
             .iter()
-            .any(|exports| exports.contains(&export_name))
+            .any(|exports| exports.contains(&"*") || exports.contains(&export_name))
 }
 
 fn local_export_binding_name(export: &ExportInfo) -> Option<&str> {
