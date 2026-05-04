@@ -21,6 +21,8 @@ const TEST_ENTRY_POINT_PLUGINS: &[&str] = &[
     "jest",
     "mocha",
     "playwright",
+    "tap",
+    "tsd",
     "vitest",
     "webdriverio",
 ];
@@ -995,6 +997,8 @@ mod swc;
 mod syncpack;
 mod tailwind;
 mod tanstack_router;
+mod tap;
+mod tsd;
 mod tsdown;
 mod tsup;
 mod turborepo;
@@ -1389,6 +1393,8 @@ mod tests {
             &jest::JestPlugin,
             &vitest::VitestPlugin,
             &mocha::MochaPlugin,
+            &tap::TapPlugin,
+            &tsd::TsdPlugin,
         ];
         for plugin in test_plugins {
             let patterns = plugin.entry_patterns();
@@ -1533,6 +1539,11 @@ mod tests {
     #[test]
     fn jest_has_package_json_config_key() {
         assert_eq!(jest::JestPlugin.package_json_config_key(), Some("jest"));
+    }
+
+    #[test]
+    fn tsd_has_package_json_config_key() {
+        assert_eq!(tsd::TsdPlugin.package_json_config_key(), Some("tsd"));
     }
 
     #[test]

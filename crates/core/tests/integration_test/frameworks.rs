@@ -160,6 +160,58 @@ fn nextjs_config_referenced_dependencies_are_not_flagged_unused() {
     );
 }
 
+// ── Test runner entry points ──────────────────────────────────
+
+#[test]
+fn tap_test_files_are_not_flagged_unused() {
+    let root = fixture_path("tap-project");
+    let config = create_config(root.clone());
+    let results = fallow_core::analyze(&config).expect("analysis should succeed");
+
+    let unused_files: Vec<String> = results
+        .unused_files
+        .iter()
+        .map(|f| {
+            f.path
+                .strip_prefix(&root)
+                .unwrap_or(&f.path)
+                .to_string_lossy()
+                .to_string()
+        })
+        .collect();
+
+    assert!(
+        !unused_files.iter().any(|path| path == "test/basic.test.js"),
+        "tap test file should be treated as a test entry point, unused files: {unused_files:?}"
+    );
+}
+
+#[test]
+fn tsd_test_files_are_not_flagged_unused() {
+    let root = fixture_path("tsd-project");
+    let config = create_config(root.clone());
+    let results = fallow_core::analyze(&config).expect("analysis should succeed");
+
+    let unused_files: Vec<String> = results
+        .unused_files
+        .iter()
+        .map(|f| {
+            f.path
+                .strip_prefix(&root)
+                .unwrap_or(&f.path)
+                .to_string_lossy()
+                .to_string()
+        })
+        .collect();
+
+    assert!(
+        !unused_files
+            .iter()
+            .any(|path| path == "test/types/index.test-d.ts"),
+        "tsd test file should be treated as a configured test entry point, unused files: {unused_files:?}"
+    );
+}
+
 // ── Path aliases ───────────────────────────────────────────────
 
 #[test]

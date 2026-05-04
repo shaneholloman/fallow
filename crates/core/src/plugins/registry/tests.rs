@@ -1525,11 +1525,13 @@ fn external_plugin_multiple_used_exports() {
 #[test]
 fn default_registry_has_all_builtin_plugins() {
     let registry = PluginRegistry::default();
-    // Verify we have the expected number of built-in plugins (90 as per docs)
+    // Verify we have the expected number of built-in plugins (93 as per docs)
     // We test a representative sample to avoid brittle exact count checks.
     let pkg = make_pkg(&[
         "next",
         "vitest",
+        "tap",
+        "tsd",
         "eslint",
         "typescript",
         "tailwindcss",
@@ -1538,6 +1540,8 @@ fn default_registry_has_all_builtin_plugins() {
     let result = registry.run(&pkg, Path::new("/project"), &[]);
     assert!(result.active_plugins.contains(&"nextjs".to_string()));
     assert!(result.active_plugins.contains(&"vitest".to_string()));
+    assert!(result.active_plugins.contains(&"tap".to_string()));
+    assert!(result.active_plugins.contains(&"tsd".to_string()));
     assert!(result.active_plugins.contains(&"eslint".to_string()));
     assert!(result.active_plugins.contains(&"typescript".to_string()));
     assert!(result.active_plugins.contains(&"tailwind".to_string()));
@@ -2140,6 +2144,8 @@ fn create_builtin_plugins_contains_critical_plugins() {
         "typescript",
         "eslint",
         "jest",
+        "tap",
+        "tsd",
         "vitest",
         "webpack",
         "nextjs",

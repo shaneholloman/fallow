@@ -1,7 +1,7 @@
 {
   "name": "fallow",
   "version": "2.63.0",
-  "description": "Codebase intelligence for TypeScript and JavaScript. Finds unused code, duplication, circular dependencies, complexity hotspots, and architecture drift. Optional runtime intelligence layer (Fallow Runtime) adds production execution evidence. Rust-native, sub-second, 90 framework plugins.",
+  "description": "Codebase intelligence for TypeScript and JavaScript. Finds unused code, duplication, circular dependencies, complexity hotspots, and architecture drift. Optional runtime intelligence layer (Fallow Runtime) adds production execution evidence. Rust-native, sub-second, 93 framework plugins.",
   "license": "MIT",
   "repository": {
     "type": "git",

@@ -56,7 +56,7 @@ Health Summary
 
 **Static analysis is free and open source. Runtime intelligence is optional.**
 
-91 framework plugins. No Node.js runtime required for static analysis. No config needed for the first run.
+93 framework plugins. No Node.js runtime required for static analysis. No config needed for the first run.
 
 Fallow builds a project-wide understanding of your TS/JS codebase instead of checking one file at a time. Use it to review AI-generated changes faster, clean up dead code, reduce duplication, find risky complexity, and enforce architecture boundaries. Add the runtime layer when you want to know what actually executed in production.
 
@@ -471,13 +471,13 @@ See the [full configuration reference](https://docs.fallow.tools/configuration/o
 
 ## Framework plugins
 
-91 built-in plugins detect entry points, convention exports, config-defined aliases, and template-visible usage for your framework automatically.
+93 built-in plugins detect entry points, convention exports, config-defined aliases, and template-visible usage for your framework automatically.
 
 | Category | Plugins |
 |---|---|
 | **Frameworks** | Next.js, Nuxt, Remix, Qwik, SvelteKit, Gatsby, Astro, Angular, NestJS, Expo, Expo Router, Electron, and more |
 | **Bundlers** | Vite, Webpack, Rspack, Rsbuild, Rollup, Rolldown, Tsup, Tsdown, Parcel |
-| **Testing** | Vitest, Jest, Playwright, Cypress, Storybook, Mocha, Ava |
+| **Testing** | Vitest, Jest, Playwright, Cypress, Storybook, Mocha, Ava, tap, tsd |
 | **CSS** | Tailwind, PostCSS, UnoCSS, PandaCSS |
 | **Databases & Backend** | Prisma, Drizzle, Knex, TypeORM, Kysely, Convex |
 | **Blockchain** | Hardhat |

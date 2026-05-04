@@ -61,8 +61,8 @@ Fallow earns its keep through concrete outcomes. The primary wedge is always the
 
 | Surface | Copy |
 |---------|------|
-| npm description (`fallow`) | Codebase intelligence for TypeScript and JavaScript. Finds unused code, duplication, circular dependencies, complexity hotspots, and architecture drift. Optional runtime intelligence layer (Fallow Runtime) adds production execution evidence. Rust-native, sub-second, 90 framework plugins. |
-| GitHub repo description (`fallow-rs/fallow`) | Codebase intelligence for TypeScript and JavaScript. Static analysis finds what is connected; Fallow Runtime finds what actually runs. Rust-native, sub-second, 90 framework plugins. |
+| npm description (`fallow`) | Codebase intelligence for TypeScript and JavaScript. Finds unused code, duplication, circular dependencies, complexity hotspots, and architecture drift. Optional runtime intelligence layer (Fallow Runtime) adds production execution evidence. Rust-native, sub-second, 93 framework plugins. |
+| GitHub repo description (`fallow-rs/fallow`) | Codebase intelligence for TypeScript and JavaScript. Static analysis finds what is connected; Fallow Runtime finds what actually runs. Rust-native, sub-second, 93 framework plugins. |
 | fallow-skills GitHub description | Agent skills for fallow codebase intelligence. Teaches AI agents how to use static analysis and, where licensed, Fallow Runtime evidence to delete and refactor with confidence. |
 | fallow-cov-protocol description | Wire protocol for Fallow Runtime: typed schemas for production V8 coverage ingest, normalization, and replay. |
 | docs.fallow.tools description | Documentation for fallow, the codebase intelligence platform for TypeScript and JavaScript. Static analysis is free and open source. Runtime intelligence is the paid team layer. |
