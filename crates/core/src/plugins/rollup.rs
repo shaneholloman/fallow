@@ -58,7 +58,7 @@ mod tests {
         let plugin = RollupPlugin;
         let result =
             plugin.resolve_config(Path::new("rollup.config.js"), source, Path::new("/project"));
-        assert_eq!(result.entry_patterns, vec!["./src/index.js"]);
+        assert_eq!(result.entry_patterns, vec!["src/index.js"]);
     }
 
     #[test]
@@ -71,10 +71,7 @@ mod tests {
         let plugin = RollupPlugin;
         let result =
             plugin.resolve_config(Path::new("rollup.config.js"), source, Path::new("/project"));
-        assert_eq!(
-            result.entry_patterns,
-            vec!["./src/index.js", "./src/cli.js"]
-        );
+        assert_eq!(result.entry_patterns, vec!["src/index.js", "src/cli.js"]);
     }
 
     #[test]
@@ -90,10 +87,7 @@ mod tests {
         let plugin = RollupPlugin;
         let result =
             plugin.resolve_config(Path::new("rollup.config.js"), source, Path::new("/project"));
-        assert_eq!(
-            result.entry_patterns,
-            vec!["./src/main.js", "./src/vendor.js"]
-        );
+        assert_eq!(result.entry_patterns, vec!["src/main.js", "src/vendor.js"]);
     }
 
     #[test]

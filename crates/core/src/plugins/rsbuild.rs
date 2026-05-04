@@ -81,7 +81,7 @@ mod tests {
             source,
             std::path::Path::new("/project"),
         );
-        assert_eq!(result.entry_patterns, vec!["./src/index.tsx"]);
+        assert_eq!(result.entry_patterns, vec!["src/index.tsx"]);
     }
 
     #[test]
@@ -102,8 +102,8 @@ mod tests {
             source,
             std::path::Path::new("/project"),
         );
-        assert!(has_entry_pattern(&result, "./src/main.tsx"));
-        assert!(has_entry_pattern(&result, "./src/admin.tsx"));
+        assert!(has_entry_pattern(&result, "src/main.tsx"));
+        assert!(has_entry_pattern(&result, "src/admin.tsx"));
     }
 
     #[test]
@@ -127,7 +127,7 @@ mod tests {
         let deps = &result.referenced_dependencies;
         assert!(deps.contains(&"@rsbuild/core".to_string()));
         assert!(deps.contains(&"@rsbuild/plugin-react".to_string()));
-        assert_eq!(result.entry_patterns, vec!["./src/index.tsx"]);
+        assert_eq!(result.entry_patterns, vec!["src/index.tsx"]);
     }
 
     #[test]
@@ -148,6 +148,6 @@ mod tests {
             source,
             std::path::Path::new("/project"),
         );
-        assert_eq!(result.entry_patterns, vec!["./src/index.ts"]);
+        assert_eq!(result.entry_patterns, vec!["src/index.ts"]);
     }
 }

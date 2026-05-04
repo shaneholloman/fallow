@@ -254,7 +254,7 @@ mod tests {
             source,
             std::path::Path::new("/project"),
         );
-        assert_eq!(result.entry_patterns, vec!["./src/app.js"]);
+        assert_eq!(result.entry_patterns, vec!["src/app.js"]);
     }
 
     #[test]
@@ -277,9 +277,9 @@ mod tests {
         assert_eq!(
             result.entry_patterns,
             vec![
-                "./src/app.js",
-                "./src/admin-polyfill.js",
-                "./src/admin.js",
+                "src/app.js",
+                "src/admin-polyfill.js",
+                "src/admin.js",
                 "react",
                 "react-dom",
             ]

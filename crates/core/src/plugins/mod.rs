@@ -116,7 +116,8 @@ pub struct PluginResult {
 
 impl PluginResult {
     pub fn push_entry_pattern(&mut self, pattern: impl Into<String>) {
-        self.entry_patterns.push(PathRule::new(pattern));
+        self.entry_patterns
+            .push(PathRule::new(normalize_entry_pattern(pattern.into())));
     }
 
     pub fn extend_entry_patterns<I, S>(&mut self, patterns: I)
@@ -124,8 +125,11 @@ impl PluginResult {
         I: IntoIterator<Item = S>,
         S: Into<String>,
     {
-        self.entry_patterns
-            .extend(patterns.into_iter().map(PathRule::new));
+        self.entry_patterns.extend(
+            patterns
+                .into_iter()
+                .map(|pat| PathRule::new(normalize_entry_pattern(pat.into()))),
+        );
     }
 
     pub fn push_used_export_rule(
@@ -149,6 +153,19 @@ impl PluginResult {
             && self.fixture_patterns.is_empty()
             && self.scss_include_paths.is_empty()
     }
+}
+
+// Strip a leading `./` from project-relative entry patterns. Globset compiles
+// patterns with `literal_separator(true)`, so `./src/app.ts` would never match
+// the project-relative path `src/app.ts` that appears in the file index.
+// Plugins that source entries directly from user config (Webpack `entry`,
+// Rollup `input`, Rspack/Rsbuild/Rolldown variants) commonly carry the leading
+// `./` verbatim.
+fn normalize_entry_pattern(pattern: String) -> String {
+    pattern
+        .strip_prefix("./")
+        .map(str::to_owned)
+        .unwrap_or(pattern)
 }
 
 /// A file-pattern rule with optional exclusion globs plus path-level or

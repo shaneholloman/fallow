@@ -90,7 +90,7 @@ mod tests {
             source,
             std::path::Path::new("/project"),
         );
-        assert_eq!(result.entry_patterns, vec!["./src/app.tsx"]);
+        assert_eq!(result.entry_patterns, vec!["src/app.tsx"]);
     }
 
     #[test]
@@ -110,7 +110,7 @@ mod tests {
                 .referenced_dependencies
                 .contains(&"@rspack/cli".to_string())
         );
-        assert_eq!(result.entry_patterns, vec!["./src/main.ts"]);
+        assert_eq!(result.entry_patterns, vec!["src/main.ts"]);
     }
 
     #[test]

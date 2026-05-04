@@ -62,7 +62,7 @@ mod tests {
             source,
             Path::new("/project"),
         );
-        assert_eq!(result.entry_patterns, vec!["./src/index.js"]);
+        assert_eq!(result.entry_patterns, vec!["src/index.js"]);
     }
 
     #[test]
@@ -78,10 +78,7 @@ mod tests {
             source,
             Path::new("/project"),
         );
-        assert_eq!(
-            result.entry_patterns,
-            vec!["./src/index.js", "./src/cli.js"]
-        );
+        assert_eq!(result.entry_patterns, vec!["src/index.js", "src/cli.js"]);
     }
 
     #[test]
@@ -100,10 +97,7 @@ mod tests {
             source,
             Path::new("/project"),
         );
-        assert_eq!(
-            result.entry_patterns,
-            vec!["./src/main.js", "./src/utils.js"]
-        );
+        assert_eq!(result.entry_patterns, vec!["src/main.js", "src/utils.js"]);
     }
 
     #[test]
@@ -144,7 +138,7 @@ mod tests {
         let deps = &result.referenced_dependencies;
         assert!(deps.contains(&"rolldown".to_string()));
         assert!(deps.contains(&"@rolldown/pluginutils".to_string()));
-        assert_eq!(result.entry_patterns, vec!["./src/main.ts"]);
+        assert_eq!(result.entry_patterns, vec!["src/main.ts"]);
     }
 
     #[test]
