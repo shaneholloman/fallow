@@ -15,7 +15,7 @@ paths:
 - **Jest**: preset, setupFiles, globalSetup/Teardown, testMatch, transform, reporters, testEnvironment, watchPlugins, resolver, snapshotSerializers, testRunner, runner, JSON config
 - **Storybook**: addons, framework (string/object), stories, core.builder, typescript.reactDocgen
 - **Tailwind**: content globs, plugins (require/strings), presets
-- **Webpack**: entry (string/array/object), plugins require(), externals, module.rules loader extraction
+- **Webpack**: entry (string/array/object/descriptor with context), resolve.alias mappings, plugins require(), externals, module.rules loader extraction
 - **TypeScript**: extends (string/array TS 5.0+), compilerOptions.types → @types/*, jsxImportSource, plugins, references, JSONC
 - **Babel**: presets/plugins with short-name resolution, extends, JSON/.babelrc
 - **Rollup**: input entries, external deps

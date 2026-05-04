@@ -224,12 +224,14 @@ pub fn extract_config_object_keys(source: &str, path: &Path, prop_path: &[&str])
     .unwrap_or_default()
 }
 
-/// Extract a value that may be a single string, a string array, or an object with string values.
+/// Extract a value that may be a single string, a string array, or an object with string/array values.
 ///
 /// Useful for Webpack `entry`, Rollup `input`, etc. that accept multiple formats:
 /// - `entry: "./src/index.js"` → `["./src/index.js"]`
 /// - `entry: ["./src/a.js", "./src/b.js"]` → `["./src/a.js", "./src/b.js"]`
 /// - `entry: { main: "./src/main.js" }` → `["./src/main.js"]`
+/// - `entry: { main: ["./src/polyfill.js", "./src/main.js"] }` → `["./src/polyfill.js", "./src/main.js"]`
+/// - `entry: { main: { import: "./src/main.js" } }` → `["./src/main.js"]`
 #[must_use]
 pub fn extract_config_string_or_array(
     source: &str,
@@ -241,6 +243,16 @@ pub fn extract_config_string_or_array(
         get_nested_string_or_array(obj, prop_path)
     })
     .unwrap_or_default()
+}
+
+/// Extract a statically recoverable path-like string from a property path.
+#[must_use]
+pub fn extract_config_path_string(source: &str, path: &Path, prop_path: &[&str]) -> Option<String> {
+    extract_from_source(source, path, |program| {
+        let obj = find_config_object(program)?;
+        let expr = get_nested_expression(obj, prop_path)?;
+        expression_to_path_string(expr)
+    })
 }
 
 /// Extract string values from a property path, also searching inside array elements.
@@ -1116,7 +1128,7 @@ fn get_nested_expression<'a>(
     }
 }
 
-/// Navigate a nested path and extract a string, string array, or object string values.
+/// Navigate a nested path and extract a string, string array, or object string/array values.
 fn get_nested_string_or_array(obj: &ObjectExpression, path: &[&str]) -> Option<Vec<String>> {
     if path.is_empty() {
         return None;
@@ -1133,7 +1145,8 @@ fn get_nested_string_or_array(obj: &ObjectExpression, path: &[&str]) -> Option<V
     }
 }
 
-/// Convert an expression to a `Vec<String>`, handling string, array, and object-with-string-values.
+/// Convert an expression to a `Vec<String>`, handling string, array, object-with-string/array values,
+/// and Webpack 5 entry descriptors (`{ import: "..." }`).
 ///
 /// Array elements that are object literals are inspected for an `input` property
 /// (Angular CLI schema for `styles`/`scripts`/`polyfills`:
@@ -1151,21 +1164,31 @@ fn expression_to_string_or_array(expr: &Expression) -> Vec<String> {
             .elements
             .iter()
             .filter_map(|el| el.as_expression())
-            .filter_map(|e| match e {
-                Expression::ObjectExpression(obj) => {
-                    find_property(obj, "input").and_then(|p| expression_to_string(&p.value))
-                }
-                _ => expression_to_string(e),
+            .flat_map(|e| match e {
+                Expression::ObjectExpression(obj) => find_property(obj, "input")
+                    .map(|p| expression_to_string_or_array(&p.value))
+                    .unwrap_or_default(),
+                _ => expression_to_string(e).into_iter().collect(),
             })
             .collect(),
         Expression::ObjectExpression(obj) => obj
             .properties
             .iter()
-            .filter_map(|p| {
+            .flat_map(|p| {
                 if let ObjectPropertyKind::ObjectProperty(p) = p {
-                    expression_to_string(&p.value)
+                    match &p.value {
+                        Expression::ArrayExpression(_) => expression_to_string_or_array(&p.value),
+                        Expression::ObjectExpression(value_obj) => {
+                            find_property(value_obj, "import")
+                                .map(|import_prop| {
+                                    expression_to_string_or_array(&import_prop.value)
+                                })
+                                .unwrap_or_default()
+                        }
+                        _ => expression_to_string(&p.value).into_iter().collect(),
+                    }
                 } else {
-                    None
+                    Vec::new()
                 }
             })
             .collect(),
@@ -1400,6 +1423,44 @@ mod tests {
             r#"export default { entry: { main: "./src/main.js", vendor: "./src/vendor.js" } };"#;
         let result = extract_config_string_or_array(source, &js_path(), &["entry"]);
         assert_eq!(result, vec!["./src/main.js", "./src/vendor.js"]);
+    }
+
+    #[test]
+    fn string_or_array_object_array_values() {
+        let source = r#"export default { entry: { app: ["./src/polyfill.js", "./src/app.js"] } };"#;
+        let result = extract_config_string_or_array(source, &js_path(), &["entry"]);
+        assert_eq!(result, vec!["./src/polyfill.js", "./src/app.js"]);
+    }
+
+    #[test]
+    fn string_or_array_webpack_entry_descriptors() {
+        let source = r#"
+            export default {
+                entry: {
+                    app: {
+                        import: "./src/app.js",
+                        filename: "pages/app.js",
+                        dependOn: "shared",
+                    },
+                    admin: {
+                        import: ["./src/admin-polyfill.js", "./src/admin.js"],
+                        runtime: "runtime",
+                    },
+                    shared: ["react", "react-dom"],
+                },
+            };
+        "#;
+        let result = extract_config_string_or_array(source, &js_path(), &["entry"]);
+        assert_eq!(
+            result,
+            vec![
+                "./src/app.js",
+                "./src/admin-polyfill.js",
+                "./src/admin.js",
+                "react",
+                "react-dom"
+            ]
+        );
     }
 
     #[test]

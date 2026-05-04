@@ -4,7 +4,7 @@
 //! Parses webpack config to extract entry points, plugin dependencies, loader
 //! packages from module.rules, and external dependencies.
 
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
 
 use super::config_parser;
 use super::{Plugin, PluginResult};
@@ -27,7 +27,7 @@ define_plugin!(
         "webpack-dev-server",
         "html-webpack-plugin",
     ],
-    resolve_config(config_path, source, _root) {
+    resolve_config(config_path, source, root) {
         let mut result = PluginResult::default();
 
         let imports = config_parser::extract_imports(source, config_path);
@@ -36,10 +36,27 @@ define_plugin!(
             result.referenced_dependencies.push(dep);
         }
 
-        // entry → entry points (string, array, or object with string values)
+        // entry → entry points (string, array, object values, or Webpack 5 descriptors)
         let entries =
             config_parser::extract_config_string_or_array(source, config_path, &["entry"]);
-        result.extend_entry_patterns(entries);
+        let context = config_parser::extract_config_path_string(source, config_path, &["context"])
+            .and_then(|raw| config_parser::normalize_config_path(&raw, config_path, root));
+        result.extend_entry_patterns(entries.into_iter().map(|entry| {
+            context
+                .as_deref()
+                .map(|context| normalize_context_entry(&entry, context, config_path, root))
+                .unwrap_or(entry)
+        }));
+
+        for (find, replacement) in
+            config_parser::extract_config_aliases(source, config_path, &["resolve", "alias"])
+        {
+            if let Some(normalized) =
+                config_parser::normalize_config_path(&replacement, config_path, root)
+            {
+                result.path_aliases.push((find, normalized));
+            }
+        }
 
         // require() calls for loaders/plugins in CJS configs
         let require_deps =
@@ -194,6 +211,36 @@ fn walk_rule(rule: &oxc_ast::ast::ObjectExpression, result: &mut PluginResult) {
     }
 }
 
+fn normalize_context_entry(entry: &str, context: &str, config_path: &Path, root: &Path) -> String {
+    if entry.starts_with('/') || Path::new(entry).is_absolute() {
+        return config_parser::normalize_config_path(entry, config_path, root)
+            .unwrap_or_else(|| entry.to_string());
+    }
+
+    if entry.starts_with("./") || entry.starts_with("../") {
+        return normalize_project_relative_join(context, entry);
+    }
+
+    entry.to_string()
+}
+
+fn normalize_project_relative_join(base: &str, child: &str) -> String {
+    let path = PathBuf::from(base).join(child);
+
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::ParentDir => {
+                normalized.pop();
+            }
+            Component::CurDir | Component::RootDir | Component::Prefix(_) => {}
+            Component::Normal(segment) => normalized.push(segment),
+        }
+    }
+
+    normalized.to_string_lossy().replace('\\', "/")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -208,6 +255,67 @@ mod tests {
             std::path::Path::new("/project"),
         );
         assert_eq!(result.entry_patterns, vec!["./src/app.js"]);
+    }
+
+    #[test]
+    fn resolve_config_entry_descriptor() {
+        let source = r#"
+            module.exports = {
+                entry: {
+                    app: { import: "./src/app.js", filename: "pages/app.js" },
+                    admin: { import: ["./src/admin-polyfill.js", "./src/admin.js"] },
+                    shared: ["react", "react-dom"],
+                },
+            };
+        "#;
+        let plugin = WebpackPlugin;
+        let result = plugin.resolve_config(
+            std::path::Path::new("webpack.config.js"),
+            source,
+            std::path::Path::new("/project"),
+        );
+        assert_eq!(
+            result.entry_patterns,
+            vec![
+                "./src/app.js",
+                "./src/admin-polyfill.js",
+                "./src/admin.js",
+                "react",
+                "react-dom",
+            ]
+        );
+    }
+
+    #[test]
+    fn resolve_config_context_roots_relative_entries() {
+        let source = r#"
+            const path = require("path");
+
+            module.exports = {
+                context: path.resolve(__dirname, "app"),
+                entry: {
+                    main: { import: "./main.ts" },
+                    admin: ["./admin-polyfill.ts", "./admin.ts"],
+                    shared: ["react", "react-dom"],
+                },
+            };
+        "#;
+        let plugin = WebpackPlugin;
+        let result = plugin.resolve_config(
+            std::path::Path::new("/project/webpack.config.js"),
+            source,
+            std::path::Path::new("/project"),
+        );
+        assert_eq!(
+            result.entry_patterns,
+            vec![
+                "app/main.ts",
+                "app/admin-polyfill.ts",
+                "app/admin.ts",
+                "react",
+                "react-dom",
+            ]
+        );
     }
 
     #[test]
@@ -277,5 +385,63 @@ mod tests {
         let deps = &result.referenced_dependencies;
         assert!(deps.contains(&"react".to_string()));
         assert!(deps.contains(&"react-dom".to_string()));
+    }
+
+    #[test]
+    fn resolve_config_extracts_cjs_path_aliases() {
+        let source = r"
+            const path = require('path');
+
+            module.exports = {
+                resolve: {
+                    alias: {
+                        '@components': path.resolve(__dirname, 'src/components'),
+                        '@utils': path.join(__dirname, 'src/utils'),
+                    },
+                },
+            };
+        ";
+        let plugin = WebpackPlugin;
+        let result = plugin.resolve_config(
+            std::path::Path::new("/project/webpack.config.js"),
+            source,
+            std::path::Path::new("/project"),
+        );
+
+        assert_eq!(
+            result.path_aliases,
+            vec![
+                ("@components".to_string(), "src/components".to_string()),
+                ("@utils".to_string(), "src/utils".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn resolve_config_extracts_esm_string_aliases() {
+        let source = r#"
+            export default {
+                resolve: {
+                    alias: {
+                        "@components": "./src/components",
+                        "@utils": "src/utils",
+                    },
+                },
+            };
+        "#;
+        let plugin = WebpackPlugin;
+        let result = plugin.resolve_config(
+            std::path::Path::new("/project/webpack.config.mjs"),
+            source,
+            std::path::Path::new("/project"),
+        );
+
+        assert_eq!(
+            result.path_aliases,
+            vec![
+                ("@components".to_string(), "src/components".to_string()),
+                ("@utils".to_string(), "src/utils".to_string()),
+            ]
+        );
     }
 }

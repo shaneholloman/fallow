@@ -511,6 +511,55 @@ fn vite_aliases_from_config_resolve_internal_modules() {
 }
 
 #[test]
+fn webpack_aliases_from_config_resolve_internal_modules() {
+    let root = fixture_path("webpack-alias-project");
+    let config = create_config(root);
+    let results = fallow_core::analyze(&config).expect("analysis should succeed");
+
+    let unlisted_names: Vec<&str> = results
+        .unlisted_dependencies
+        .iter()
+        .map(|u| u.package_name.as_str())
+        .collect();
+    assert!(
+        !unlisted_names.contains(&"@components/Button"),
+        "webpack alias import should not be treated as an unlisted dependency: {unlisted_names:?}"
+    );
+    assert!(
+        !unlisted_names.contains(&"@utils/messages"),
+        "webpack alias import should not be treated as an unlisted dependency: {unlisted_names:?}"
+    );
+
+    let unused_file_names: Vec<String> = results
+        .unused_files
+        .iter()
+        .map(|f| f.path.file_name().unwrap().to_string_lossy().to_string())
+        .collect();
+    assert!(
+        !unused_file_names.contains(&"app.ts".to_string()),
+        "app.ts should be reachable via webpack context + entry descriptor: {unused_file_names:?}"
+    );
+    assert!(
+        !unused_file_names.contains(&"Button.ts".to_string()),
+        "Button.ts should be reachable via webpack alias import: {unused_file_names:?}"
+    );
+    assert!(
+        !unused_file_names.contains(&"messages.ts".to_string()),
+        "messages.ts should be reachable via webpack alias import: {unused_file_names:?}"
+    );
+
+    let unused_export_names: Vec<&str> = results
+        .unused_exports
+        .iter()
+        .map(|e| e.export_name.as_str())
+        .collect();
+    assert!(
+        unused_export_names.contains(&"unusedMessage"),
+        "reachable aliased module should still report unused exports: {unused_export_names:?}"
+    );
+}
+
+#[test]
 fn sveltekit_aliases_from_config_resolve_internal_modules() {
     let root = fixture_path("sveltekit-alias-project");
     let config = create_config(root);
