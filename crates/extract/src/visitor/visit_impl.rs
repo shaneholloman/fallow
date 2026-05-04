@@ -128,13 +128,18 @@ impl PlaywrightFixtureMemberCollector {
 
 impl<'a> Visit<'a> for PlaywrightFixtureMemberCollector {
     fn visit_static_member_expression(&mut self, expr: &StaticMemberExpression<'a>) {
-        if let Some(object_name) = static_member_object_name(&expr.object)
-            && let Some(fixture_name) = self.fixture_by_local.get(object_name.as_str())
+        if let Some(object_dotted) = static_member_object_name(&expr.object)
+            && let Some(fixture_path) =
+                resolve_object_to_fixture_path(&object_dotted, &self.fixture_by_local)
         {
             self.accesses.push(MemberAccess {
-                object: fixture_name.clone(),
+                object: fixture_path,
                 member: expr.property.name.to_string(),
             });
+            // The chain has been fully attributed; descending further would re-visit
+            // intermediate `pages.adminPage` member exprs and emit spurious
+            // `(pages, adminPage)` accesses. Walk into the property node only.
+            return;
         }
         walk::walk_static_member_expression(self, expr);
     }
@@ -150,16 +155,50 @@ fn extract_binding_local_name<'a>(pattern: &'a BindingPattern<'a>) -> Option<&'a
 
 fn extract_object_pattern_bindings(pattern: &ObjectPattern<'_>) -> FxHashMap<String, String> {
     let mut bindings = FxHashMap::default();
+    collect_object_pattern_bindings(pattern, "", &mut bindings);
+    bindings
+}
+
+fn collect_object_pattern_bindings(
+    pattern: &ObjectPattern<'_>,
+    path_prefix: &str,
+    bindings: &mut FxHashMap<String, String>,
+) {
     for prop in &pattern.properties {
         let Some(fixture_name) = prop.key.static_name() else {
             continue;
         };
-        let Some(local_name) = extract_binding_local_name(&prop.value) else {
-            continue;
+        let next_path = if path_prefix.is_empty() {
+            fixture_name.to_string()
+        } else {
+            format!("{path_prefix}.{fixture_name}")
         };
-        bindings.insert(local_name.to_string(), fixture_name.to_string());
+        match &prop.value {
+            BindingPattern::ObjectPattern(inner) => {
+                collect_object_pattern_bindings(inner, &next_path, bindings);
+            }
+            other => {
+                if let Some(local_name) = extract_binding_local_name(other) {
+                    bindings.insert(local_name.to_string(), next_path);
+                }
+            }
+        }
     }
-    bindings
+}
+
+fn resolve_object_to_fixture_path(
+    object_dotted: &str,
+    fixture_by_local: &FxHashMap<String, String>,
+) -> Option<String> {
+    let (root, rest) = object_dotted
+        .split_once('.')
+        .map_or((object_dotted, ""), |(r, x)| (r, x));
+    let base = fixture_by_local.get(root)?;
+    if rest.is_empty() {
+        Some(base.clone())
+    } else {
+        Some(format!("{base}.{rest}"))
+    }
 }
 
 fn playwright_test_callee_name(expr: &Expression<'_>) -> Option<String> {
@@ -226,6 +265,7 @@ fn playwright_extend_base_name(call: &CallExpression<'_>) -> Option<String> {
 
 fn collect_fixture_type_bindings_from_type(
     ty: &TSType<'_>,
+    path_prefix: &str,
     aliases: &FxHashMap<String, Vec<(String, String)>>,
     bindings: &mut Vec<(String, String)>,
 ) {
@@ -241,10 +281,21 @@ fn collect_fixture_type_bindings_from_type(
                 let Some(type_annotation) = prop.type_annotation.as_deref() else {
                     continue;
                 };
-                let Some(type_name) = extract_type_annotation_name(type_annotation) else {
-                    continue;
+                let next_path = if path_prefix.is_empty() {
+                    fixture_name.to_string()
+                } else {
+                    format!("{path_prefix}.{fixture_name}")
                 };
-                bindings.push((fixture_name.to_string(), type_name));
+                if let Some(type_name) = extract_type_annotation_name(type_annotation) {
+                    bindings.push((next_path, type_name));
+                } else {
+                    collect_fixture_type_bindings_from_type(
+                        &type_annotation.type_annotation,
+                        &next_path,
+                        aliases,
+                        bindings,
+                    );
+                }
             }
         }
         TSType::TSTypeReference(type_ref) => {
@@ -252,16 +303,28 @@ fn collect_fixture_type_bindings_from_type(
                 return;
             };
             if let Some(alias_bindings) = aliases.get(alias_name.as_str()) {
-                bindings.extend(alias_bindings.iter().cloned());
+                for (suffix, type_name) in alias_bindings {
+                    let combined = if path_prefix.is_empty() {
+                        suffix.clone()
+                    } else {
+                        format!("{path_prefix}.{suffix}")
+                    };
+                    bindings.push((combined, type_name.clone()));
+                }
             }
         }
         TSType::TSIntersectionType(intersection) => {
             for branch in &intersection.types {
-                collect_fixture_type_bindings_from_type(branch, aliases, bindings);
+                collect_fixture_type_bindings_from_type(branch, path_prefix, aliases, bindings);
             }
         }
         TSType::TSParenthesizedType(paren) => {
-            collect_fixture_type_bindings_from_type(&paren.type_annotation, aliases, bindings);
+            collect_fixture_type_bindings_from_type(
+                &paren.type_annotation,
+                path_prefix,
+                aliases,
+                bindings,
+            );
         }
         _ => {}
     }
@@ -595,7 +658,12 @@ impl ModuleInfoExtractor {
 
     fn collect_playwright_fixture_type_bindings(&self, ty: &TSType<'_>) -> Vec<(String, String)> {
         let mut bindings = Vec::new();
-        collect_fixture_type_bindings_from_type(ty, &self.playwright_fixture_types, &mut bindings);
+        collect_fixture_type_bindings_from_type(
+            ty,
+            "",
+            &self.playwright_fixture_types,
+            &mut bindings,
+        );
         bindings.sort_unstable();
         bindings.dedup();
         bindings

@@ -205,6 +205,36 @@ fn playwright_fixture_pom_methods_are_credited_from_tests() {
 }
 
 #[test]
+fn playwright_nested_fixture_pom_methods_are_credited_from_tests() {
+    let root = fixture_path("playwright-pom-fixtures-nested");
+    let config = create_config(root);
+    let results = fallow_core::analyze(&config).expect("analysis should succeed");
+
+    let unused_class_members: Vec<String> = results
+        .unused_class_members
+        .iter()
+        .map(|m| format!("{}.{}", m.parent_name, m.member_name))
+        .collect();
+
+    assert!(
+        !unused_class_members.contains(&"AdminPage.assertGreeting".to_string()),
+        "AdminPage.assertGreeting should be credited through nested-fixture chained access (pages.adminPage.assertGreeting), found: {unused_class_members:?}"
+    );
+    assert!(
+        !unused_class_members.contains(&"UserPage.assertGreeting".to_string()),
+        "UserPage.assertGreeting should be credited through nested-fixture destructuring ({{ pages: {{ userPage }} }}), found: {unused_class_members:?}"
+    );
+    assert!(
+        unused_class_members.contains(&"AdminPage.unusedAdminOnly".to_string()),
+        "genuinely unused POM methods should still be reported, found: {unused_class_members:?}"
+    );
+    assert!(
+        unused_class_members.contains(&"UserPage.unusedUserOnly".to_string()),
+        "genuinely unused POM methods should still be reported, found: {unused_class_members:?}"
+    );
+}
+
+#[test]
 fn angular_inject_fields_credit_service_member_usage() {
     let root = fixture_path("angular-inject-class-members");
     let config = create_config(root);

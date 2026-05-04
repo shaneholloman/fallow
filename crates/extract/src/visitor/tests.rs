@@ -1044,6 +1044,125 @@ fn playwright_test_callback_records_fixture_member_uses() {
 }
 
 #[test]
+fn playwright_nested_fixture_type_records_dotted_path_definitions() {
+    let info = parse(
+        r"
+            import { test as base } from '@playwright/test';
+            import { AdminPage } from './admin-page';
+            import { UserPage } from './user-page';
+
+            type MyFixtures = {
+                pages: {
+                    adminPage: AdminPage;
+                    userPage: UserPage;
+                };
+            };
+
+            export const test = base.extend<MyFixtures>({});
+        ",
+    );
+
+    assert!(
+        info.member_accesses.iter().any(|a| {
+            a.object
+                == format!(
+                    "{}test:pages.adminPage",
+                    crate::PLAYWRIGHT_FIXTURE_DEF_SENTINEL
+                )
+                && a.member == "AdminPage"
+        }),
+        "nested Playwright fixture pages.adminPage should map to AdminPage, found: {:?}",
+        info.member_accesses
+    );
+    assert!(
+        info.member_accesses.iter().any(|a| {
+            a.object
+                == format!(
+                    "{}test:pages.userPage",
+                    crate::PLAYWRIGHT_FIXTURE_DEF_SENTINEL
+                )
+                && a.member == "UserPage"
+        }),
+        "nested Playwright fixture pages.userPage should map to UserPage, found: {:?}",
+        info.member_accesses
+    );
+}
+
+#[test]
+fn playwright_nested_fixture_destructure_records_dotted_path_uses() {
+    let info = parse(
+        r"
+            import { test } from './fixtures';
+
+            test('admin and user', async ({ pages: { adminPage, userPage: user } }) => {
+                await adminPage.assertGreeting();
+                await user.assertGreeting();
+            });
+        ",
+    );
+
+    assert!(
+        info.member_accesses.iter().any(|a| {
+            a.object
+                == format!(
+                    "{}test:pages.adminPage",
+                    crate::PLAYWRIGHT_FIXTURE_USE_SENTINEL
+                )
+                && a.member == "assertGreeting"
+        }),
+        "nested-destructured adminPage.assertGreeting should record use against pages.adminPage, found: {:?}",
+        info.member_accesses
+    );
+    assert!(
+        info.member_accesses.iter().any(|a| {
+            a.object
+                == format!(
+                    "{}test:pages.userPage",
+                    crate::PLAYWRIGHT_FIXTURE_USE_SENTINEL
+                )
+                && a.member == "assertGreeting"
+        }),
+        "nested-destructured renamed user.assertGreeting should record use against pages.userPage, found: {:?}",
+        info.member_accesses
+    );
+}
+
+#[test]
+fn playwright_nested_fixture_chained_access_records_dotted_path_uses() {
+    let info = parse(
+        r"
+            import { test } from './fixtures';
+
+            test('admin and user', async ({ pages }) => {
+                await pages.adminPage.assertGreeting();
+                await pages.userPage.assertGreeting();
+            });
+        ",
+    );
+
+    assert!(
+        info.member_accesses.iter().any(|a| {
+            a.object
+                == format!(
+                    "{}test:pages.adminPage",
+                    crate::PLAYWRIGHT_FIXTURE_USE_SENTINEL
+                )
+                && a.member == "assertGreeting"
+        }),
+        "chained pages.adminPage.assertGreeting should record use against pages.adminPage, found: {:?}",
+        info.member_accesses
+    );
+    assert!(
+        !info.member_accesses.iter().any(|a| {
+            a.object == format!("{}test:pages", crate::PLAYWRIGHT_FIXTURE_USE_SENTINEL)
+                && a.member == "adminPage"
+        }),
+        "chained access must not emit a spurious (pages, adminPage) intermediate use, found: {:?}",
+        info.member_accesses
+    );
+}
+
+#[test]
 fn angular_inject_field_maps_this_field_member_access() {
     let info = parse(
         r"
