@@ -1089,6 +1089,53 @@ fn playwright_nested_fixture_type_records_dotted_path_definitions() {
 }
 
 #[test]
+fn playwright_nested_fixture_alias_type_records_dotted_path_definitions() {
+    let info = parse(
+        r"
+            import { test as base } from '@playwright/test';
+            import { AdminPage } from './admin-page';
+            import { UserPage } from './user-page';
+
+            type PageFixtures = {
+                adminPage: AdminPage;
+                userPage: UserPage;
+            };
+
+            type MyFixtures = {
+                pages: PageFixtures;
+            };
+
+            export const test = base.extend<MyFixtures>({});
+        ",
+    );
+
+    assert!(
+        info.member_accesses.iter().any(|a| {
+            a.object
+                == format!(
+                    "{}test:pages.adminPage",
+                    crate::PLAYWRIGHT_FIXTURE_DEF_SENTINEL
+                )
+                && a.member == "AdminPage"
+        }),
+        "nested alias fixture pages.adminPage should map to AdminPage, found: {:?}",
+        info.member_accesses
+    );
+    assert!(
+        info.member_accesses.iter().any(|a| {
+            a.object
+                == format!(
+                    "{}test:pages.userPage",
+                    crate::PLAYWRIGHT_FIXTURE_DEF_SENTINEL
+                )
+                && a.member == "UserPage"
+        }),
+        "nested alias fixture pages.userPage should map to UserPage, found: {:?}",
+        info.member_accesses
+    );
+}
+
+#[test]
 fn playwright_nested_fixture_destructure_records_dotted_path_uses() {
     let info = parse(
         r"

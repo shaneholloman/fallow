@@ -286,7 +286,17 @@ fn collect_fixture_type_bindings_from_type(
                 } else {
                     format!("{path_prefix}.{fixture_name}")
                 };
-                if let Some(type_name) = extract_type_annotation_name(type_annotation) {
+                if let Some((alias_name, _)) =
+                    fixture_type_reference_name(&type_annotation.type_annotation)
+                    && aliases.contains_key(alias_name.as_str())
+                {
+                    collect_fixture_type_bindings_from_type(
+                        &type_annotation.type_annotation,
+                        &next_path,
+                        aliases,
+                        bindings,
+                    );
+                } else if let Some(type_name) = extract_type_annotation_name(type_annotation) {
                     bindings.push((next_path, type_name));
                 } else {
                     collect_fixture_type_bindings_from_type(
@@ -327,6 +337,14 @@ fn collect_fixture_type_bindings_from_type(
             );
         }
         _ => {}
+    }
+}
+
+fn fixture_type_reference_name(ty: &TSType<'_>) -> Option<(String, Span)> {
+    match ty {
+        TSType::TSTypeReference(type_ref) => type_name_root(&type_ref.type_name),
+        TSType::TSParenthesizedType(paren) => fixture_type_reference_name(&paren.type_annotation),
+        _ => None,
     }
 }
 
