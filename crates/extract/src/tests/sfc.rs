@@ -765,6 +765,52 @@ const items = ref<T>();
     assert_eq!(info.imports[0].source, "vue");
 }
 
+// Regression for the knip #1714 reproduction shape: a `generic` attribute
+// whose constraint references a single user type with a primitive type
+// argument. Knip's parser-driven path drops the entire script body in that
+// case, fallow's regex-based attrs scan keeps the body intact and oxc
+// parses it normally.
+#[test]
+fn vue_script_with_generic_type_argument() {
+    let info = parse_sfc(
+        r#"
+<script setup lang="ts" generic="T extends Test<boolean>">
+import type { Test } from './types';
+import ChildComponent from './ChildComponent.vue';
+defineProps<{ item: T }>();
+</script>
+<template>
+  <ChildComponent label="hello" />
+</template>
+"#,
+        "ParentComponent.vue",
+    );
+    assert!(
+        info.imports.iter().any(|i| i.source == "./types"),
+        "type-only import inside the script body must survive the generic attr",
+    );
+    assert!(
+        info.imports
+            .iter()
+            .any(|i| i.source == "./ChildComponent.vue"),
+        "value import inside the script body must survive the generic attr",
+    );
+    assert!(
+        info.imports
+            .iter()
+            .find(|i| i.source == "./ChildComponent.vue")
+            .is_some_and(|i| !i.is_type_only),
+        "ChildComponent must remain a value import",
+    );
+    assert!(
+        info.imports
+            .iter()
+            .find(|i| i.source == "./types")
+            .is_some_and(|i| i.is_type_only),
+        "Test must remain a type-only import",
+    );
+}
+
 #[test]
 fn vue_script_src_with_body_ignored() {
     let info = parse_sfc(
