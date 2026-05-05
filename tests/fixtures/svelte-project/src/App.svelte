@@ -5,9 +5,11 @@ import { tooltip } from './utils';
 import { myAttach, Counter, inTernary, inCallback, inSpread } from './utils';
 import * as utils from './utils';
 import { unusedImported } from './utils';
+import type { Greeting } from './types';
 
 let name = 'world';
 const counter = new Counter();
+const greeting: Greeting = { recipient: name };
 </script>
 
 <FancyButton />
@@ -17,4 +19,4 @@ const counter = new Counter();
 <p>{isActive ? inTernary() : ''}</p>
 <p>{[1, 2].map(inCallback).join(',')}</p>
 <button {...{ 'data-x': inSpread() }}>Spread</button>
-<h1>Hello {utils.formatName(name)}!</h1>
+<h1>Hello {utils.formatName(greeting.recipient)}!</h1>

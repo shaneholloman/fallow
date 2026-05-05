@@ -694,6 +694,50 @@ export let items: T[] = [];
     assert_eq!(info.imports[0].source, "svelte");
 }
 
+// Regression for the knip #1670 reproduction shape: a type-only import in a
+// `<script lang="ts">` block whose binding is only consumed as a type
+// annotation. Knip's "real svelte compiler" mode strips types before
+// analysis, so the import vanishes from its view; fallow extracts the raw
+// script body and parses it with oxc, so type-position bindings stay
+// classified as type-referenced and the upstream `export type` is not
+// flagged unused.
+#[test]
+fn svelte_script_keeps_type_only_imports_used_as_annotations() {
+    let info = parse_sfc(
+        r#"
+<script lang="ts">
+import type { TestType } from '../lib/types';
+
+const test: TestType = { a: true };
+
+export { test };
+</script>
+"#,
+        "+page.svelte",
+    );
+    let import = info
+        .imports
+        .iter()
+        .find(|i| i.source == "../lib/types")
+        .expect("type-only import survives the SFC boundary");
+    assert!(
+        import.is_type_only,
+        "import marked `import type` must keep is_type_only=true",
+    );
+    assert!(
+        info.type_referenced_import_bindings
+            .contains(&"TestType".to_string()),
+        "TestType used as a type annotation must be tracked as type-referenced, got: {:?}",
+        info.type_referenced_import_bindings,
+    );
+    assert!(
+        !info
+            .unused_import_bindings
+            .contains(&"TestType".to_string()),
+        "TestType referenced as a type annotation must not appear in unused_import_bindings",
+    );
+}
+
 #[test]
 fn vue_script_with_extra_attributes() {
     let info = parse_sfc(

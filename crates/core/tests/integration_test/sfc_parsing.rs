@@ -321,6 +321,41 @@ fn svelte_template_event_handlers_mark_class_members_used() {
     );
 }
 
+// Regression for knip #1670: a `<script lang="ts">` block whose only use of
+// an imported name is a type annotation must keep the upstream type export
+// reachable. Knip's "real svelte compiler" mode strips types before
+// analysis, so the type vanishes from its view; fallow extracts the raw
+// script body and parses it with oxc, so type-only imports survive the SFC
+// boundary and downstream `unused-types` does not fire on the source.
+#[test]
+fn svelte_type_only_import_keeps_upstream_type_used() {
+    let root = fixture_path("svelte-project");
+    let config = create_config(root);
+    let results = fallow_core::analyze(&config).expect("analysis should succeed");
+
+    let unused_types: Vec<(String, &str)> = results
+        .unused_types
+        .iter()
+        .map(|t| {
+            let file = t.path.file_name().unwrap().to_string_lossy().to_string();
+            (file, t.export_name.as_str())
+        })
+        .collect();
+
+    assert!(
+        !unused_types
+            .iter()
+            .any(|(file, export)| file == "types.ts" && *export == "Greeting"),
+        "Greeting must stay used: it backs `import type` + `: Greeting` annotation in App.svelte, got: {unused_types:?}"
+    );
+    assert!(
+        unused_types
+            .iter()
+            .any(|(file, export)| file == "types.ts" && *export == "UnusedGreeting"),
+        "UnusedGreeting must still be reported (sanity check that the fixture is wired): got: {unused_types:?}"
+    );
+}
+
 // ── SvelteKit virtual modules ─────────────────────────────────
 
 #[test]
